@@ -1,0 +1,62 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnrecv 1 "September 4, 2005"
+.LO 1
+.SH NAME
+dtnrecv \- receive DTN bundles
+.SH SYNOPSIS
+.B dtnrecv 
+.I endpoint
+
+.SH DESCRIPTION
+.B dtnrecv
+receives a bundle and prints it on standard output.
+To do this, it connects
+to a dtnd daemon using the DTN API. It registers to receive
+bundles with the 
+.IR endpoint
+from the commandline. It then blocks,
+waiting on bundles to arrive from dtnd. It terminates on SIGTERM
+(Ctrl-C).
+ 
+.SH OPTIONS
+.TP
+.B \-\^h
+Print a one-line help message and exit.
+
+.SH ENVIRONMENT
+.TP
+.B DTNAPI_ADDR
+If
+.B DTNAPI_ADDR
+is set, 
+.B dtnrecv
+uses it as the hostname to connect to for DTN API operations.
+.TP
+.B DTNAPI_PORT
+If
+.B DTNAPI_PORT
+is set, its value is used as the TCP port to connect to
+for DTN API operations.
+.SH "SEE ALSO"
+dtnsend(1), dtnd(8).
+.SH BUGS
+.B dtnrecv
+mixes diagnostic output with the bundles themselves on standard
+output, and generally makes no effort to be useful when called from 
+other programs in a pipeline. It is most useful at this point as
+a diagnostic tool and as example code.

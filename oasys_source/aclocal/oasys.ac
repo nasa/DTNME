@@ -1,0 +1,210 @@
+dnl
+dnl    Copyright 2007 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl 
+dnl Autoconf support for configuring an external package to use oasys
+dnl itself.
+dnl
+
+AC_DEFUN(AC_OASYS_CONFIG_HELP, [
+cat <<EOF
+    
+Configure error finding oasys.
+
+This script first looks for an oasys installation in the same location
+as the tool that is using the oasys library (where this configure
+script is run from). In other words, it first tries ../oasys.
+
+If ../oasys does not exist, it looks for an oasys installation in
+/usr. If that is not found, you need to specify the location of oasys
+using the --with-oasys argument to configure.
+
+If problems still exist, then look in the config.log to see exactly
+what the failing command was.
+
+Download oasys-$ac_oasysver_major.$ac_oasysver_minor (or later) 
+from http://dtn.hg.sourceforge.net/hgweb/dtn/oasys to $ac_oasysdir. 
+You will then probably have to run ./configure and make  
+in the oasys code tree in order to be able to compile DTNME
+
+EOF
+
+])
+
+dnl
+dnl AC_OASYS_CONFIG [major] [minor]
+dnl
+AC_DEFUN(AC_OASYS_CONFIG, [
+    if test -d oasys ; then
+    	rm -rf oasys
+    fi  
+
+    ac_oasysver_major=$1
+    ac_oasysver_minor=$2
+    ac_oasysdir_ver_base="oasys-$ac_oasysver_major.$ac_oasysver_minor"
+    ac_oasysdir=
+
+    AC_ARG_WITH(oasys,
+        AC_HELP_STRING([--with-oasys=DIR],
+    		   [location of an oasys installation (default ../oasys-<major>.<minor>.* or ../oasys or /usr)]),
+        ac_oasysdir=$withval)
+
+    AC_MSG_CHECKING([for an oasys installation (version $ac_oasysver_major.$ac_oasysver_minor or better)])
+
+    # if --with-oasys was not specified then look for the fallback locations
+    # which are ../oasys.<major>.<minor>.* and ../oasys
+    if test "$ac_oasysdir" = ""; then
+      ac_oasysdir_ver=`find .. -maxdepth 1 -type d -name $ac_oasysdir_ver_base.* | tail -1`
+
+      if test -d "$ac_oasysdir_ver" ; then
+        ac_oasysdir=$ac_oasysdir_ver
+   
+      elif test -d ../oasys ; then
+        ac_oasysdir=../oasys
+        ac_oasysdir_ver=$ac_oasysdir 
+      fi
+    fi
+
+    
+    if test -d "$ac_oasysdir" ; then
+      mkdir oasys oasys/include
+      OASYS_INCDIR="oasys/include"
+      OASYS_LIBDIR="oasys/lib"
+      OASYS_ETCDIR="oasys/share"
+      if test "${ac_oasysdir:0:1}" = "/" ; then
+        # we have an absolute path
+        # assume this is an installed instance and not a source directory
+        ln -s $ac_oasysdir/include/oasys $OASYS_INCDIR/oasys
+        ln -s $ac_oasysdir/lib $OASYS_LIBDIR
+        ln -s $ac_oasysdir/share/oasys $OASYS_ETCDIR
+      else
+        # relative path to source directory
+        ln -s ../../$ac_oasysdir $OASYS_INCDIR/oasys
+        ln -s ../$ac_oasysdir/lib $OASYS_LIBDIR
+        ln -s ../$ac_oasysdir $OASYS_ETCDIR
+      fi
+    else
+      if test "$ac_oasysdir" = "" ; then
+        ac_oasysdir=/usr
+      fi
+      OASYS_INCDIR="$ac_oasysdir/include"
+      OASYS_LIBDIR="$ac_oasysdir/lib"
+      OASYS_ETCDIR="$ac_oasysdir/share/oasys"
+    fi
+   
+    if test ! -d $OASYS_INCDIR ; then echo ""
+    AC_OASYS_CONFIG_HELP
+    AC_MSG_ERROR(nonexistent oasys include directory $OASYS_INCDIR)
+    fi
+
+    if test ! -d $OASYS_LIBDIR ; then echo ""
+    AC_OASYS_CONFIG_HELP
+    AC_MSG_ERROR(nonexistent oasys library directory $OASYS_LIBDIR)
+    fi
+
+    if test ! -d $OASYS_ETCDIR ; then echo ""
+    AC_OASYS_CONFIG_HELP
+    AC_MSG_ERROR(nonexistent oasys tools directory $OASYS_ETCDIR)
+    fi
+
+    if test "$ac_oasysver_major" = "" ; then
+       ac_oasysver_major=1
+    fi
+
+    if test "$ac_oasysver_minor" = "" ; then
+       ac_oasysver_minor=1
+    fi
+
+    AC_OASYS_SUBST_CONFIG
+
+    #
+    # Check the settings to make sure that we can build a program.
+    #
+    ac_save_CFLAGS=$CFLAGS
+    CFLAGS="$CFLAGS -I$OASYS_INCDIR"
+    
+    ac_save_LDFLAGS=$LDFLAGS
+    LDFLAGS="$LDFLAGS $OASYS_LDFLAGS"
+    AC_LINK_IFELSE(
+	AC_LANG_PROGRAM(
+    [
+	#include "oasys/oasys-version.h"
+	#if (OASYS_VERSION_MAJOR != ${ac_oasysver_major}) || \
+            (OASYS_VERSION_MINOR <  ${ac_oasysver_minor})
+	#error incorrect oasys version (wanted ${ac_oasysver_major}.${ac_oasysver_minor})
+	#endif
+    ], 
+    [
+	const char* s = oasys_version;
+	(void)s;
+    ]),
+    [ 
+    AC_MSG_RESULT($ac_oasysdir)
+    ],
+    [
+    AC_MSG_RESULT([no])
+    AC_OASYS_CONFIG_HELP
+    AC_MSG_ERROR([Can't find compatible oasys libraries which are a required for DTNME.]) 
+      ])
+
+    CFLAGS=$ac_save_CFLAGS
+    LDFLAGS=$ac_save_LDFLAGS
+])
+
+AC_DEFUN(AC_OASYS_SUBST_CONFIG, [
+    #
+    # XXX/demmer is there a better way to make the paths absolute??
+    #
+    OASYS_INCDIR=`cd $OASYS_INCDIR && pwd`
+    OASYS_LIBDIR=`cd $OASYS_LIBDIR && pwd`
+    OASYS_ETCDIR=`cd $OASYS_ETCDIR && pwd`
+
+    OASYS_VERSION=`$OASYS_ETCDIR/tools/extract-version $OASYS_ETCDIR/oasys-version.dat version`
+
+    #
+    # By default, oasys apps link statically to make it easier when
+    # linking with a source directory, and for building the test apps
+    # that are part of the library itself.
+    #
+    OASYS_LDFLAGS_STATIC="$OASYS_LIBDIR/liboasys-$OASYS_VERSION.a"
+
+    if test -f $OASYS_LIBDIR/liboasys-$OASYS_VERSION.a ; then
+	OASYS_LDFLAGS="$OASYS_LIBDIR/liboasys-$OASYS_VERSION.a"
+	OASYS_COMPAT_LDFLAGS="$OASYS_LIBDIR/liboasyscompat-$OASYS_VERSION.a"
+
+    elif test "$ac_oasysdir" = /usr ; then
+	OASYS_LDFLAGS="-loasys-$OASYS_VERSION"
+	OASYS_COMPAT_LDFLAGS="-loasyscompat-$OASYS_VERSION"
+
+    else
+	OASYS_LDFLAGS="-L$OASYS_LIBDIR -loasys-$OASYS_VERSION"
+	OASYS_COMPAT_LDFLAGS="-L$OASYS_LIBDIR -loasyscompat-$OASYS_VERSION"
+    fi
+        
+    AC_SUBST(OASYS_INCDIR)
+    AC_SUBST(OASYS_LIBDIR)
+    AC_SUBST(OASYS_ETCDIR)
+    AC_SUBST(OASYS_LDFLAGS)
+    AC_SUBST(OASYS_LDFLAGS_STATIC)
+    AC_SUBST(OASYS_COMPAT_LDFLAGS)
+    AC_SUBST(OASYS_VERSION)
+
+    AC_SUBST(EXTLIB_CFLAGS)
+    AC_SUBST(EXTLIB_LDFLAGS)
+
+    AC_SUBST(SYS_EXTLIB_CFLAGS)
+    AC_SUBST(SYS_EXTLIB_LDFLAGS)
+])

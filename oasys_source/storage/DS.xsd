@@ -1,0 +1,556 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+
+<!-- $Id$ -->
+<!-- verified XSD syntax using http://www.w3.org/2001/03/webdata/xsv -->
+
+<!-- DS.xsd: data store message requests and replies -->
+
+<!-- 
+/* 
+ * Copyright 2007 BBN Technologies Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+-->
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+    <xs:annotation>
+        <xs:documentation xml:lang="en">
+            Schema for DTNME External Data Store client-to-server
+            IPC requests
+        </xs:documentation>
+    </xs:annotation>
+
+<!-- **************** data types **************** -->
+
+    <!-- what kind of store is this? -->
+    <xs:simpleType name="storeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="pair"/>
+            <xs:enumeration value="field"/>
+            <xs:enumeration value="advanced"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- XXX this should have more info than just the table name -->
+    <xs:complexType name="tableInfoType">
+        <xs:attribute name="table" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <!-- field types (data types) -->
+    <xs:simpleType name="fieldType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="integer"/>
+            <xs:enumeration value="float"/>
+            <xs:enumeration value="string"/>
+            <xs:enumeration value="boolean"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:complexType name="fieldInfoType">
+        <xs:attribute name="field" type="xs:string" use="required"/>
+        <xs:attribute name="type" type="fieldType" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="fieldNameValue">
+        <xs:sequence>
+            <xs:element name="value" type="xs:base64Binary"/>
+        </xs:sequence>
+        <xs:attribute name="field" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="fieldName">
+	<xs:attribute name="field" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="languageName">
+	<xs:attribute name="language" type="xs:string" use="required"/>
+    </xs:complexType>
+
+<!-- **************** datastore messages **************** -->
+
+    <xs:complexType name="ds-caps-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Request the data store enumerate its capabilities:
+            pair, field, or advanced; what languages
+            supported (if any), etc.
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+    <xs:complexType name="ds-caps-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            The data store's capabilities: pair, field, or advanced; 
+            what languages supported (if any), etc.
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="language" type="languageName"/>
+        </xs:choice>
+
+        <xs:attribute name="storetype" type="storeType" use="required"/>
+        <xs:attribute name="supports-trigger" type="xs:boolean" use="required"/>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="ds-create-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Create a named data store
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="1">
+            <xs:element name="password" type="xs:base64Binary"/>
+        </xs:choice>
+
+        <xs:attribute name="ds" type="xs:string" use="required"/>
+        <xs:attribute name="clear" type="xs:boolean"/>
+        <xs:attribute name="quota" type="xs:unsignedInt"/>
+
+        <xs:attribute name="user" type="xs:string"/>
+
+    </xs:complexType>
+    
+    <xs:complexType name="ds-create-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Create a named data store
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+    
+<!-- **************** -->
+
+    <xs:complexType name="ds-del-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete a named data storeDurableTableImpl **
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="1">
+            <xs:element name="password" type="xs:base64Binary"/>
+        </xs:choice>
+
+        <xs:attribute name="ds" type="xs:string" use="required"/>
+        <xs:attribute name="user" type="xs:string"/>
+    </xs:complexType>
+
+    <xs:complexType name="ds-del-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete a named data store
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+    
+    
+<!-- **************** -->
+
+    <xs:complexType name="ds-open-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Open a named data store. Optionally specify a lease (in seconds), 
+            username, and password. 
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="1">
+            <xs:element name="password" type="xs:base64Binary"/>
+        </xs:choice>
+
+        <xs:attribute name="ds" type="xs:string" use="required"/>
+        <xs:attribute name="lease" type="xs:unsignedInt"/> <!-- XXX ignored -->
+
+        <xs:attribute name="user" type="xs:string"/>
+
+    </xs:complexType>
+
+    <xs:complexType name="ds-open-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Return a handle for an opened data store. 
+        </xs:documentation></xs:annotation>
+
+        <!-- the handle is optional, as we may not be able to open it -->
+        <xs:attribute name="handle" type="xs:string"/>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="ds-stat-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Get status information for the open data store (list of tables)
+        </xs:documentation></xs:annotation>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="ds-stat-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Get status information for the open data store (list of table info)
+        </xs:documentation></xs:annotation>
+
+        <!-- a list of tables in the data store -->
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element name="table" type="tableInfoType"/>
+        </xs:choice>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="ds-close-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Close a data store
+        </xs:documentation></xs:annotation>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="ds-close-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Close a data store
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+<!-- **************** table messages **************** -->
+
+    <xs:complexType name="table-create-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Create a named table.
+        </xs:documentation></xs:annotation>
+
+        <!-- the name of the field that is used as the key -->
+        <xs:sequence>
+            <!-- a list of fieldnames. No default values (yet).  -->
+            <xs:choice minOccurs="1" maxOccurs="unbounded">
+                <xs:element name="field" type="fieldInfoType"/>
+            </xs:choice>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+        <xs:attribute name="key" type="xs:string" use="required"/>
+        <xs:attribute name="keytype" type="xs:string" use="required"/>
+
+    </xs:complexType>
+
+    <xs:complexType name="table-create-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Create a named table.
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="table-del-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete a named table and all of its elements.
+        </xs:documentation></xs:annotation>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+    </xs:complexType>
+
+
+    <xs:complexType name="table-del-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete a named table and all of its elements.
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="table-stat-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Request status of a table -- schema, number of elements.
+        </xs:documentation></xs:annotation>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="table-stat-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Request status of a table -- schema, number of elements.
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="field" type="fieldInfoType"/>
+        </xs:choice>
+
+        <xs:attribute name="keyname" type="xs:string" use="required"/>
+        <xs:attribute name="keytype" type="xs:string" use="required"/>
+        <!-- number of elements in the table -->
+        <xs:attribute name="count" type="xs:unsignedInt" use="required"/>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="table-keys-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Retrieve the keys for this table from the data store
+        </xs:documentation></xs:annotation>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+        <xs:attribute name="keyname" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="table-keys-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Retrieve the keys for this table from the data store
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="key" type="xs:base64Binary"/>
+        </xs:choice>
+    </xs:complexType>
+
+
+<!-- **************** element messages **************** -->
+
+    <xs:complexType name="put-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Insert a row (multi-field element)
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <xs:element name="key" type="xs:base64Binary"/>
+            <xs:choice minOccurs="1" maxOccurs="unbounded">
+                <xs:element name="set" type="fieldNameValue"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+        <xs:attribute name="keyname" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="put-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Put (insert, add) an element into the data store
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+
+<!-- **************** -->
+
+    <xs:complexType name="get-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Retrieve an element from the data store
+        </xs:documentation></xs:annotation>
+
+        <!-- the key itself -->
+        <xs:sequence>
+            <xs:element name="key" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+        <xs:attribute name="keyname" type="xs:string" use="required"/>
+
+    </xs:complexType>
+
+    <xs:complexType name="get-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Retrieve an element from the data store
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+	    <xs:element name="field" type="fieldNameValue"/>
+        </xs:sequence>
+    </xs:complexType>
+
+
+<!-- **************** -->
+
+    <xs:complexType name="del-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete an element from the data store
+        </xs:documentation></xs:annotation>
+
+        <!-- the key itself -->
+        <xs:sequence>
+            <xs:element name="key" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+        <xs:attribute name="keyname" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="del-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Delete an element from the data store
+        </xs:documentation></xs:annotation>
+    </xs:complexType>
+
+<!-- **************** -->
+
+    <xs:complexType name="select-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Select a group of elements based on field values, return
+            the requested fields. If no 'get's are included, retrieve
+            all fields.
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <!-- any number of '<get field="fieldname" />' -->
+            <xs:choice minOccurs="0" maxOccurs="unbounded">
+                <xs:element name="get" type="fieldName"/>
+            </xs:choice>
+
+            <!-- any number of '<where field="fieldname">value</where>' -->
+            <xs:choice minOccurs="1" maxOccurs="unbounded">
+                <xs:element name="where" type="fieldNameValue"/>
+            </xs:choice>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+
+        <xs:attribute name="count" type="xs:unsignedInt"/>
+    </xs:complexType>
+
+    <xs:complexType name="rowType">
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="field" type="fieldNameValue"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="select-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            Select a group of elements based on field values, return
+            the requested fields. 
+            If no 'get's are included, retrieve all fields.
+        </xs:documentation></xs:annotation>
+
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="row" type="rowType"/>
+        </xs:choice>
+    </xs:complexType>
+
+<!-- **************** advanced messages **************** -->
+
+    <xs:complexType name="eval-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            eval messages have an unstructured content,
+            and language attributes
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <xs:element name="expr" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="language" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="eval-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            eval messages have an unstructured content,
+            and language attributes
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <xs:element name="value" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="language" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="trigger-request-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            trigger messages have an unstructured content,
+            and language attributes
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <xs:element name="expr" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="handle" type="xs:string" use="required"/>
+        <xs:attribute name="language" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="trigger-reply-type">
+        <xs:annotation><xs:documentation xml:lang="en">
+            trigger messages have an unstructured content,
+            and language attributes
+        </xs:documentation></xs:annotation>
+
+        <xs:sequence>
+            <xs:element name="value" type="xs:base64Binary"/>
+        </xs:sequence>
+
+        <xs:attribute name="language" type="xs:string" use="required"/>
+    </xs:complexType>
+
+<!-- **************** top-level elements **************** -->
+
+    <xs:complexType name="ds-request-type">
+        <xs:choice>
+            <!-- ds ops -->
+            <xs:element name="ds-caps" type="ds-caps-request-type"/>
+            <xs:element name="ds-create" type="ds-create-request-type"/>
+            <xs:element name="ds-del" type="ds-del-request-type"/>
+            <xs:element name="ds-open" type="ds-open-request-type"/>
+            <xs:element name="ds-stat" type="ds-stat-request-type"/>
+            <xs:element name="ds-close" type="ds-close-request-type"/>
+
+            <!-- table ops -->
+            <xs:element name="table-create" type="table-create-request-type"/>
+            <xs:element name="table-del" type="table-del-request-type"/>
+            <xs:element name="table-stat" type="table-stat-request-type"/>
+            <xs:element name="table-keys" type="table-keys-request-type"/>
+
+            <!-- element ops -->
+            <xs:element name="put" type="put-request-type"/>
+            <xs:element name="get" type="get-request-type"/>
+            <xs:element name="del" type="del-request-type"/>
+            <xs:element name="select" type="select-request-type"/>
+
+            <!-- advanced ops -->
+            <xs:element name="eval" type="eval-request-type"/>
+            <xs:element name="trigger" type="trigger-request-type"/>
+        </xs:choice>
+        <xs:attribute name="cookie" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="ds-reply-type">
+        <xs:choice>
+            <!-- ds ops -->
+            <xs:element name="ds-caps-reply" type="ds-caps-reply-type"/>
+            <xs:element name="ds-create-reply" type="ds-create-reply-type"/>
+            <xs:element name="ds-del-reply" type="ds-del-reply-type"/>
+            <xs:element name="ds-open-reply" type="ds-open-reply-type"/>
+            <xs:element name="ds-stat-reply" type="ds-stat-reply-type"/>
+            <xs:element name="ds-close-reply" type="ds-close-reply-type"/>
+
+            <!-- table ops -->
+            <xs:element name="table-create-reply" type="table-create-reply-type"/>
+            <xs:element name="table-del-reply" type="table-del-reply-type"/>
+            <xs:element name="table-stat-reply" type="table-stat-reply-type"/>
+            <xs:element name="table-keys-reply" type="table-keys-reply-type"/>
+
+            <!-- element ops -->
+            <xs:element name="put-reply" type="put-reply-type"/>
+            <xs:element name="get-reply" type="get-reply-type"/>
+            <xs:element name="del-reply" type="del-reply-type"/>
+            <xs:element name="select-reply" type="select-reply-type"/>
+
+            <!-- advanced ops -->
+            <xs:element name="eval-reply" type="eval-reply-type"/>
+            <xs:element name="trigger-reply" type="trigger-reply-type"/>
+        </xs:choice>
+
+        <xs:attribute name="cookie" type="xs:string" use="required"/>
+        <xs:attribute name="error" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:element name="ds-request" type="ds-request-type"/>
+
+    <xs:element name="ds-reply" type="ds-reply-type"/>
+
+</xs:schema>

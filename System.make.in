@@ -1,0 +1,5 @@
+#
+# Input file processed by configure to generete System.make
+#
+
+ENABLE_SCRIPT_APIS= @ENABLE_SCRIPT_APIS@

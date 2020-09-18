@@ -1,0 +1,231 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding Berkeley DB
+dnl
+
+AC_DEFUN(AC_DB_HELP, [
+cat <<EOF
+
+Configure error with Berkeley DB...
+
+If you do not want Berkeley DB support at all, you can specify
+--without-db.
+
+If your installed version is not one of the following versions:
+'[$ac_dbvers]', you may have to specify the version explicitly
+with --with-dbver=<version>.
+
+If your installation is in a non-standard path, you can specify
+the path with --with-db=DIR.
+
+To download the latest version, go to http://www.sleepycat.com
+To build and install to /usr/local/BerkeleyDB-<version>:
+
+# cd <db_download_dir>/build_unix
+# ../dist/configure
+# make
+# make install
+
+EOF
+
+])
+
+dnl
+dnl Main macro for finding a usable db installation
+dnl
+AC_DEFUN(AC_CONFIG_DB, [
+    ac_dbvers='5.3 5.2 5.1 4.8 4.7 4.6 4.5 4.4 4.3 4.2 4.1'
+    ac_dbdir='yes'
+
+    AC_ARG_WITH(db,
+        AC_HELP_STRING([--with-db=DIR],
+    		   [location of a Berkeley DB installation (default system)]),
+        ac_dbdir=$withval)
+
+    AC_ARG_WITH(dbver,
+        AC_HELP_STRING([--with-dbver=VERSION],
+    		   Berkeley DB versions to try (default 5.1-4.2)),
+        ac_dbvers=$withval)
+
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_dbdir" = no ; then
+    LIBDB_ENABLED=0
+    else
+
+    LIBDB_ENABLED=1
+    AC_DEFINE_UNQUOTED(LIBDB_ENABLED, 1,
+        [whether berkeley db storage support is enabled])
+
+    dnl
+    dnl Now check if we have a cached value, unless the user specified
+    dnl something explicit with the --with-db= argument, in
+    dnl which case we force it to redo the checks (i.e. ignore the
+    dnl cached values)
+    dnl
+    if test "$ac_dbdir" = yes -a ! x$oasys_cv_db_incpath = x ; then
+        echo "checking for Berkeley DB installation... (cached) -I$oasys_cv_db_incpath -L$oasys_cv_db_libpath -l$oasys_cv_db_lib"
+    else
+        AC_FIND_DB
+    fi # no cache
+
+    if test ! $oasys_cv_db_incpath = /usr/include ; then
+        EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$oasys_cv_db_incpath"
+    fi
+
+    if test ! $oasys_cv_db_libpath = /usr/lib ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$oasys_cv_db_libpath"
+    fi
+
+    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -l$oasys_cv_db_lib"
+
+    fi # LIBDB_ENABLED
+])
+
+dnl
+dnl Find db
+dnl
+AC_DEFUN(AC_FIND_DB, [
+    oasys_cv_db_incpath=
+    oasys_cv_db_libpath=
+    oasys_cv_db_lib=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    for ac_dbver in $ac_dbvers ; do
+
+    ac_dbver_major=`echo $ac_dbver | cut -d . -f1`
+    ac_dbver_minor=`echo $ac_dbver | cut -d . -f2`
+
+    dnl
+    dnl For each version, we look in /usr, /usr/local, and /usr/local/BerkeleyDB.XX
+    dnl making sure that the resulting include and lib paths must match.
+    dnl
+    if test "$ac_dbdir" = system -o \
+            "$ac_dbdir" = yes -o \
+            "$ac_dbdir" = "" ;
+    then
+	ac_dbdirs="/usr /usr/local /usr/local/BerkeleyDB.$ac_dbver"
+    else
+	ac_dbdirs="$ac_dbdir"
+    fi
+
+    for dir in $ac_dbdirs; do
+        ac_dbincdirs="$dir/include"
+        ac_dblibdirs="$dir/lib"
+
+	dnl
+	dnl Need to also check variations in /usr/local/include/dbXXX
+	dnl
+	if test $dir = /usr/local ; then
+ 	    ac_dbincdirs="$ac_dbincdirs /usr/local/include/db$ac_dbver"
+ 	    ac_dbincdirs="$ac_dbincdirs /usr/local/include/db$ac_dbver_major"
+ 	    ac_dbincdirs="$ac_dbincdirs /usr/local/include/db$ac_dbver_major$ac_dbver_minor"
+
+ 	    ac_dblibdirs="$ac_dblibdirs /usr/local/lib/db$ac_dbver"
+ 	    ac_dblibdirs="$ac_dblibdirs /usr/local/lib/db$ac_dbver_major"
+ 	    ac_dblibdirs="$ac_dblibdirs /usr/local/lib/db$ac_dbver_major$ac_dbver_minor"
+	fi
+
+	for ac_dbincdir in $ac_dbincdirs ; do
+
+	CPPFLAGS="$ac_save_CPPFLAGS -I$ac_dbincdir"
+	LDFLAGS="$ac_save_LDFLAGS"
+	LIBS="$ac_save_LIBS"
+
+	dnl
+	dnl First check the version in the header file. If there's a match,
+	dnl fall through to the other check to make sure it links.
+	dnl If not, then we can break out of the two inner loops.
+	dnl
+        AC_MSG_CHECKING([for Berkeley DB header (version $ac_dbver) in $ac_dbincdir])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <db.h>
+
+                #if (DB_VERSION_MAJOR != ${ac_dbver_major}) || \
+                    (DB_VERSION_MINOR != ${ac_dbver_minor})
+                #error "incorrect version"
+                #endif
+            ],
+
+            [
+            ]),
+          [
+	      AC_MSG_RESULT([yes])
+          ],
+          [
+              AC_MSG_RESULT([no])
+	      continue
+          ])
+
+          for ac_dblibdir in $ac_dblibdirs; do
+          for ac_dblib    in db-$ac_dbver; do
+
+          LDFLAGS="$ac_save_LDFLAGS -L$ac_dblibdir"
+          if test x"$STATIC" = x"extlibs" ; then
+                  LIBS="-Wl,-Bstatic -l$ac_dblib -Wl,-Bdynamic $ac_save_LIBS"
+          else
+                  LIBS="-l$ac_dblib $ac_save_LIBS"
+          fi
+
+          AC_MSG_CHECKING([for Berkeley DB library in $ac_dblibdir, -l$ac_dblib])
+          AC_LINK_IFELSE(
+            AC_LANG_PROGRAM(
+              [
+                  #include <db.h>
+              ],
+
+              [
+                  DB *db;
+                  db_create(&db, NULL, 0);
+              ]),
+
+            [
+                AC_MSG_RESULT([yes])
+                oasys_cv_db_incpath=$ac_dbincdir
+                oasys_cv_db_libpath=$ac_dblibdir
+                oasys_cv_db_lib=$ac_dblib
+                break 5
+            ],
+            [
+                AC_MSG_RESULT([no])
+            ])
+
+          done # foreach ac_dblib
+          done # foreach ac_dblibdir
+        done # foreach ac_dbincdir
+    done # foreach ac_dbdir
+    done # foreach ac_dbver
+
+    AC_DEFINE_UNQUOTED(BERKELEY_DB_VERSION, $ac_dbver,
+        [configured version of berkeley db])
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    if test x$oasys_cv_db_incpath = x ; then
+        AC_DB_HELP
+        AC_MSG_ERROR([can't find usable Berkeley DB installation])
+    fi
+])

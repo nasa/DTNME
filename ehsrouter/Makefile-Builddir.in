@@ -1,0 +1,10 @@
+#
+# Makefile to build in directories other than the source directory
+#
+SRCDIR   := @SRCDIR@
+BUILDDIR := @BUILDDIR@
+
+vpath %.c  $(SRCDIR)/ehsrouter
+vpath %.cc $(SRCDIR)/ehsrouter
+
+include $(SRCDIR)/ehsrouter/Makefile

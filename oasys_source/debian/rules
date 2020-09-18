@@ -1,0 +1,61 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+# This is exported to make the rules for binary-indep and binary-arch
+# work below
+export DH_OPTIONS
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	INSTALL_PROGRAM += -s
+endif
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+	./configure
+	touch configure-stamp
+
+build: configure build-stamp
+build-stamp:
+	dh_testdir
+	$(MAKE)
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+	rm -f configure-stamp build-stamp
+	$(MAKE) distclean || echo "nothing to clean"
+	dh_clean
+
+install: build
+	dh_clean
+	dh_testdir
+	dh_testroot
+	dh_installdirs
+	$(MAKE) DESTDIR=`pwd`/debian/oasys/ install
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_install -a
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

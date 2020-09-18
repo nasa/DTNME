@@ -1,0 +1,52 @@
+
+dnl
+dnl Simple autoconf test for whether distutils is properly set up to
+dnl build an extension module. 
+dnl
+AC_DEFUN(AC_PYTHON_BUILD_EXT, [
+    
+    if test ! -z "$PYTHON" ; then
+
+    AC_MSG_CHECKING([whether python distutils can build an extension module])
+
+    cat > conftest.c <<_ACEOF
+[
+#include <Python.h>
+
+int main(int argc, char** argv)
+{
+    Py_InitModule("conftest", NULL);
+}
+]
+_ACEOF
+
+    cat > conftest.py <<_ACEOF
+[
+from distutils.core import setup, Extension
+setup(name='conftest',
+      version='1.0',
+      ext_modules=[Extension('_conftest', ['conftest.c'])]
+      )
+]
+_ACEOF
+
+     # Current versions of autoconf access config.log 
+     # through file descriptor 5, so use it here to
+     # redirect output from the build operation.
+     _ACCMD="$PYTHON conftest.py build -b conftest_build"
+     echo "$as_me:$LINENO: running $_ACCMD... output:" >&5
+     $_ACCMD >&5 2>&5
+     ac_python_build=$?
+     
+     if test $ac_python_build = 0 ; then
+     	AC_MSG_RESULT([yes])
+	PYTHON_BUILD_EXT=yes
+     	AC_SUBST(PYTHON_BUILD_EXT)
+     else
+        AC_MSG_RESULT([no])
+     fi
+     
+     rm -rf conftest_build conftest.py conftest.c
+     
+     fi # PYTHON != ""
+])

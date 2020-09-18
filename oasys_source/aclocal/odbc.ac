@@ -1,0 +1,177 @@
+dnl
+dnl    Copyright 2011 Alex McMahon, alex.mcmahon@cs.tcd.ie
+dnl    Copyright 2011 Elwyn Davies, davieseb@scss.tcd.ie
+dnl    Copyright 2011 Trinity Collage Dublin
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl 
+dnl Autoconf support for configuring whether odbc library is 
+dnl available on the system
+dnl
+
+AC_DEFUN(AC_CONFIG_ODBC, [
+
+    AC_ARG_WITH(odbc,
+      [AC_HELP_STRING([--with-odbc],
+                      [compile in odbc support (default try)])],
+      [ac_use_odbc=$withval],
+      [ac_use_odbc=try])
+    
+    AC_MSG_CHECKING([whether odbc support should be enabled (needs ODBC version >= 3.51)])
+
+    if test "$ac_use_odbc" = "no"; then
+        AC_MSG_RESULT(no)
+
+    else
+        if test "$ac_use_odbc" = try ;
+        then
+            AC_MSG_RESULT(try)
+        elif test "$ac_use_odbc" = yes -o \
+                  "$ac_use_odbc" = "" ; 
+        then
+            AC_MSG_RESULT(yes)
+        else
+            AC_MSG_RESULT([check in $ac_use_odbc])
+        fi
+        AC_FIND_ODBC
+        if test ! "$oasys_cv_lib_odbc" = "" ; then
+            LIBODBC_ENABLED=1
+            AC_DEFINE_UNQUOTED(LIBODBC_ENABLED, 1,
+                [whether odbc is enabled])
+            AC_EXTLIB_PREPARE
+            if test ! $oasys_cv_path_odbc_h = /usr/include ; then
+                CFLAGS="-I$oasys_cv_path_odbc_h"
+            fi
+            
+            if test ! $oasys_cv_path_odbc_lib = /usr/lib ; then
+                LDFLAGS="-L$oasys_cv_path_odbc_lib"
+            fi
+
+            LDFLAGS="$LDFLAGS -l$oasys_cv_lib_odbc"
+            AC_EXTLIB_SAVE
+        else
+            LIBODBC_ENABLED=0
+        fi
+
+    fi
+])
+
+dnl
+dnl Find odbc
+dnl
+AC_DEFUN(AC_FIND_ODBC, [
+
+    oasys_cv_path_odbc_h=
+    oasys_cv_path_odbc_lib=
+    oasys_cv_lib_odbc=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+
+    if test "$ac_use_odbc" = yes -o \
+            "$ac_use_odbc" = try -o \
+            "$ac_use_odbc" = "" ; 
+    then
+        ac_odbcincdirs="/usr/include     /usr/local/include"
+        ac_odbclibdirs="/usr/lib     /usr/local/lib"
+    else
+        ac_odbcincdirs="$ac_use_odbc/include"
+        ac_odbclibdirs="$ac_use_odbc/lib"
+    fi
+
+    for ac_odbcincdir in $ac_odbcincdirs; do
+    for ac_odbclibdir in $ac_odbclibdirs; do
+        ac_odbclib="odbc"
+
+        CPPFLAGS="-I$ac_odbcincdir"
+        LDFLAGS="-L$ac_odbclibdir"
+        if test x"$STATIC" = x"extlibs" ; then
+            LIBS="-Wl,-Bstatic -l$ac_odbclib -Wl,-Bdynamic $ac_save_LIBS"
+        else
+            LIBS="-l$ac_odbclib $ac_save_LIBS"
+        fi
+
+        AC_MSG_CHECKING([for ODBC in $ac_odbcincdir, $ac_odbclibdir, -l$ac_odbclib])
+        AC_LINK_IFELSE(
+            AC_LANG_PROGRAM(
+                [
+                #include "$ac_odbcincdir/sql.h"
+                #include "$ac_odbcincdir/sqlext.h"
+                #include "$ac_odbcincdir/sqltypes.h"
+                #include "$ac_odbcincdir/sqlucode.h"
+                ],
+                [
+                SQLHENV henv;
+                SQLAllocHandle( SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv );
+                SQLFreeHandle( SQL_HANDLE_ENV, henv );
+                ]),
+
+                [
+                AC_MSG_RESULT([yes])
+                oasys_cv_path_odbc_h=$ac_odbcincdir
+                oasys_cv_path_odbc_lib=$ac_odbclibdir
+                oasys_cv_lib_odbc=$ac_odbclib
+                # break 4
+                ],
+                [
+                AC_MSG_RESULT([no])
+                oasys_cv_path_odbc_h=
+                oasys_cv_path_odbc_lib=
+                oasys_cv_lib_odbc=
+                break 
+                ])
+        AC_MSG_CHECKING([ODBC detected has version >= 3.51 in $ac_odbcincdir, $ac_odbclibdir, -l$ac_odbclib])
+        AC_LINK_IFELSE(
+            AC_LANG_PROGRAM(
+                [
+                #include "$ac_odbcincdir/sql.h"
+                
+                #if (ODBCVER < 0x0351)
+                #error "ODBC version is too early"
+                #endif
+                ],
+                [
+                ]),
+
+                [
+                AC_MSG_RESULT([yes])
+                break 4
+                ],
+                [
+                AC_MSG_RESULT([no])
+                oasys_cv_path_odbc_h=
+                oasys_cv_path_odbc_lib=
+                oasys_cv_lib_odbc=
+                break
+                ])
+    done
+    done
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    AC_MSG_CHECKING([whether libodbc was found])
+    if test ! x$oasys_cv_path_odbc_h = x ; then
+        AC_MSG_RESULT(yes)
+    elif test $ac_use_odbc = try ; then
+        AC_MSG_RESULT(no)
+    else
+        AC_MSG_RESULT(no)
+        AC_MSG_ERROR([can't find usable odbc installation])
+    fi
+])

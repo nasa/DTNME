@@ -1,0 +1,28 @@
+DTNME Testing Code
+-----------------
+
+Most of the files in this directory are .tcl scripts used for test
+configuration of the DTNME daemon. The dtn-test.tcl file in turn
+includes the bulk of the other utilities, and the main.tcl file is the
+base bootstrap config that is typically sourced by the other test
+files. For example, see send-one-bundle.tcl.
+
+When using this test infrastructure, the daemon can be configured to
+fork off a set of peer nodes, all of which will communicate over
+loopback aliases.
+
+Additionally, the following subdirectories contain other test code:
+
+unit_tests: 
+   Small C programs that exercise parts of the DTNME code base.
+   Running 'make test' in this directory should build all the test 
+   applications, depositing binaries in the unit_tests subdirectory.
+
+comparison: 
+   Test programs and scripts used for comparing the DTNME implementation
+   to a simple 'ftp' style application and sendmail.
+
+mail:
+   Configuration used for the comparison to sendmail / smtp.
+
+

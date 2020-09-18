@@ -1,0 +1,46 @@
+OASYS - Object-oriented Adaptors to SYStem interfaces
+-----------------------------------------------------
+
+OASYS is a C++ library that provides a set of wrapper classes and
+utilities for systems programming projects.
+
+oasys/compat/           portability and compatibility logic
+oasys/debug/            debugging and logging support code
+oasys/io/               I/O and networking support code
+oasys/memory/           memory management and debugging support
+oasys/serialize/        object serialization support
+oasys/smtp/             SMTP (mail) protocol handlers
+oasys/storage/          persistant storage interface
+oasys/tclcmd/           tcl command infrastructure and support
+oasys/test/             unit tests and other test files
+oasys/thread/           thread / lock support implementation
+oasys/util/             miscellaneous utility classes
+
+External Requirements
+---------------------
+
+gcc/g++			The GNU Compiler Collection
+pthreads		libc6 - GNU C Library: Shared libraries
+make			The GNU version of the "make" utility
+tcl			The Tool Command Language [development]
+
+Optional External Packages
+--------------------------
+tclreadline		GNU Readline Extension for Tcl/Tk
+libreadline		GNU readline and history libraries [development]
+tclx			Extended Tcl - shared library
+tcllib			Standard Tcl Library
+libdb			Berkeley v4.2 - v4.7  Database Libraries [development]
+libbluetooth		BlueZ Linux Bluetooth library [development]
+libgoogle-perftools0	Libraries for CPU and heap analysis
+libxerces-cs-dev	Validating XML parser library for C++ [development]
+python			Interactive high-level object-oriented language
+xsd			XML Data Binding for C++
+zlib			Compression library [runtime]
+
+Build / Installation:
+---------------------
+
+./configure
+make
+

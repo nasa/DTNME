@@ -1,0 +1,158 @@
+dnl
+dnl    Copyright 2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding expat
+dnl
+
+dnl
+dnl Main macro for finding a usable db installation 
+dnl
+AC_DEFUN(AC_CONFIG_EXPAT, [
+    AC_ARG_WITH(expat,
+        AC_HELP_STRING([--with-expat=DIR],
+    		   [location of an expat installation (default try)]),
+        [ac_expatdir=$withval],
+        [ac_expatdir=try])
+
+    AC_MSG_CHECKING([whether expat support should be enabled])
+
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_expatdir" = no ; then
+    AC_MSG_RESULT([no])
+    LIBEXPAT_ENABLED=0
+    else
+    
+    if test "$ac_expatdir" = try ; then
+       AC_MSG_RESULT([try])
+    else
+       AC_MSG_RESULT([yes (dir $ac_expatdir)])
+    fi
+    dnl
+    dnl Now check if we have a cached value, unless the user specified
+    dnl something explicit with the --with-expat= argument, in
+    dnl which case we force it to redo the checks (i.e. ignore the
+    dnl cached values)
+    dnl
+    if test "$ac_expatdir" = yes -a ! x$oasys_cv_path_expat_h = x ; then
+        if test ! "$oasys_cv_lib_expat" = "" ; then
+            echo "checking for expat installation... (cached) $oasys_cv_path_expat_h/expat.h, $oasys_cv_path_expat_lib -l$oasys_cv_lib_expat"
+        else
+            echo "checking for expat installation... (cached) disabled"
+        fi
+    else
+        AC_FIND_EXPAT
+    fi
+
+    if test ! "$oasys_cv_lib_expat" = "" ; then
+        LIBEXPAT_ENABLED=1
+        AC_DEFINE_UNQUOTED(LIBEXPAT_ENABLED, 1, 
+            [whether expat is enabled])
+
+        if test ! $oasys_cv_path_expat_h = /usr/include ; then
+           EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$oasys_cv_path_expat_h"
+        fi
+
+        if test ! $oasys_cv_path_expat_lib = /usr/lib ; then
+            EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$oasys_cv_path_expat_lib"
+        fi
+
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -l$oasys_cv_lib_expat"
+    else
+        LIBEXPAT_ENABLED=0
+    fi
+
+    fi # ac_expatdir != no
+])
+
+dnl
+dnl Find expat
+dnl
+AC_DEFUN(AC_FIND_EXPAT, [
+    oasys_cv_path_expat_h=
+    oasys_cv_path_expat_lib=
+    oasys_cv_lib_expat=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    if test "$ac_expatdir" = system -o \
+            "$ac_expatdir" = yes -o \
+            "$ac_expatdir" = try -o \
+            "$ac_expatdir" = "" ; 
+    then
+        ac_expatincdirs="/usr/include /usr/local/include"
+        ac_expatlibdirs="/usr/lib     /usr/local/lib"
+    else
+        ac_expatincdirs="$ac_expatdir/include"
+        ac_expatlibdirs="$ac_expatdir/lib"
+    fi
+
+    for ac_expatincdir in $ac_expatincdirs; do
+    for ac_expatlibdir in $ac_expatlibdirs; do
+        ac_expatlib="expat"
+
+	CPPFLAGS="$ac_save_CPPFLAGS -I$ac_expatincdir"
+	LDFLAGS="$ac_save_LDFLAGS -L$ac_expatlibdir"
+	if test x"$STATIC" = x"extlibs" ; then
+		LIBS="-Wl,-Bstatic -l$ac_expatlib -Wl,-Bdynamic $ac_save_LIBS"
+	else
+		LIBS="-l$ac_expatlib $ac_save_LIBS"
+	fi
+
+        AC_MSG_CHECKING([for expat in $ac_expatincdir, $ac_expatlibdir, -l$ac_expatlib])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <expat.h>
+            ],
+            [
+		XML_Parser parser;
+		parser = XML_ParserCreate(NULL);
+            ]),
+
+          [
+              AC_MSG_RESULT([yes])
+              oasys_cv_path_expat_h=$ac_expatincdir
+              oasys_cv_path_expat_lib=$ac_expatlibdir
+              oasys_cv_lib_expat=$ac_expatlib
+              break 4
+          ],
+          [
+              AC_MSG_RESULT([no])
+              oasys_cv_path_expat_h=
+              oasys_cv_path_expat_lib=
+              oasys_cv_lib_expat=
+          ])
+    done
+    done
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    AC_MSG_CHECKING([whether libexpat was found])
+    if test ! x$oasys_cv_path_expat_h = x ; then
+        AC_MSG_RESULT(yes)
+    elif test $ac_expatdir = try ; then
+        AC_MSG_RESULT(no)
+    else
+        AC_MSG_ERROR([can't find usable expat installation])
+    fi
+])

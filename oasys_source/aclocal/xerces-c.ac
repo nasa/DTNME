@@ -1,0 +1,134 @@
+dnl 
+dnl   Copyright 2006-2007 The MITRE Corporation
+dnl
+dnl   Licensed under the Apache License, Version 2.0 (the "License");
+dnl   you may not use this file except in compliance with the License.
+dnl   You may obtain a copy of the License at
+dnl
+dnl       http://www.apache.org/licenses/LICENSE-2.0
+dnl
+dnl   Unless required by applicable law or agreed to in writing, software
+dnl   distributed under the License is distributed on an "AS IS" BASIS,
+dnl   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl   See the License for the specific language governing permissions and
+dnl   limitations under the License.
+dnl
+dnl   The US Government will not be charged any license fee and/or royalties
+dnl   related to this software. Neither name of The MITRE Corporation; nor the
+dnl   names of its contributors may be used to endorse or promote products
+dnl   derived from this software without specific prior written permission.
+dnl
+
+dnl
+dnl Autoconf support for finding xerces-c
+dnl
+
+AC_DEFUN(AC_CONFIG_XERCES, [
+    dnl
+    dnl Handle --with-xerces-c=DIR
+    dnl
+    AC_ARG_WITH(xerces-c,
+        AC_HELP_STRING([--with-xerces-c=DIR],
+            [location of a xerces-c installation (default try)]),
+        [ac_with_xerces_c=$withval],
+        [ac_with_xerces_c=try])
+
+    AC_MSG_CHECKING([whether xerces-c support should be enabled])
+
+    dnl
+    dnl Disable xerces-c if requested
+    dnl
+    if test "$ac_with_xerces_c" = no; then
+        AC_MSG_RESULT([no])
+        XERCES_C_ENABLED=0
+	echo ""
+	AC_MSG_NOTICE([Proceeding without xerces-c support as requested])
+	echo ""
+    else
+
+    dnl
+    dnl Find the xerces-c installation
+    dnl
+    if test "$ac_with_xerces_c" = try \
+         -o "$ac_with_xerces_c" = yes \ 
+         -o "$ac_with_xerces_c" = "" ; then
+        AC_MSG_RESULT([try])
+        ac_xerces_inst_dirs="/usr /usr/local"
+    else
+        AC_MSG_RESULT([yes (dir $ac_with_xerces_c)])
+        ac_xerces_inst_dirs="$ac_with_xerces_c"
+    fi
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    AC_MSG_CHECKING([whether xerces-c (>= v2.6.0 and < v3.0.0) was found])
+    AC_CACHE_VAL(oasys_cv_path_xerces_c,
+    [
+        for ac_xerces_inst_dir in $ac_xerces_inst_dirs; do
+            if test -d "$ac_xerces_inst_dir"; then
+                AC_LANG([C++])
+                CPPFLAGS="-I$ac_xerces_inst_dir/include"
+                LDFLAGS="-L$ac_xerces_inst_dir/lib"
+                LIBS="-lxerces-c $LIBS"
+
+                AC_LINK_IFELSE(
+                    AC_LANG_PROGRAM(
+                        [
+                            #include <xercesc/util/PlatformUtils.hpp>
+                            #include <xercesc/util/XMLString.hpp>
+                            #include <xercesc/dom/DOM.hpp>
+                        ],
+    
+                        [
+			    #if _XERCES_VERSION >= 30000
+				#error
+			    #else
+				#if _XERCES_VERSION >= 20600
+
+				xercesc::XMLPlatformUtils::Initialize();
+				{
+				    xercesc::DOMImplementation* impl
+					= xercesc::DOMImplementationRegistry::getDOMImplementation
+							(xercesc::XMLString::transcode("XML 1.0"));
+				}
+				xercesc::XMLPlatformUtils::Terminate();
+
+				#else
+					#error
+				#endif
+                            #endif
+                        ]),
+                    [
+                        oasys_cv_path_xerces_c="$ac_xerces_inst_dir"
+                        break
+                    ],
+                    [
+                        oasys_cv_path_xerces_c=
+                    ]
+                )
+            fi
+        done
+    ])
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    if test -z "$oasys_cv_path_xerces_c"; then
+        AC_MSG_RESULT([no])
+        XERCES_C_ENABLED=0
+    else
+	AC_MSG_RESULT([yes])
+        XERCES_C_ENABLED=1
+        AC_DEFINE(XERCES_C_ENABLED, 1, [whether xerces support is enabled])
+        if test ! "$oasys_cv_path_xerces_c" = /usr ; then
+            EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$oasys_cv_path_xerces_c/include"
+            EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$oasys_cv_path_xerces_c/lib"
+        fi
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lxerces-c"
+    fi
+
+    fi
+])

@@ -1,0 +1,47 @@
+#!/usr/bin/python
+
+# Look through debugging output that is generated from the
+# RefCountedObject class, correlate add/del refs, and therefore find
+# leaked references.
+
+import sys,re;
+
+p = re.compile ('^\[.*\] refcount (.*) (\d+) -> (\d+) (add|del) (.*)$');
+
+input = sys.stdin.readlines();
+
+refs = {};
+
+for l in input:
+    m = p.match(l);
+    if (m == None):
+        continue
+
+    what   = m.group(1);
+    oldnum = m.group(2);
+    newnum = m.group(3);
+    op     = m.group(4);
+    ref    = m.group(5);
+    
+    if (op == "add"):
+ 	#print "%s add ref %s " % (what, ref);
+
+        if (refs.has_key(what)):
+            refs[what].append(ref);
+        else:
+            refs[what] = [ref];
+
+    elif (op == "del"):
+        #print "%s del ref %s " % (what, ref);
+        try:
+            refs[what].remove(ref);
+        except:
+            print "WARNING: %s: del ref %s not in list (%s)" % (what, ref, refs[what])
+
+print "Leaked Refs:";
+
+for what in refs.keys():
+    if (len(refs[what]) != 0):
+        print "[%s]: %s" % (what, refs[what]);
+        
+

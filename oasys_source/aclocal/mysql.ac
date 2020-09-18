@@ -1,0 +1,197 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding mysql
+dnl
+
+dnl
+dnl Main macro for finding a usable mysql installation 
+dnl
+AC_DEFUN(AC_CONFIG_MYSQL, [
+    ac_mysqldir='no'
+
+    AC_ARG_WITH(mysql,
+        AC_HELP_STRING([--with-mysql=DIR],
+    		   [location of a mysql installation (default none)]),
+        ac_mysqldir=$withval) 
+
+    ac_mysqldaemon='no'
+    AC_ARG_WITH(mysql-daemon,
+        AC_HELP_STRING([--with-mysql-daemon],
+    		   [use the daemon library (not the client library)]),
+        ac_mysqldaemon=$withval)
+
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_mysqldir" = no; then
+    MYSQL_ENABLED=0
+    else
+
+    MYSQL_ENABLED=1
+    AC_DEFINE_UNQUOTED(MYSQL_ENABLED, 1, [whether mysql support is enabled])
+
+    dnl
+    dnl If the user wants to use the embedded libmysqld, then we have
+    dnl some additional external library dependencies
+    dnl    
+    if test ! "$ac_mysqldaemon" = "no" ; then
+       AC_DEFINE_UNQUOTED(LIBMYSQLD_ENABLED, 1, 
+           [whether the mysql embedded server is enabled])
+
+	AC_MSG_CHECKING([for mysql external dependencies.: checking for request_init() in libwrap])
+	AC_SEARCH_LIBS(request_init, wrap, [], 
+                      AC_MSG_ERROR([can't find request_init() in libwrap]))
+	AC_MSG_CHECKING([for mysql external dependencies.: checking for exp() in libm])
+	AC_SEARCH_LIBS(exp, m, [],
+                      AC_MSG_ERROR([can't find exp() in libm]))
+	AC_MSG_CHECKING([for mysql external dependencies.: checking for crypt() in libcrypt])
+	AC_SEARCH_LIBS(crypt, crypt, [],
+                      AC_MSG_ERROR([can't find crypt() in libcrypt]))
+	AC_MSG_CHECKING([for mysql external dependencies.: checking for compress() in libz])
+	AC_SEARCH_LIBS(compress, z, [],
+                      AC_MSG_ERROR([can't find compress() in libz]))
+    fi
+
+    dnl
+    dnl Now check if we have a cached value, unless the user specified
+    dnl something explicit with the --with-mysql= argument, in
+    dnl which case we force it to redo the checks (i.e. ignore the
+    dnl cached values)
+    dnl
+    if test "$ac_mysqldir" = yes -a ! x$oasys_cv_path_mysql_h = x ; then
+        echo "checking for mysql installation... (cached) $oasys_cv_path_mysql_h/mysql.h, $oasys_cv_path_mysql_lib -lmysql"
+    else
+        AC_OASYS_FIND_MYSQL
+    fi
+
+    if test ! $oasys_cv_path_mysql_h = /usr/include ; then
+        EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$oasys_cv_path_mysql_h"
+    fi
+
+    if test ! $oasys_cv_path_mysql_lib = /usr/lib ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$oasys_cv_path_mysql_lib"
+    fi
+
+    if test "$ac_mysqldaemon" = "no" ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lmysqlclient"
+    else
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lmysqld"
+    fi
+    
+    fi # MYSQL_ENABLED
+])
+
+dnl
+dnl Find mysql
+dnl
+AC_DEFUN(AC_OASYS_FIND_MYSQL, [
+    oasys_cv_path_mysql_h=
+    oasys_cv_path_mysql_lib=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    if test "$ac_mysqldir" = system -o \
+            "$ac_mysqldir" = yes -o \
+            "$ac_mysqldir" = "" ; 
+    then
+        ac_mysqlincdirs="/usr/include /usr/include/mysql \
+                         /usr/local/mysql/include"
+        ac_mysqllibdirs="/usr/lib /usr/lib/mysql /usr/local/mysql/lib"
+    else
+        ac_mysqlincdirs="$ac_mysqldir/include"
+        ac_mysqllibdirs="$ac_mysqldir/lib"
+    fi
+
+    AC_LANG_PUSH(C++)
+    for ac_mysqlincdir in $ac_mysqlincdirs; do
+
+	CPPFLAGS="$ac_save_CPPFLAGS -I$ac_mysqlincdir"
+	LDFLAGS="$ac_save_LDFLAGS"
+	LIBS="$ac_save_LIBS"
+
+	dnl
+	dnl First check the version in the header file. If there's a match, 
+	dnl fall through to the other check to make sure it links.
+	dnl If not, then we can break out of the two inner loops.
+	dnl
+        AC_MSG_CHECKING([for mysql header mysql.h in $ac_mysqlincdir])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <mysql.h>
+            ],
+            
+            [
+            ]),
+          [ 
+	      AC_MSG_RESULT([yes])
+              oasys_cv_path_mysql_h=$ac_mysqlincdir
+	      break
+          ],
+          [
+              AC_MSG_RESULT([no])
+	      continue
+          ])
+    done
+
+    if test x$oasys_cv_path_mysql_h = x ; then
+        AC_MSG_ERROR([can't find usable mysql installation])
+    fi
+
+    for ac_mysqllibdir in $ac_mysqllibdirs; do
+
+	LDFLAGS="$ac_save_LDFLAGS -L$ac_mysqllibdir"
+	if test "$ac_mysqldaemon" = "no" ; then
+ 	    LIBS="$ac_save_LIBS -lmysqlclient"
+        else
+ 	    LIBS="$ac_save_LIBS -lmysqld"
+        fi
+
+        AC_MSG_CHECKING([for mysql library libmysql in $ac_mysqllibdir])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <mysql.h>
+            ],
+            
+            [
+		MYSQL m;
+	        mysql_init(&m);
+            ]),
+
+          [
+              AC_MSG_RESULT([yes])
+              oasys_cv_path_mysql_lib=$ac_mysqllibdir
+              break
+          ],
+          [
+              AC_MSG_RESULT([no])
+          ])
+    done
+    AC_LANG_POP(C++)
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    if test x$oasys_cv_path_mysql_lib = x ; then
+        AC_MSG_ERROR([can't find usable mysql library])
+    fi
+])

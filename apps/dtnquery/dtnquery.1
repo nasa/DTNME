@@ -1,0 +1,141 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnquery 1 "November 16, 2010"
+.LO 1
+.SH NAME
+dtnquery \- send and receive DTN queries 
+.SH SYNOPSIS
+.B dtnquery 
+.RB -s 
+.IR src
+.RB [ -d 
+.IR dest ]
+.RB [ -r
+.IR reply-to ]
+.RB [ -f 
+.IR filename ]
+.RB [ -t
+.IR literal | base64 | file ]
+.RB [ -q 
+.IR query ]
+.RB [ -u
+.IR exact ]
+.RB [ -m
+.IR send | receive | both ]
+.RB [ -n
+.IR count ]
+.RB [ -E
+.IR seconds ]
+.RB [ -e 
+.IR seconds ]
+.RB [ -hv ]
+
+.SH DESCRIPTION
+.B dtnquery
+injects bundle queries into a DTN. To do this, it connects
+to a dtnd daemon using the DTN API. 
+.PP
+If dtnquery is started in asynchronous mode to send a query
+.B -m send
+it will close once all outstanding queries have been sent.
+.PP
+It should then be run again in asynchronous receive mode
+.B -m receive
+to receive the query response.
+.PP
+If this connection is synchronous (default)
+.B -m both
+dtnquery will both send the query and wait to receive the 
+response.
+.PP
+
+.SH RETURN VALUES
+Returns 1 if there was an error processing the arguments.
+Otherwise 
+.B dtnquery
+returns 0.
+
+.SH OPTIONS
+.TP
+.B \-\^s
+The source EID for the bundle query. It should be an endpoint for which
+the dtnd is responsible, but that is not currently enforced.
+(Required)
+.TP
+.B \-\^d
+The destination EID for the bundle.
+.TP
+.B \-\^r
+The reply-to EID for the bundle. If not set the src EID will be used.
+.TP
+.B \-\^f
+The file name to save the response as. The default for this is the query 
+value itself. This may be overridden using this flag.
+.TP
+.B \-\^t
+Type of query. Can be `literal' (default), `base64' or `file'. 
+.TP
+.B \-\^q
+The query value, or if the type of query is file (-t file), the matching
+file path. Values/paths must be enclosed in quotes e.g. -p "some
+literal query" or -p "my file.txt". Query files must be comma
+separated containing see
+.B dtnmatch.
+.TP
+.B \-\^u
+The matching rule. Currently only `exact' is supported.
+.TP
+.B \-\^m
+Mode to run in. Can be asynchronous: `send' or `receive' or synchronous
+`both' (default).
+.TP
+.B \-\^n
+When receiving bundles, this specifies the number of bundles to receive
+before exiting. The default value is 1, and a value of 0 will cause the 
+dtnquery to loop forever receiving bundles.
+.TP
+.B \-\^E
+The number of seconds to wait for a query response. Default 0: listen
+forever
+.TP
+.B \-\^e
+The number of seconds until the bundle expires from the DTN. Default
+is 3600 (one hour).
+.TP
+.B \-\^h
+Print a help message and exit.
+.TP
+.B \-\^v
+Be verbose. Adds diagnostic information to the standard output.
+.TP
+
+.SH ENVIRONMENT
+.TP
+.B DTNAPI_ADDR
+If
+.B DTNAPI_ADDR
+is set, 
+.B dtnsend
+uses it as the hostname to connect to for DTN API operations.
+.TP
+.B DTNAPI_PORT
+If
+.B DTNAPI_PORT
+is set, its value is used as the TCP port to connect to
+for DTN API operations.
+.SH "SEE ALSO"
+dtnrespond(1), dtnmatch(1), dtnd(8).

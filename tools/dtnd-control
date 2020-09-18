@@ -1,0 +1,154 @@
+#!/usr/bin/tclsh
+
+set port 5050
+
+proc usage {} {
+    puts stderr "dtnd-control \[-port port\] stop|check|logrotate|bundle_stats|daemon_stats"
+    puts "|reset_stats|route_dump|link_dump|bundle_list|registration_list|gettimeofday"
+    puts "|\[-id id]\ bundle_info"
+    puts "|\[-id id]\ bundle_del"
+    puts "|\[-id id]\ bundle_dump"
+    puts "|\[-id id]\ bundle_expire"
+    exit 1
+}
+
+proc shift {listVar} {
+    upvar $listVar l
+    
+    set ret [lindex $l 0]
+    set l [lrange $l 1 end]
+    return $ret
+}
+
+after 30000 {exit 1}
+
+while {[llength $argv] > 1} {
+    set arg [shift argv]
+
+    if {[string index $arg 0] != "-"} {
+	break
+    }
+	
+    switch -- $arg {
+	-port   { set port [shift argv] } -id { set id [shift argv] }
+	default {
+	    puts stderr "unknown argument $arg"
+	    usage
+	}
+    }
+
+}
+
+set operation [shift argv]
+
+switch -- $operation {
+    stop - check - status - logrotate - daemon_stats - reset_stats - route_dump - link_dump - bundle_stats - bundle_list - bundle_info - bundle_del - bundle_expire - bundle_dump - registration_list - gettimeofday {}
+    default {
+	puts "unknown operation $operation"
+	usage
+    }
+}
+
+if {[llength $argv] != 0} {
+    puts "extra arguments after operation"
+    usage
+}
+
+if [catch {
+    set sock [socket localhost $port]
+
+} err] {
+    if {$operation == "stop"} {
+        puts "(already stopped)"
+        exit 0
+    }
+    puts stderr "dtnd-control: cannot connect to localhost port $port"
+    exit 1
+}
+
+puts $sock "tell_encode"
+flush $sock
+set ret1 [gets $sock]; # the prompt
+set ret2 [gets $sock]; # the command response
+
+if {$operation == "check" || $operation == "status"} {
+    set cmd "bundle daemon_status"
+    
+} elseif {$operation == "stats" || $operation == "bundle_stats"} {
+    set cmd "bundle stats"
+
+} elseif {$operation == "daemon_stats"} {
+    set cmd "bundle daemon_stats"
+
+} elseif {$operation == "reset_stats"} {
+    set cmd "bundle reset_stats"
+
+} elseif {$operation == "route_dump"} {
+    set cmd "route dump"
+
+} elseif {$operation == "link_dump"} {
+    set cmd "link dump"
+
+} elseif {$operation == "bundle_list"} {
+    set cmd "bundle list"
+
+} elseif {$operation == "bundle_info"} {
+    set cmd "bundle info $id"
+
+} elseif {$operation == "bundle_del"} {
+    set cmd "bundle del $id"
+
+} elseif {$operation == "bundle_expire"} {
+    set cmd "bundle expire $id"
+
+} elseif {$operation == "bundle_dump"} {
+    set cmd "bundle dump $id"
+
+} elseif {$operation == "registration_list"} {
+    set cmd "registration list"
+
+} elseif {$operation == "gettimeofday"} {
+    set cmd "gettimeofday"
+
+
+} elseif {$operation == "stop"} {
+    set cmd "shutdown"
+    
+} elseif {$operation == "logrotate"} {
+    set cmd "log rotate"
+
+} else {
+    error "bogus op $operation"
+}
+
+puts $sock $cmd
+flush $sock
+
+set cmd_response [gets $sock]
+if {($cmd_response == "") || [eof $sock]} {
+    puts stderr "error getting response"
+    exit 1
+}
+
+set cmd_error [string index $cmd_response 0]
+set result    [string range $cmd_response 2 end]
+regsub -all -- {\\n} $result "\n" result
+
+if {$cmd_error == 0} {
+    puts $result
+
+    # if the daemon is stopping, wait until the socket closes before
+    # exiting the script so we know it's actually dead
+    if {$operation == "stop"} {
+        catch {gets $sock}
+        after 1000
+    }
+    
+    exit 0
+} else {
+    puts "error running command '$cmd':"
+    puts $result
+    exit 1
+}
+
+exit 0

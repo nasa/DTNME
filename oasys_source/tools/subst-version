@@ -1,0 +1,16 @@
+#!/bin/bash
+
+if [ '$1' = '' ] ; then
+   echo "usage: subst-version <version.dat>"
+fi
+
+VERSION_DAT=$1
+
+major=`awk '{print $1}' < $VERSION_DAT`
+minor=`awk '{print $2}' < $VERSION_DAT`
+patch=`awk '{print $3}' < $VERSION_DAT`
+
+sed "s/%MAJOR%/$major/" | \
+sed "s/%MINOR%/$minor/" | \
+sed "s/%PATCH%/$patch/"
+

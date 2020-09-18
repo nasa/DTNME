@@ -1,0 +1,20 @@
+dnl
+dnl Autoconf support for LTPUDP Authentication
+dnl
+
+AC_DEFUN(AC_CONFIG_LTPUDPAUTH, [
+    ac_ltpudpauth='no'
+    AC_ARG_WITH(ltpudpauth,
+        AC_HELP_STRING([--with-ltpudpauth],
+    		   	[enable LTPUDP Authentication support (EXPERIMENTAL)]),
+        ac_ltpudpauth=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_ltpudpauth" = no; then
+        LTPUDP_AUTH_ENABLED=0
+    else
+        LTPUDP_AUTH_ENABLED=1
+        AC_DEFINE_UNQUOTED(LTPUDP_AUTH_ENABLED, 1, [whether LTPUDP Authentication support is enabled])
+    fi # LTPUDP_AUTH_ENABLED
+])

@@ -1,0 +1,33 @@
+
+dnl
+dnl Check if oasys has support for the given feature. Returns result
+dnl in ac_oasys_supports_result.
+dnl
+AC_DEFUN(AC_OASYS_SUPPORTS, [
+    AC_MSG_CHECKING(whether oasys is configured with $1)
+
+    if test x$cv_oasys_supports_$1 != x ; then
+        ac_oasys_supports_result=$cv_oasys_supports_$1
+        AC_MSG_RESULT($ac_oasys_supports_result (cached))
+    else
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    CPPFLAGS="$CPPFLAGS -I$OASYS_INCDIR"
+    AC_LINK_IFELSE(
+      AC_LANG_PROGRAM(
+        [
+            #include <oasys/oasys-config.h>
+            #ifndef $1
+            #error $1 not configured
+            #endif
+        ], [] ),
+      ac_oasys_supports_result=yes,
+      ac_oasys_supports_result=no)
+
+    cv_oasys_supports_$1=$ac_oasys_supports_result
+    
+    AC_MSG_RESULT([$ac_oasys_supports_result])
+    CPPFLAGS=$ac_save_CPPFLAGS
+
+    fi
+])

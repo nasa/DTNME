@@ -1,0 +1,71 @@
+dnl
+dnl    Copyright 2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl 
+dnl Autoconf support for configuring whether Zlib is available
+dnl on the system
+dnl
+
+AC_DEFUN(AC_CONFIG_ZLIB, [
+
+    AC_ARG_WITH(zlib,
+      [AC_HELP_STRING([--with-zlib],
+                      [compile in zlib support (default try)])],
+      [ac_use_zlib=$withval],
+      [ac_use_zlib=try])
+    
+    AC_MSG_CHECKING([whether zlib support should be enabled])
+
+    if test "$ac_use_zlib" = "no"; then
+        AC_MSG_RESULT(no)
+
+    else
+        AC_MSG_RESULT($ac_use_zlib)
+
+        dnl
+        dnl Look for the compress() and compressBound() functions in libz
+        dnl
+        AC_EXTLIB_PREPARE
+        AC_SEARCH_LIBS(compress, z, ac_has_libz="yes") 
+        AC_SEARCH_LIBS(compressBound, z, ac_zlib_has_compressBound="yes") 
+        AC_EXTLIB_SAVE
+
+        dnl
+        dnl Print out whether or not we found the libraries
+        dnl
+        AC_MSG_CHECKING([whether zlib support was found])
+
+        dnl
+        dnl Check which defines, if any, are set
+        dnl
+        if test "$ac_has_libz" = yes ; then
+          AC_DEFINE(OASYS_ZLIB_ENABLED, 1,
+              [whether zlib support is enabled])
+          AC_MSG_RESULT(yes)
+
+	  if test "$ac_zlib_has_compressBound" = yes ; then
+	      AC_DEFINE(OASYS_ZLIB_HAS_COMPRESS_BOUND, 1,
+                  [whether zlib contains compressBound])
+	  fi
+
+	elif test "$ac_use_zlib" = "try" ; then
+          AC_MSG_RESULT(no)
+
+        else
+          AC_MSG_ERROR([can't find zlib library])
+        fi
+    fi
+])

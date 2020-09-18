@@ -1,0 +1,77 @@
+dnl
+dnl    Copyright 2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl 
+dnl Autoconf support for configuring whether BlueZ bluetooth is available
+dnl on the system
+dnl
+
+AC_DEFUN(AC_CONFIG_BLUEZ, [
+
+    AC_ARG_WITH(bluez,
+      [AC_HELP_STRING([--with-bluez],
+                      [compile in bluetooth support (default try)])],
+      [ac_use_bluez=$withval],
+      [ac_use_bluez=try])
+    
+    ac_has_libbluetooth="no"
+    ac_has_bluetooth_h="no"
+
+    AC_MSG_CHECKING([whether bluetooth support should be enabled])
+
+    if test "$ac_use_bluez" = "no"; then
+        AC_MSG_RESULT(no)
+
+    else
+        AC_MSG_RESULT($ac_use_bluez)
+	
+        dnl
+        dnl Look for the baswap() function in libbluetooth
+        dnl
+	AC_EXTLIB_PREPARE
+        AC_SEARCH_LIBS(baswap, bluetooth, ac_has_libbluetooth="yes") 
+	AC_EXTLIB_SAVE
+
+        dnl
+        dnl Locate standard Bluetooth header file
+        dnl
+        AC_CHECK_HEADERS([bluetooth/bluetooth.h],
+          ac_has_bluetooth_h="yes")
+
+        dnl
+        dnl Print out whether or not we found the libraries
+        dnl
+        AC_MSG_CHECKING([whether bluetooth support was found])
+
+        dnl
+        dnl Check which defines, if any, are set
+        dnl
+        if test "$ac_has_libbluetooth" = yes -a "$ac_has_bluetooth_h" = yes; then
+          dnl
+          dnl Enable Bluetooth-dependent code
+          dnl
+          AC_DEFINE(OASYS_BLUETOOTH_ENABLED, 1,
+              [whether bluetooth support is enabled])
+          AC_MSG_RESULT(yes)
+
+	elif test "$ac_use_bluez" = "try" ; then
+          AC_MSG_RESULT(no)
+
+        else
+          AC_MSG_ERROR([can't find bluez headers or library])
+        fi
+    fi
+])

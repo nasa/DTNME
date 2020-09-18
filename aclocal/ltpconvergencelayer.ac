@@ -1,0 +1,90 @@
+dnl 
+dnl Autoconf support for LTP convergence layer based on TCD's LTPLib
+dnl
+
+AC_DEFUN(AC_CONFIG_LTP, [
+
+    AC_ARG_WITH(ltp,
+      [AC_HELP_STRING([--with-ltp],
+                      [enable LTP convergence layer support using TCD's LTPlib (EXPERIMENTAL)])],
+      [ac_use_ltp=$withval],
+      [ac_use_ltp="no"])
+    
+    AC_MSG_CHECKING([whether to enable LTP convergence layer support])
+
+    dnl
+    dnl Disable LTP if requested
+    dnl
+    if test "$ac_use_ltp" = "no"; then
+        AC_MSG_RESULT(no)
+        LTP_ENABLED=0
+    else
+
+    dnl
+    dnl Find the LTPlib installation
+    dnl
+    if test "$ac_use_ltp" = try \
+         -o "$ac_use_ltp" = yes \ 
+         -o "$ac_use_ltp" = "" ; then
+        AC_MSG_RESULT([try])
+        ac_ltp_inst_dirs="$ac_pwd/../LTPlib /usr /usr/local"
+    else
+        AC_MSG_RESULT([yes (dir $ac_use_ltp)])
+        ac_ltp_inst_dirs="$ac_use_ltp"
+    fi
+
+    ac_save_EXTLIB_CFLAGS="$EXTLIB_CFLAGS"
+    ac_save_EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS"
+    
+    AC_MSG_CHECKING([whether ltp libraries are available])
+    AC_CACHE_VAL(dtn_cv_path_ltp,
+    [
+        for ac_ltp_inst_dir in $ac_ltp_inst_dirs; do
+            if test -d "$ac_ltp_inst_dir"; then
+                AC_LANG([C++])
+                EXTLIB_CFLAGS="-DFILE_OFFSET_BITS=64"
+                EXTLIB_LDFLAGS="-L$ac_pwd/../LTPlib/lib \
+                                -lltp -lpthread -lcrypto -lm"
+    
+                AC_COMPILE_IFELSE(
+                    AC_LANG_PROGRAM(
+                        [
+                            #include "$ac_ltp_inst_dir/include/ltp.h"
+                        ],
+    
+                        [
+                            ltpaddr la; 
+                        ]),
+                    [
+                        dtn_cv_path_ltp=`cd $ac_ltp_inst_dir && pwd`
+                        break
+                    ],
+                    [
+                        dtn_cv_path_ltp=
+                    ]
+                )
+            fi
+        done
+    ])
+    
+    EXTLIB_CFLAGS="$ac_save_EXTLIB_CFLAGS"
+    EXTLIB_LDFLAGS="$ac_save_EXTLIB_LDFLAGS"
+
+    if test -z "$dtn_cv_path_ltp"; then
+        AC_MSG_RESULT([no])
+        LTP_ENABLED=0
+    else
+        AC_MSG_RESULT([yes])
+        LTP_ENABLED=1
+        AC_DEFINE(LTP_ENABLED, 1, [whether LTP support is enabled])
+        if test ! "$dtn_cv_path_ltp" = /usr && test ! "$dtn_cv_path_ltp" = /usr/local; then
+            EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$dtn_cv_path_ltp/include"
+            EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$dtn_cv_path_ltp/lib"
+        fi
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lltp -lpthread -lcrypto -lm"
+    fi
+
+    fi
+])
+
+

@@ -1,0 +1,101 @@
+#
+# Makefile for Windows platforms
+#
+
+# XXX/bowei -- this is all garbage for now as I try to make things
+# compile properly
+
+#
+# Locations
+#
+VISUAL_C_ROOT="c:/Program Files/Microsoft Visual Studio 8/VC"
+PLATFORM_SDK_ROOT="c:/Program Files/Microsoft Visual Studio 8/VC/PlatformSDK"
+
+#
+# Compilers
+#
+CC=cl
+CXX=cl.exe
+
+#
+# Compiler paths
+#
+INCLUDE=  /I. 
+INCLUDE+= /I$(VISUAL_C_ROOT)/include
+INCLUDE+= /I$(PLATFORM_SDK_ROOT)/include
+
+LIB=  /L$(VISUAL_C_ROOT)/lib
+LIB+= /L$(PLATFORM_SDK_ROOT)/lib
+# Link statically with the debugging library
+LIB+= /MTd
+
+#
+# Options
+#
+
+# no optimizations
+OPT=  /Od
+# generate debugging information
+OPT+= /Zi
+
+# enable all warnings
+WARN=  /Wall
+# warnings are errors
+WARN+= /WX
+
+# don't display copyright
+EXTRA_FLAGS=  /nologo
+# compile as win32
+EXTRA_FLAGS+= /D__win32__
+# allow unsafe functions for now
+EXTRA_FLAGS+= /D_CRT_SECURE_NO_DEPRECATE
+# Use C++ style exception handling (not other ones included with VC++)
+EXTRA_FLAGS+= /EHsc
+# enable RTTI
+EXTRA_FLAGS+= /GR
+
+CFLAGS=$(OPT) $(WARN) $(EXTRA_FLAGS) $(INCLUDE)
+
+CPPFLAGS=$(CFLAGS)
+# compile as C++
+CPPFLAGS+= /TP
+
+#
+# Build Rules
+#
+include Sources.mk
+
+# Setup build rules
+OBJS := $(SRCS:.cc=.obj)
+OBJS := $(OBJS:.c=.obj)
+OBJS := $(OBJS):version.obj
+
+all2:   thread/Thread.obj
+
+all: 	gdtoa-arithchk.exe    \
+	debug/gdtoa-dtoa.obj  \
+	debug/gdtoa-gmisc.obj \
+	debug/gdtoa-dmisc.obj \
+	debug/gdtoa-gdtoa.obj \
+	debug/gdtoa-misc.obj  \
+	debug/test.obj        \
+	debug/Log.obj
+
+gdtoa-arithchk.exe:
+	$(CC) $(CFLAGS) debug/gdtoa-arithchk.c
+
+#
+# Rule for generating a .o file from the corresponding .cc file;
+# automatically creates dependencies via the dependency flags.
+#
+%.obj: %.cc
+	@rm -f $@; mkdir -p $(@D)
+	$(CXX) $(CFLAGS) /c $< /Fo$@
+
+%.obj: %.c
+	@rm -f $@; mkdir -p $(@D)
+	$(CC) $(CFLAGS) /c $< /Fo$@
+
+.PHONY: clean
+clean:
+	find . -name *.obj -exec rm {} \;

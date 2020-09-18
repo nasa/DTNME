@@ -1,0 +1,111 @@
+dnl 
+dnl   Copyright 2008 The MITRE Corporation
+dnl
+dnl   Licensed under the Apache License, Version 2.0 (the "License");
+dnl   you may not use this file except in compliance with the License.
+dnl   You may obtain a copy of the License at
+dnl
+dnl       http://www.apache.org/licenses/LICENSE-2.0
+dnl
+dnl   Unless required by applicable law or agreed to in writing, software
+dnl   distributed under the License is distributed on an "AS IS" BASIS,
+dnl   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl   See the License for the specific language governing permissions and
+dnl   limitations under the License.
+dnl
+dnl   The US Government will not be charged any license fee and/or royalties
+dnl   related to this software. Neither name of The MITRE Corporation; nor the
+dnl   names of its contributors may be used to endorse or promote products
+dnl   derived from this software without specific prior written permission.
+dnl
+
+dnl 
+dnl Autoconf support for NORM convergence layer
+dnl
+
+AC_DEFUN(AC_CONFIG_NORM, [
+
+    AC_ARG_WITH(norm,
+      [AC_HELP_STRING([--with-norm],
+                      [enable NORM convergence layer support (EXPERIMENTAL)])],
+      [ac_use_norm=$withval],
+      [ac_use_norm="no"])
+    
+    AC_MSG_CHECKING([whether to enable NORM convergence layer support])
+
+    dnl
+    dnl Disable norm if requested
+    dnl
+    if test "$ac_use_norm" = "no"; then
+        AC_MSG_RESULT(no)
+        NORM_ENABLED=0
+    else
+
+    dnl
+    dnl Find the norm installation
+    dnl
+    if test "$ac_use_norm" = try \
+         -o "$ac_use_norm" = yes \ 
+         -o "$ac_use_norm" = "" ; then
+        AC_MSG_RESULT([try])
+        ac_norm_inst_dirs="$ac_pwd/../norm /usr /usr/local"
+    else
+        AC_MSG_RESULT([yes (dir $ac_use_norm)])
+        ac_norm_inst_dirs="$ac_use_norm"
+    fi
+
+    ac_save_EXTLIB_CFLAGS="$EXTLIB_CFLAGS"
+    ac_save_EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS"
+    
+    AC_MSG_CHECKING([whether norm libraries are available])
+    AC_CACHE_VAL(dtn_cv_path_norm,
+    [
+        for ac_norm_inst_dir in $ac_norm_inst_dirs; do
+            if test -d "$ac_norm_inst_dir"; then
+                AC_LANG([C++])
+                EXTLIB_CFLAGS="-DFILE_OFFSET_BITS=64"
+                EXTLIB_LDFLAGS="-L$ac_pwd/../norm/build/default \
+                                -L$ac_pwd/../norm/build/default/protolib \
+                                -lnorm -lprotokit -lpthread"
+    
+                AC_COMPILE_IFELSE(
+                    AC_LANG_PROGRAM(
+                        [
+                            #include "$ac_norm_inst_dir/include/normApi.h"
+                        ],
+    
+                        [
+                            NormInstanceHandle handle = NormCreateInstance();
+                            NormDestroyInstance(handle);
+                        ]),
+                    [
+                        dtn_cv_path_norm="$ac_norm_inst_dir"
+                        break
+                    ],
+                    [
+                        dtn_cv_path_norm=
+                    ]
+                )
+            fi
+        done
+    ])
+    
+    EXTLIB_CFLAGS="$ac_save_EXTLIB_CFLAGS"
+    EXTLIB_LDFLAGS="$ac_save_EXTLIB_LDFLAGS"
+
+    if test -z "$dtn_cv_path_norm"; then
+        AC_MSG_RESULT([no])
+        NORM_ENABLED=0
+    else
+        AC_MSG_RESULT([yes])
+        NORM_ENABLED=1
+        AC_DEFINE(NORM_ENABLED, 1, [whether norm support is enabled])
+        if test ! "$dtn_cv_path_norm" = /usr && test ! "$dtn_cv_path_norm" = /usr/local; then
+            EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$dtn_cv_path_norm/include"
+            EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$dtn_cv_path_norm/build/default -L$dtn_cv_path_norm/build/default/protolib"
+        fi
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lnorm -lprotokit"
+    fi
+
+    fi
+])

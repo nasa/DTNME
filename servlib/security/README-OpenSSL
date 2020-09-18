@@ -1,0 +1,33 @@
+README for Bundle Security Protocol usage
+
+The standard ciphersuites require, amongst other things, 
+an implementation of sha-256 message digest algorithm.
+
+The DTN reference code uses OpenSSL for cryptographic
+and related functions. Unfortunately, some versions of
+OpenSSL do not include sha-256.
+
+The "configure" process checks for the availability of
+sha-256 and provides an error if it is not found.
+
+If your system's OpenSSL does not have sha-256 then you 
+can either upgrade it or build and use a local  version 
+of OpenSSL. OpenSSL can be obtained from
+http://www.openssl.org
+
+OpenSSL 0.9.8 version include sha-256 by default. If your
+system uses version 0.9.7 and you do not wish to upgrade
+then you can enable sha-256 in later versions of 0.9.7,
+such as 0.9.7l and 0.9.7m. To enable sha-256, specify "fips"
+when running "Configure".
+
+If you wish to leave you system installation untouched and
+build against a local version, then configure dtn using
+./configure --with-bsp --with-openssl=/path/to/openssl
+
+Mac OS X note: for Mac OS X users ONLY. If you build dtn
+against a local OpenSSL using "--with-openssl=/path/to/openssl"
+you MUST also specify with it LDFLAGS="-Wl,-search_paths_first". 
+The configuration for OS X users would then be 
+./configure --with-bsp --with-openssl=/path/to/openssl LDFLAGS="-Wl,-search_paths_first"
+Note that the quotes are required for the LDFLAGS argument.

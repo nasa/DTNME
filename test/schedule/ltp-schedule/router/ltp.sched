@@ -1,0 +1,11 @@
+VERSION=1.0
+ME=basil.dsg.cs.tcd.ie:11002
+NSCHEDULES=1
+START,1,REL=10,DUTY=10
+
+COMMS,1,0,basil.dsg.cs.tcd.ie:10002,RX,ON
+COMMS,1,0,basil.dsg.cs.tcd.ie:12002,RX,ON
+COMMS,1,1,basil.dsg.cs.tcd.ie:12002,TX,ON
+COMMS,1,3,basil.dsg.cs.tcd.ie:10002,TX,ON
+COMMS,1,4,basil.dsg.cs.tcd.ie:12002,TX,OFF
+COMMS,1,8,basil.dsg.cs.tcd.ie:10002,TX,OFF

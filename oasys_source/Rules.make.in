@@ -1,0 +1,210 @@
+#
+# Rules.make: common makefile rules for oasys / DTNME
+#
+# @configure_input@
+
+#
+# Identifiers for cross-compilation
+#
+TARGET 		= @TARGET@
+BUILD_SYSTEM	= @BUILD_SYSTEM@
+
+#
+# Installation settings from the configure script
+#
+prefix		= @prefix@
+exec_prefix	= @exec_prefix@
+bindir		= @bindir@
+sysconfdir	= @sysconfdir@
+localstatedir	= @localstatedir@
+libdir		= @libdir@
+includedir	= @includedir@
+datarootdir	= @datarootdir@
+datadir		= @datadir@
+docdir		= @docdir@
+mandir		= @mandir@
+srcdir		= @srcdir@
+
+#
+# Oasys directory substitutions
+#
+OASYS_INCDIR   = @OASYS_INCDIR@
+OASYS_LIBDIR   = @OASYS_LIBDIR@
+OASYS_ETCDIR   = @OASYS_ETCDIR@
+OASYS_VERSION  = @OASYS_VERSION@
+
+#
+# Include system settings
+#
+include $(BUILDDIR)/System.make
+
+#
+# Compiler flags
+#
+CC		= @CC@
+CXX		= @CXX@
+DEBUG 		= @DEBUG@
+DEFS            = @DEFS@
+DEPFLAGS	= @DEPFLAGS@
+OPTIMIZE	= @OPTIMIZE@
+PROFILE         = @PROFILE@
+PICFLAGS        = @PICFLAGS@
+SHLIBS		= @SHLIBS@
+SHLIB_EXT	= @SHLIB_EXT@
+LDFLAGS_SHLIB   = @LDFLAGS_SHLIB@
+EXTLIB_CFLAGS   = @EXTLIB_CFLAGS@ $(SYS_EXTLIB_CFLAGS)
+EXTLIB_LDFLAGS  = @EXTLIB_LDFLAGS@ $(SYS_EXTLIB_LDFLAGS)
+EXTRA_CFLAGS	= @EXTRA_CFLAGS@
+EXTRA_CXXFLAGS  = @EXTRA_CXXFLAGS@
+EXTRA_LDFLAGS	= @EXTRA_LDFLAGS@
+INCFLAGS	= -I$(BUILDDIR) -I$(SRCDIR) -I$(OASYS_INCDIR) @INCFLAGS@
+WARN		= -Wall -W -Wcast-align @OPTIMIZE_WARN@
+CFLAGS_BASE	= $(DEBUG) $(OPTIMIZE) $(PICFLAGS) $(DEPFLAGS) $(PROFILE) \
+	          $(DEFS) $(SYS_CFLAGS) $(INCFLAGS) $(EXTLIB_CFLAGS)
+CFLAGS_NOWARN	= $(CFLAGS_BASE) $(EXTRA_CFLAGS) -w
+CFLAGS		= $(CFLAGS_BASE) $(EXTRA_CFLAGS) $(WARN)
+CXXFLAGS_NOWARN	= $(CFLAGS_BASE) $-w (EXTRA_CXXFLAGS)
+CXXFLAGS        = $(CFLAGS_BASE) $(WARN) $(EXTRA_CXXFLAGS)
+LDFLAGS         = -L. $(EXTRA_LDFLAGS)
+
+OASYS_LDFLAGS        = @OASYS_LDFLAGS@
+OASYS_LDFLAGS_STATIC = @OASYS_LDFLAGS_STATIC@
+OASYS_COMPAT_LDFLAGS = @OASYS_COMPAT_LDFLAGS@
+
+#
+# Add a phony rule to make sure this isn't included before the default
+#
+.PHONY: catchdefault
+catchdefault:
+	@echo "Rules.make should be included after the default rule is set"
+	@exit 1
+
+#
+# Dump out the build options
+#
+.PHONY: buildopts
+buildopts:
+	@echo "Build options:"
+	@echo "  TARGET is: $(TARGET)"
+	@echo "  CC: $(CC)"
+	@echo "  CXX: $(CXX)"
+	@echo " "
+	@echo "Options:"
+	@echo "  DEBUG: $(DEBUG)"
+	@echo "  OPTIMIZE: $(OPTIMIZE)"
+	@echo "  PICFLAGS: $(PICFLAGS)"
+	@echo "  PROFILE: $(PROFILE)"
+	@echo "  DEFS: $(DEFS)"
+	@echo "  SYS_CFLAGS: $(SYS_CFLAGS)"
+	@echo "  INCFLAGS: $(INCFLAGS)"
+	@echo "  EXTRA_CFLAGS: $(EXTRA_CFLAGS)"
+    @echo "  EXTRA_CXXFLAGS: $(EXTRA_CXXFLAGS)"
+	@echo "  LDFLAGS: $(LDFLAGS)"
+	@echo " "
+	@echo ""
+	@echo "Oasys Configuration:"
+	@echo "  OASYS_INCDIR: $(OASYS_INCDIR)"
+	@echo "  OASYS_LIBDIR: $(OASYS_LIBDIR)"
+	@echo "  OASYS_ETCDIR: $(OASYS_ETCDIR)"
+	@echo "  OASYS_VERSION: $(OASYS_VERSION)"
+	@echo ""
+	@echo "External Packages:"
+	@echo "  EXTLIB_CFLAGS: $(EXTLIB_CFLAGS)"
+	@echo "  EXTLIB_LDFLAGS: $(EXTLIB_LDFLAGS)"
+
+
+#
+# Rule for generating a .o file from the corresponding .cc file;
+# automatically creates dependencies via the dependency flags.
+#
+%.o: %.cc
+	@rm -f $@; mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+%.o: %.c
+	@rm -f $@; mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+#
+# Generate cpp output in .E files.
+#
+%.E: %.cc
+	@rm -f $@; mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c $< -E -o $@
+
+%.E: %.c
+	@rm -f $@; mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c $< -E -o $@
+
+#
+# Make stripped binaries from debug binaries
+#
+%.stripped: %.exe
+	cp $< $@ && strip $@
+
+#
+# Always include all the .d files that we can find, based on all the
+# source files we can find (unless they're specified).
+#
+ifeq ($(ALLSRCS),)
+ALLSRCS := $(shell find . -name \*.cc -o -name \*.c)
+endif
+DEPFILES := $(ALLSRCS:%.cc=%.d)
+DEPFILES := $(DEPFILES:%.c=%.d)
+ifneq ($(DEPFILES),)
+-include $(DEPFILES)
+endif
+
+echosrcdir:
+	@echo "srcdir: $(SRCDIR)"
+
+echodep:
+	@echo "allsrcs: $(ALLSRCS)"
+	@echo "depfiles: $(DEPFILES)"
+
+#
+# Some rules for cleaning object files
+#
+clean: $(SUBDIRS) objclean depclean genclean libclean binclean $(CLEAN_OTHER)
+
+.PHONY: $(SUBDIRS)
+$(SUBDIRS):
+	$(MAKE) -w -C $@ $(MAKECMDGOALS)
+
+.PHONY: objclean
+objclean:
+	@echo "removing object files..."
+	@find . \( -name '*.[Eo]' \) -print | xargs rm -f
+
+.PHONY: depclean
+depclean:
+	@test -z "$(DEPFILES)" || \
+		(echo "removing dependency files..." && \
+		rm -f $(DEPFILES))
+
+.PHONY: genclean
+genclean:
+	@test -z "$(GENFILES)" || \
+		(echo "removing generated files: $(GENFILES)..." && \
+		rm -f $(GENFILES))
+
+.PHONY: libclean
+libclean:
+	@test -z "$(LIBFILES)" || \
+		(echo "removing library files: $(LIBFILES)..." && \
+		rm -f $(LIBFILES))
+
+.PHONY: binclean
+binclean:
+	@test -z "$(BINFILES)" || \
+		(echo "removing binary files: $(BINFILES)..." && \
+		rm -f $(BINFILES))
+
+.PHONY: distclean
+distclean: clean
+	@echo "removing configure generated files: $(CFGFILES)..."
+	@test -z "$(CFGFILES)" || rm -f $(CFGFILES)
+
+	@test -z "$(CFGDIRS)" || \
+		(echo "removing configure generated directories: $(CFGDIRS)..." && \
+		rmdir $(CFGDIRS))

@@ -1,0 +1,4 @@
+net::node 0 frylock 10000
+net::node 1 shake   10000
+net::node 2 carl    10000
+#net::node 3 meatwad 10000

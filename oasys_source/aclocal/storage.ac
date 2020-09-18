@@ -1,0 +1,35 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for configuring the various storage options
+dnl that really just dispatches to the other macros
+dnl
+
+AC_DEFUN(AC_CONFIG_STORAGE, [
+    AC_CONFIG_DB
+    AC_CONFIG_MYSQL
+    AC_CONFIG_POSTGRES
+    AC_CONFIG_EXTERNAL_DS
+
+    dnl
+    dnl Figure out if at least one sql option is enabled.
+    dnl
+    if test "$MYSQL_ENABLED" = "1" -o "$POSTGRES_ENABLED" = "1" ; then
+        AC_DEFINE_UNQUOTED(SQL_ENABLED, 1,
+             [whether some sql storage system is enabled])
+    fi
+])

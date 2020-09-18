@@ -1,0 +1,2 @@
+debian/oasys/usr/lib/liboasys* usr/lib/
+debian/oasys/usr/bin/* usr/bin/

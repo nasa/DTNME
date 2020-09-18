@@ -1,0 +1,159 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding postgres
+dnl
+
+dnl
+dnl Main macro for finding a usable postgres installation 
+dnl
+AC_DEFUN(AC_CONFIG_POSTGRES, [
+    ac_postgresdir='no'
+
+    AC_ARG_WITH(postgres,
+        AC_HELP_STRING([--with-postgres=DIR],
+    		   [location of a postgres installation (default none)]),
+        ac_postgresdir=$withval) 
+
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_postgresdir" = no ; then
+    POSTGRES_ENABLED=0
+    else
+
+    POSTGRES_ENABLED=1
+    AC_DEFINE_UNQUOTED(POSTGRES_ENABLED, 1, 
+        [whether postgres support is enabled])
+
+    dnl
+    dnl Now check if we have a cached value, unless the user specified
+    dnl something explicit with the --with-postgres= argument, in
+    dnl which case we force it to redo the checks (i.e. ignore the
+    dnl cached values)
+    dnl
+    if test "$ac_postgresdir" = yes -a ! x$oasys_cv_path_postgres_h = x ; then
+        echo "checking for postgres installation... (cached) $oasys_cv_path_postgres_h/libpq-fe.h, $oasys_cv_path_postgres_lib -lpq"
+    else
+        AC_OASYS_FIND_POSTGRES
+    fi
+
+    if test ! $oasys_cv_path_postgres_h = /usr/include ; then
+        EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$oasys_cv_path_postgres_h"
+    fi
+
+    if test ! $oasys_cv_path_postgres_lib = /usr/lib ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$oasys_cv_path_postgres_lib"
+    fi
+
+    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lpq"
+    
+    fi # POSTGRES_ENABLED
+])
+
+dnl
+dnl Find postgres
+dnl
+AC_DEFUN(AC_OASYS_FIND_POSTGRES, [
+    oasys_cv_path_postgres_h=
+    oasys_cv_path_postgres_lib=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    if test "$ac_postgresdir" = system -o \
+            "$ac_postgresdir" = yes -o \
+            "$ac_postgresdir" = "" ; 
+    then
+        ac_postgresincdirs="/usr/include /usr/include/postgresql \
+                            /usr/local/pgsql/include"
+        ac_postgreslibdirs="/usr/lib /usr/lib/pgsql /usr/local/pgsql/lib"
+    else
+        ac_postgresincdirs="$ac_postgresdir/include"
+        ac_postgreslibdirs="$ac_postgresdir/lib"
+    fi
+
+    for ac_postgresincdir in $ac_postgresincdirs; do
+
+	CPPFLAGS="$ac_save_CPPFLAGS -I$ac_postgresincdir"
+	LDFLAGS="$ac_save_LDFLAGS"
+	LIBS="$ac_save_LIBS"
+
+	dnl
+	dnl First check the version in the header file. If there's a match, 
+	dnl fall through to the other check to make sure it links.
+	dnl If not, then we can break out of the two inner loops.
+	dnl
+        AC_MSG_CHECKING([for postgres header libpq-fe.h in $ac_postgresincdir])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <libpq-fe.h>
+            ],
+            
+            [
+            ]),
+          [ 
+	      AC_MSG_RESULT([yes])
+              oasys_cv_path_postgres_h=$ac_postgresincdir
+	      break
+          ],
+          [
+              AC_MSG_RESULT([no])
+	      continue
+          ])
+    done
+
+    if test x$oasys_cv_path_postgres_h = x ; then
+        AC_MSG_ERROR([can't find usable postgres installation])
+    fi
+
+    for ac_postgreslibdir in $ac_postgreslibdirs; do
+
+	LDFLAGS="$ac_save_LDFLAGS -L$ac_postgreslibdir"
+	LIBS="$ac_save_LIBS -lpq"
+
+        AC_MSG_CHECKING([for postgres library libpq in $ac_postgreslibdir])
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <libpq-fe.h>
+            ],
+            
+            [
+	        PGconn *conn = PQconnectStart("");
+            ]),
+
+          [
+              AC_MSG_RESULT([yes])
+              oasys_cv_path_postgres_lib=$ac_postgreslibdir
+              break
+          ],
+          [
+              AC_MSG_RESULT([no])
+          ])
+    done
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    if test x$oasys_cv_path_postgres_lib = x ; then
+        AC_MSG_ERROR([can't find usable postgres library])
+    fi
+])

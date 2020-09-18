@@ -1,0 +1,20 @@
+dnl
+dnl Autoconf support for the LTPUDP Convergence Layer
+dnl
+
+AC_DEFUN(AC_CONFIG_LTPUDP, [
+    ac_ltpudp='yes'
+    AC_ARG_WITH(ltpudp,
+        AC_HELP_STRING([--without-ltpudp],
+    		   	[enable LTPUDP Convvergence Layer support (EXPERIMENTAL)]),
+        ac_ltpudp=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_ltpudp" = no; then
+        LTPUDP_ENABLED=0
+    else
+        LTPUDP_ENABLED=1
+        AC_DEFINE_UNQUOTED(LTPUDP_ENABLED, 1, [whether LTPUDP Authentication support is enabled])
+    fi # LTPUDP_ENABLED
+])

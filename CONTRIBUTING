@@ -1,0 +1,87 @@
+
+This document briefly describes how to get involved with DTN
+development. Note that the DTN research project is still very much in
+its formative stages, and this code base in particular is likely to
+still be largely in flux. 
+
+Contribution Process
+--------------------
+
+Anonymous source code repository access is available for the general
+public.
+
+Coding Conventions
+------------------
+
+In the interest of overall clarity and consistency, we have adopted
+the following conventions for the implementation. Please follow them
+in your extensions:
+
+- The basic indentation level is 4 spaces (no tab characters please).
+  Please take care to make sure that indentation matches the code
+  around it.
+
+- Class names should begin with capital letters and use mixed case for
+  word separation. e.g. BundleRouter
+
+- Method / function names should have all lowercase letters with words
+  separated by underscores: e.g. send_bundle()
+
+- Class member variables should be distinguished from local variables
+  with a trailing underscore, e.g. bundle_.
+
+- Macros and constants should be all capital letters with underscores
+  to separate words. e.g. #define MAX_TUPLE_LENGTH 256
+
+- The file names for individual .h/.cc files should correspond to the
+  (primary) class in the file. e.g BundleRouter.cc
+
+- Inline comments can use either C or C++ style syntax. For block
+  comments on methods and classes, please use the mark-up syntax of
+  doxygen since we use that to generate html code documentation.
+
+- Above all, please be consistent. When modifying code, follow the
+  conventions of the code around you.
+
+- Try to keep code lines under 80 columns in width.
+
+- For emacs users, adding the following lisp code to your .emacs will
+  follow these conventions:
+
+(require 'cc-mode)
+(require 'cc-vars)
+
+(defconst dtn-c-style
+  '((c-basic-offset		. 4)		; 4 spaces for indentation
+    (c-offsets-alist
+     . ((substatement-open	. 0)		; don't indent braces!
+	(inline-open		. 0)		; don't indent braces, please.
+	(label 			. -1000)	; flush labels left
+	(statement-cont		. c-lineup-math); line up with = signs
+	(innamespace		. 0)		; no indent for namespaces
+	(inextern-lang		. 0)		; or extern language
+	))))
+
+(defun dtn-c-setup()
+  (interactive)
+  (c-add-style "dtn-c-style" dtn-c-style t)	; dtn style above
+  (setq indent-tabs-mode nil)	           	; use spaces for tabs
+)
+
+(add-hook 'c-mode-hook 'dtn-c-setup)
+(add-hook 'c++-mode-hook 'dtn-c-setup)
+  
+- For vim users, use the following settings for tabs:
+
+set tabstop=8        " \t are 8 spaces
+set shiftwidth=4     " but tab key inserts 4
+set softtabstop=4    " and indentation advances in increments of 4
+set noexpandtab      " don't turn tabs into spaces
+
+Testing
+-------
+
+There is an extensive set of unit tests and system tests in the test/
+directories of both DTNME and oasys, as well as a suite of test
+utilities in the test-utils directories of both. 
+

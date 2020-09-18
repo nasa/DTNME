@@ -1,0 +1,44 @@
+Legend:
+
++---+------+
+| * | todo |
+| D | done |
+| P | punt |
++---+------+
+
+* Integrate expandable buffer into StreamBuffer
+
+* Integrate serializestream into the marshallers
+
+* MemoryStore serialization is wrong -- uses string serialize to
+  marshal keys, then unmarshals the keys
+
+* When fixing that, an idea is to add a SerializableKey interface that
+  provices a virtual compare() function; change all the DurableStore
+  interfaces to take this type as the key; then things like the
+  DurableCache and the MemoryStore need not serialize / unserialize
+  the key, they can just use it directly in an STL map class via a
+  simple Comparison class shim.
+
+  BD: Add a serialized key marshall type which can easily be used for
+      handling the key case.
+
+* Should be consistent throughout about the use of char* and u_char*. 
+
+* Another idea: Implement a serializable 'FileBackedObject' that
+  maintains a fixed-size in-memory buffer, but leaves the bulk of the
+  data for the object on-disk (ala the dtn Bundle class). All
+  read/write to the object goes through offset-based functions and is
+  reflected immediately to the file. Augment all the DurableTable
+  interfaces with bulk_put and bulk_get interfaces that can be used to
+  manipulate these large objects. For the FileSystemStore, this would
+  just use the normal mechanism. For BerkeleyDB and others, they could
+  contain a FileSystemStore instance and use it to manipulate the bulk
+  data items.
+
+  demmer: this has been started on the apr-port branch
+
+D Change the DurableTable::get() interface that takes an
+  already-constructed object to not ASSERT that there's no cache, but
+  instead marshal the data that's in the cache and then unmarshal into
+  the object.

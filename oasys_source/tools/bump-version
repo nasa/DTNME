@@ -1,0 +1,15 @@
+#!/bin/bash
+
+FILE=$1
+if [ "$FILE" = "" ] ; then
+   echo "usage: bump-version [version.dat file]"
+   exit 1
+fi
+
+major=`awk '{print $1}' < $FILE`
+minor=`awk '{print $2}' < $FILE`
+patch=`awk '{print $3}' < $FILE`
+
+patch=`expr $patch + 1`
+
+echo "$major $minor $patch" > $FILE

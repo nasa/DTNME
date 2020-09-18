@@ -1,0 +1,224 @@
+/* oasys-config.h.in.  Generated from configure.ac by autoheader.  */
+
+/* configured version of berkeley db */
+#undef BERKELEY_DB_VERSION
+
+/* whether external data store support is enabled */
+#undef EXTERNAL_DS_ENABLED
+
+/* whether google perftools support is enabled */
+#undef GOOGLE_PERFTOOLS_ENABLED
+
+/* whether google profiling support is enabled */
+#undef GOOGLE_PROFILE_ENABLED
+
+/* Define to 1 if you have the <bluetooth/bluetooth.h> header file. */
+#undef HAVE_BLUETOOTH_BLUETOOTH_H
+
+/* Define to 1 if you have the `cfmakeraw' function. */
+#undef HAVE_CFMAKERAW
+
+/* Define to 1 if you have the `cfsetspeed' function. */
+#undef HAVE_CFSETSPEED
+
+/* Define to 1 if you have the <err.h> header file. */
+#undef HAVE_ERR_H
+
+/* Define to 1 if you have the <execinfo.h> header file. */
+#undef HAVE_EXECINFO_H
+
+/* Define to 1 if you have the `getaddrinfo' function. */
+#undef HAVE_GETADDRINFO
+
+/* wether gethostbyname exists */
+#undef HAVE_GETHOSTBYNAME
+
+/* wether gethostbyname_r exists */
+#undef HAVE_GETHOSTBYNAME_R
+
+/* Define to 1 if you have the `getopt_long' function. */
+#undef HAVE_GETOPT_LONG
+
+/* wether inet_aton exists */
+#undef HAVE_INET_ATON
+
+/* wether inet_pton exists */
+#undef HAVE_INET_PTON
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the <memory.h> header file. */
+#undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the <netax25/ax25.h> header file. */
+#undef HAVE_NETAX25_AX25_H
+
+/* Define to 1 if you have the <netax25/axconfig.h> header file. */
+#undef HAVE_NETAX25_AXCONFIG_H
+
+/* Define to 1 if you have the <netax25/axlib.h> header file. */
+#undef HAVE_NETAX25_AXLIB_H
+
+/* whether pthread_setspecific is defined */
+#undef HAVE_PTHREAD_SETSPECIFIC
+
+/* wether pthread_yield exists */
+#undef HAVE_PTHREAD_YIELD
+
+/* Define to 1 if the system has the type `ptrdiff_t'. */
+#undef HAVE_PTRDIFF_T
+
+/* Define to 1 if you have the <readline/readline.h> header file. */
+#undef HAVE_READLINE_READLINE_H
+
+/* wether sched_yield exists */
+#undef HAVE_SCHED_YIELD
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if you have the <synch.h> header file. */
+#undef HAVE_SYNCH_H
+
+/* Define to 1 if you have the <sys/cdefs.h> header file. */
+#undef HAVE_SYS_CDEFS_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define if Tcl has Tcl_GetErrorLine function. */
+#undef HAVE_TCL_GETERRORLINE
+
+/* Define to 1 if the system has the type `uint32_t'. */
+#undef HAVE_UINT32_T
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define to 1 if the system has the type `u_int32_t'. */
+#undef HAVE_U_INT32_T
+
+/* whether xdr_u_int64_t exists */
+#undef HAVE_XDR_U_INT64_T
+
+/* whether xdr_u_quad_t exists */
+#undef HAVE_XDR_U_QUAD_T
+
+/* whether berkeley db storage support is enabled */
+#undef LIBDB_ENABLED
+
+/* whether expat is enabled */
+#undef LIBEXPAT_ENABLED
+
+/* whether the mysql embedded server is enabled */
+#undef LIBMYSQLD_ENABLED
+
+/* whether odbc is enabled */
+#undef LIBODBC_ENABLED
+
+/* whether mysql support is enabled */
+#undef MYSQL_ENABLED
+
+/* whether atomic routines are implemented with a mutex */
+#undef OASYS_ATOMIC_MUTEX
+
+/* whether non-atomic "atomic" routines are enabled */
+#undef OASYS_ATOMIC_NONATOMIC
+
+/* whether ax25 support is enabled */
+#undef OASYS_AX25_ENABLED
+
+/* whether bluetooth support is enabled */
+#undef OASYS_BLUETOOTH_ENABLED
+
+/* defined so code can ensure that oasys-config.h is properly included */
+#undef OASYS_CONFIG_STATE
+
+/* whether oasys lock debugging is enabled */
+#undef OASYS_DEBUG_LOCKING_ENABLED
+
+/* whether oasys memory debugging is enabled */
+#undef OASYS_DEBUG_MEMORY_ENABLED
+
+/* whether oasys log_debug is enabled */
+#undef OASYS_LOG_DEBUG_ENABLED
+
+/* whether zlib support is enabled */
+#undef OASYS_ZLIB_ENABLED
+
+/* whether zlib contains compressBound */
+#undef OASYS_ZLIB_HAS_COMPRESS_BOUND
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* whether postgres support is enabled */
+#undef POSTGRES_ENABLED
+
+/* whether readline is actually BSD's libedit */
+#undef READLINE_IS_EDITLINE
+
+/* Define as the return type of signal handlers (`int' or `void'). */
+#undef RETSIGTYPE
+
+/* The size of `off_t', as computed by sizeof. */
+#undef SIZEOF_OFF_T
+
+/* whether some sql storage system is enabled */
+#undef SQL_ENABLED
+
+/* Define to 1 if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* whether tclreadline is enabled */
+#undef TCLREADLINE_ENABLED
+
+/* whether xerces support is enabled */
+#undef XERCES_C_ENABLED
+
+/* Define to empty if `const' does not conform to ANSI C. */
+#undef const
+
+/* Define to `__inline__' or `__inline' if that's what the C compiler
+   calls it, or to nothing if 'inline' is not supported under any name.  */
+#ifndef __cplusplus
+#undef inline
+#endif
+
+/* Define to `int' if <sys/types.h> does not define. */
+#undef mode_t
+
+/* Define to `unsigned int' if <sys/types.h> does not define. */
+#undef size_t
+
+/* Define to empty if the keyword `volatile' does not work. Warning: valid
+   code using `volatile' can become incorrect without. Disable with care. */
+#undef volatile

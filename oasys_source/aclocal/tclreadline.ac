@@ -1,0 +1,131 @@
+dnl
+dnl    Copyright 2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for tclreadline
+dnl
+
+dnl
+dnl help 
+dnl
+AC_DEFUN(AC_TCLRL_HELP, [
+cat <<EOF
+
+Configure error with tclreadline...
+
+If you do not want tclreadline support at all, you can specify
+--without-tclreadline.
+
+Download tclreadline from http://tclreadline.sourceforge.net/
+
+Before trying to compile tclreadline you should do the following things:
+
+    (a) Make sure you have tcl 8.0 or higher.
+        tclreadline relies on a proper tcl installation:
+        It uses the tclConfig.sh file, which should reside somewhere
+        in /usr/local/lib/ or /usr/local/lib/tcl8.0/...
+
+    (b) Make sure you have gnu readline 2.2 or higher.
+        tclreadline uses the gnu readline callback handler
+
+    (c) The usual ./configure; make; make install sequence should do the rest.
+
+
+EOF
+
+])
+dnl
+dnl Main macro for finding a usable db installation 
+dnl
+AC_DEFUN(AC_CONFIG_TCLREADLINE, [
+#ac_tclreadlinedir='system'
+
+    AC_ARG_WITH(tclreadline,
+        AC_HELP_STRING([--with-tclreadline],
+    		   [enable or disable tclreadline (default try)]),
+        [ac_tclreadline=$withval],
+        [ac_tclreadline=try])
+
+    dnl
+    dnl First make sure we even want it
+    dnl
+	AC_MSG_CHECKING([whether tclreadline support should be enabled])
+    if test "$ac_tclreadline" = no ; then
+    AC_MSG_RESULT([no])
+    TCLREADLINE_ENABLED=0
+
+    else
+
+    dnl
+    dnl If we do, tell the user what we're about to do
+    dnl    
+    if test "$ac_tclreadline" = try ; then
+       AC_MSG_RESULT([try])
+    else
+       AC_MSG_RESULT([yes])
+    fi
+
+    dnl
+    dnl Now check for an installation of libreadline (except on Cygwin)
+    dnl
+    if test "$BUILD_SYSTEM" = 'CYGWIN' ; then
+        TCLREADLINE_ENABLED=0
+    else 
+    dnl	
+    dnl look for the library and the header
+    dnl
+	AC_EXTLIB_PREPARE
+        AC_MSG_CHECKING([searching for the readline library development headers])
+        AC_CHECK_HEADERS([readline/readline.h], TCLREADLINE_ENABLED=1, TCLREADLINE_ENABLED=0)
+	AC_SEARCH_LIBS(readline, readline, TCLREADLINE_ENABLED=1, TCLREADLINE_ENABLED=0)
+        AC_EXTLIB_SAVE
+    fi
+
+    dnl
+    dnl Find out if we're using the BSD libedit implementation of 
+    dnl readline functionality.
+    dnl
+    if test "$TCLREADLINE_ENABLED" = 1; then
+         AC_CACHE_CHECK([whether readline is GNU readline or BSD editline],
+	  	        [oasys_cv_readline_is_editline],
+ 		        [AC_LINK_IFELSE([AC_LANG_CALL([], [rl_extend_line_buffer])],
+ 		       		        [oasys_cv_readline_is_editline=GNU],
+ 		       		        [oasys_cv_readline_is_editline=editline])])
+        if test $oasys_cv_readline_is_editline = editline ; then
+            AC_DEFINE_UNQUOTED(READLINE_IS_EDITLINE, 1,
+                               [whether readline is actually BSD's libedit])
+        fi
+
+	dnl Finally, spit out an informative message
+	AC_MSG_CHECKING([whether tclreadline support was found])
+        AC_MSG_RESULT([yes])
+
+    else
+
+	dnl Finally, spit out an informative message
+	AC_MSG_CHECKING([whether tclreadline support was found])
+	AC_MSG_RESULT([no])
+	if test "$ac_tclreadline" = yes; then
+	AC_TCLRL_HELP
+	AC_MSG_ERROR([can't find usable tclreadline])
+	fi
+    fi
+
+    fi # ac_tclreadline != no
+
+    AC_DEFINE_UNQUOTED(TCLREADLINE_ENABLED, $TCLREADLINE_ENABLED,
+                       [whether tclreadline is enabled])
+])

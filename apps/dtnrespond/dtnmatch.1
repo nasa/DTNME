@@ -1,0 +1,51 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnmatch 1 "November 18, 2010"
+.LO 1
+.SH NAME
+dtnmatch \- describe dtn query matching 
+.SH CONTENTS
+.RB [
+.RB  matching_rule,
+.RB encoding, 
+.RB query, 
+.RB response_path, 
+.RB expiry 
+.RB ]
+
+.SH DESCRIPTION
+.B dtnmatch
+is a comma seperated value file used by both 
+.B dtnquery
+to describe the query to be sent (response path is
+ignored) and
+.B dtnrespond
+to describe the files to match against (matching rule,
+encoding and query are ignored).
+.PP
+When sending a query a matching file may be specified containing
+the matching rule to use, the encoding, query itself and the bundle
+expiry time.
+.PP
+When 
+.B dtnrespond
+is listening for query bundle it uses the response path to find
+files to match against. The expiry contained in this file is used 
+to set the bundle expiry time.
+
+.SH "SEE ALSO"
+dtnquery(1), dtnrespond(1), dtnd(8).

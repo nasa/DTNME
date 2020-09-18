@@ -1,0 +1,162 @@
+
+	     Status of the DTNME Reference Implementation
+	     ===========================================
+
+This document describes the high-level features of version 2.4.0 of
+the DTNME reference implementation and summarizes the relationship
+between the implementation and the various Internet Drafts that
+describe Delay Tolerant Networking, the Bundle Protocol, and other
+related protocols.
+
+The current version of the DTNME code is based on RFC 4838 on the
+Delay-Tolerant Networking Architecture, and the Bundle Protocol
+Specification Internet Draft version 9. The TCP convergence layer is
+based on the Delay Tolerant Networking TCP Convergence Layer Protocol
+draft version 0.
+
+A copy of these documents are included in the doc/ directory and can
+be obtained from the ietf.org web site.
+
+
+			 The Bundle Protocol
+			 -------------------
+
+The features described in the bundle protocol specification that are
+implemented include the following:
+
+- The Basic Bundle Protocol
+- Self Describing Numeric Values
+- Endpoint Identifiers (more information below)
+- Bundle expirations (based on timers)
+- Registrations (with expiration timers)
+- Persistent storage of bundles
+- Bundle fragmentation (reactive)
+- Bundle fragment reassembly
+- Custody Transfer
+- Bundle Status Reports:
+  - Received
+  - Forwarded 
+  - Delivered
+  - Deleted
+  - Custody Acceptance
+- Extension blocks
+
+
+The features that are not yet implemented include:
+
+- Bundle Status Reports:
+  - Acknowledged by Application 
+- Bundle Security blocks
+- Proactive Fragmentation
+
+
+			  Convergence Layers
+			  ------------------
+
+The following Convergence Layers have been implemented. 
+
+-- TCP Convergence Layer
+
+An internet draft (draft-dtnrg-tcp-clayer-00.txt) has been published
+describing the TCP convergence layer protocol.
+
+The TCP convergence layer offers a reliable communication channel
+between DTN nodes. All bundle communication is bidirectional. The
+protocol returns an acknowledgement message when part or all of the
+bundle is received. These acknowledgements allowing the sender side to
+determine whether or not the bundle can be removed from the data
+store. Also, the partial acknowledgements are used to implement
+reactive fragmentation.
+
+-- UDP Convergence Layer
+
+The UDP convergence layer offers a simple, unreliable channel. A
+single bundle is sent in each UDP datagram, thus only bundles that are
+smaller than the 64KB maximum datagram size can be sent. It is assumed
+that configuration will be put in place to proactively fragment large
+bundles before sending them over this type of link.
+
+-- Ethernet Convergence Layer
+
+This convergence layer sends bundles over raw ethernet frames, using
+an invented ethernet type code (0xd710). As with the UDP CL, there is
+a maximum size of bundles that can be sent over this type of link,
+in this case 1518 bytes.
+
+This convergence layer also includes support for neighbor discovery
+through the use of periodic beacon packets.
+
+** Note -- this convergence layer is currently disabled for lack of
+   testing. It is intended to be re-enabled in a future release.
+   
+
+			 Link / Contact Types
+			 --------------------
+
+As described by the DTN architecture document, there are four general
+types of links:
+
+-- Always On
+
+These links are opened immediatly on configuration, and underlying
+transport connections (if any) are maintained open whenever possible.
+
+-- On Demand
+
+These links are opened when there is a bundle (or bundles) that the
+router determines should be sent over the link. There is a
+configurable idle timer that closes the link after a period of
+inactivity.
+
+-- Opportunistic
+
+These links are only opened in response to some external event, such
+as detection of a nearby node. Currently, there is only limited
+support for neighbor discovery.
+
+-- Scheduled
+
+No support for scheduled links is yet implemented.
+
+
+			       Routing
+			       -------
+
+The implementation offers an interface by which new routing algorithms
+and modules can be easily added to the system. 
+
+Additional routing implementations can also be integrated using an external API.
+
+We intend for this to be an area of future development, with more
+routing frameworks added in upcoming release(s).
+
+
+			 Endpoint Identifiers
+			 --------------------
+
+This implementation contains a rich framework for naming based on URI
+schemes. The following schemes are supported:
+
+-- DTN scheme
+
+We currently implement a (unspecified) scheme of "dtn". This scheme
+offers support for internet hostname style node specifications, along
+with URI path style demultiplexers, as well as simple pattern matching
+for route entries.
+
+An example DTN uri is dtn://thing1.dtnrg.org.dtn/mail
+
+-- String scheme
+
+A simple scheme used for testing allows any ASCII string to be encoded
+in a URI. An example is str:my_name_is_mike
+
+-- Ethernet scheme
+
+This scheme encodes ethernet addresses in a URI format. An example
+ethernet scheme URI is eth://01:23:45:ab:cd:ef
+
+
+======================================================================
+
+Last updated: December 18, 2006

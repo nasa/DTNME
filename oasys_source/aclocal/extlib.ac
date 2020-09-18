@@ -1,0 +1,53 @@
+dnl
+dnl    Copyright 2007 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Helper macros to handle compilation tests on external libraries.
+dnl
+dnl Before configuring the library, a test should call AC_EXTLIB_PREPARE,
+dnl then set CFLAGS, LDFLAGS, and LIBS accordingly to properly configure
+dnl the library, and finally call AC_EXTLIB_SAVE to record the settings
+dnl in the EXTLIB_CFLAGS and EXTLIB_LDFLAGS variables.
+dnl
+
+
+AC_DEFUN(AC_EXTLIB_PREPARE, [
+    ac_extlib_save_CFLAGS=$CFLAGS
+    ac_extlib_save_LDFLAGS=$LDFLAGS
+    ac_extlib_save_LIBS=$LIBS
+
+    CFLAGS=
+    LDFLAGS=
+    LIBS=
+])
+
+AC_DEFUN(AC_EXTLIB_SAVE, [
+    if test ! "$CFLAGS" = "" ; then
+        EXTLIB_CFLAGS="$EXTLIB_CFLAGS $CFLAGS"
+    fi
+
+    if test ! "$LDFLAGS" = "" ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS $LDFLAGS"
+    fi
+
+    if test ! "$LIBS" = "" ; then
+        EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS $LIBS"
+    fi
+    
+    CFLAGS=$ac_extlib_save_CFLAGS
+    LDFLAGS=$ac_extlib_save_LDFLAGS
+    LIBS=$ac_extlib_save_LIBS
+])

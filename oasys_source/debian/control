@@ -1,0 +1,22 @@
+Source: oasys
+Section: libs
+Priority: optional
+Maintainer: dtn-users mailing list [dtn-users@mailman.dtnrg.org]
+Build-Depends: make, gcc, g++, debhelper (>= 5), tcl8.3-dev | tcl8.4-dev | tcl8.5-dev, libdb4.3-dev | libdb4.4-dev | libdb4.5-dev |libdb4.6-dev | libdb4.7-dev, libxerces27-dev | libxerces-c2-dev | libxerces28-dev
+
+
+Package: liboasys
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: The oasys library
+ .
+ Oasys is a C++ utility library of system wrappers and utility classes.
+
+Package: liboasys-dev
+Architecture: any
+Section: libdevel
+Depends: liboasys (= ${Source-Version})
+Description: The oasys library - development headers
+ .
+ Oasys is a C++ utility library of system wrappers and utility
+ classes. This package contains the development headers.

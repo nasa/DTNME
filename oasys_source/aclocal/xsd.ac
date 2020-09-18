@@ -1,0 +1,36 @@
+dnl Copyright 2004-2006 BBN Technologies Corporation
+dnl
+dnl Licensed under the Apache License, Version 2.0 (the "License"); you may not
+dnl use this file except in compliance with the License. You may obtain a copy
+dnl of the License at http://www.apache.org/licenses/LICENSE-2.0
+dnl
+dnl Unless required by applicable law or agreed to in writing, software
+dnl distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+dnl WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl
+dnl See the License for the specific language governing permissions and
+dnl limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding xsd
+dnl
+
+AC_DEFUN(AC_CONFIG_XSD, [
+    dnl
+    dnl Handle --with-xsd-tool=xsd
+    dnl
+    AC_ARG_WITH(xsd-tool,
+        AC_HELP_STRING([--with-xsd-tool=xsd],
+            [name or path of the xsd tool (default: xsd)]),
+        [ac_with_xsd_tool=$withval],
+        [ac_with_xsd_tool=xsd])
+
+    AC_CHECK_TOOL(XSD_TOOL, $ac_with_xsd_tool)
+    if test -z "$XSD_TOOL" ; then
+       AC_MSG_NOTICE([Cannot find a working xsd tool])
+       AC_MSG_NOTICE([   You will not be able to regenerate XML schema bindings])
+       AC_MSG_NOTICE([   if you make changes to the .xsd file])
+       AC_MSG_NOTICE([   Use --with-xsd-tool=(name) to specify the location of this tool])
+    fi
+])

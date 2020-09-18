@@ -1,0 +1,21 @@
+dnl
+dnl Autoconf support for BundleDaemon Statistics
+dnl
+
+AC_DEFUN(AC_CONFIG_BDSTATS, [
+    ac_bdstats='no'
+    AC_ARG_WITH(bdstats,
+        AC_HELP_STRING([--with-bdstats],
+                [enable BundleDaemon Statistics support]),
+        ac_bdstats=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_bdstats" = no; then
+        BDSTATS_ENABLED=0
+    else
+        BDSTATS_ENABLED=1
+        with_extra_ldflags="$with_extra_ldflags -lrt"
+        AC_DEFINE_UNQUOTED(BDSTATS_ENABLED, 1, [whether BundleDaemon Statistics support is enabled])
+    fi # BDSTATS_ENABLED
+])

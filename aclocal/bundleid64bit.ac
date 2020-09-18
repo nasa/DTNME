@@ -1,0 +1,42 @@
+dnl
+dnl Autoconf support for specifying a 64bit Bundle ID 
+dnl
+
+AC_DEFUN(AC_CONFIG_BID64BIT, [
+    ac_bid64bit='yes'
+    AC_ARG_ENABLE(bid64bit,
+        AC_HELP_STRING([--disable-bid64bit],
+    		   	[set the size of the Bundle ID to 32 bits]),
+        ac_bid64bit=$enableval) 
+    dnl
+    dnl First make sure we even want it
+    dnl
+    AC_MSG_CHECKING(whether to enable 64bit Bundle ID)
+    if test "$ac_bid64bit" = no; then
+        AC_MSG_RESULT(no)
+
+        #BUNDLEID_SIZE=32
+        #bundleid_t=u_int32_t
+        #BUNDLE_ID_MAX=0xffffffff
+        #BUNDLE_ID_MAX64=__UINT64_C(0x00000000ffffffff)
+        #PRIbid=PRIu32
+        AC_DEFINE_UNQUOTED(BUNDLEID_SIZE, 32, [Bundle ID size])
+        AC_DEFINE_UNQUOTED(bundleid_t, u_int32_t, [Bundle ID is 32 bits])
+        AC_DEFINE_UNQUOTED(BUNDLE_ID_MAX, 0xffffffff, [Max valus of the Bundle ID])
+        AC_DEFINE_UNQUOTED(BUNDLE_ID_MAX64, __UINT64_C(0x00000000ffffffff), [64 bit version of the max Bundle ID value])
+        AC_DEFINE_UNQUOTED(PRIbid, PRIu32, [Macro for printing a Bundle ID])
+    else
+        AC_MSG_RESULT(yes)
+
+        #BUNDLEID_SIZE=64
+        #bundleid_t=u_int64_t
+        #BUNDLE_ID_MAX=__UINT64_C(0xffffffffffffffff)
+        #BUNDLE_ID_MAX64=BUNDLE_ID_MAX
+        #PRIbid=PRIu64
+        AC_DEFINE_UNQUOTED(BUNDLEID_SIZE, 64, [Bundle ID size])
+        AC_DEFINE_UNQUOTED(bundleid_t, u_int64_t, [Bundle ID is 64 bits])
+        AC_DEFINE_UNQUOTED(BUNDLE_ID_MAX, __UINT64_C(0xffffffffffffffff), [Max value of the Bundle ID])
+        AC_DEFINE_UNQUOTED(BUNDLE_ID_MAX64, BUNDLE_ID_MAX, [64 bit version of the max Bundle ID value])
+        AC_DEFINE_UNQUOTED(PRIbid, PRIu64, [Macro for printing a Bundle ID])
+    fi # BID64BIT
+])

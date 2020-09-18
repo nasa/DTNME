@@ -1,0 +1,14 @@
+DTN Reference Implementation Simulator
+======================================
+
+This directory contains the source code for the DTN simulation
+environment.
+
+[March 2012]
+After some years of (probable) non-functioning, the simulator has been
+repaired.  Added expiration parameter to simulator registrations (defaults
+to 10 seconds).
+
+[Note from 2004!]
+NOTE: the framework is still in a pre-release state. Internal APIs and
+structures will likely change in upcoming revisions.

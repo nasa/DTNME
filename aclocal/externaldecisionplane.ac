@@ -1,0 +1,28 @@
+dnl
+dnl Autoconf support for external decision plane
+dnl
+
+AC_DEFUN(AC_CONFIG_EXTERNAL_DP, [
+    ac_edp='yes'
+    AC_ARG_ENABLE(edp,
+        AC_HELP_STRING([--disable-edp],
+    		   	[disable external decision plane support]),
+        ac_edp=$enableval) 
+    dnl
+    dnl First make sure we even want it
+    dnl
+    AC_MSG_CHECKING(whether to enable external decision plane support)
+    if test "$ac_edp" = no; then
+        AC_MSG_RESULT(no)
+        EXTERNAL_DP_ENABLED=0
+    else
+        AC_MSG_RESULT(yes)
+
+        AC_OASYS_SUPPORTS(XERCES_C_ENABLED)
+	if test $ac_oasys_supports_result != yes ; then
+	    AC_MSG_ERROR([external decision plane support requires xerces... install it or configure --disable-edp])
+	fi
+
+        AC_DEFINE_UNQUOTED(EXTERNAL_DP_ENABLED, 1, [whether external decision plane support is enabled])
+    fi # EXTERNAL_DP_ENABLED
+])

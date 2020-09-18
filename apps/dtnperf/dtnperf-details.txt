@@ -1,0 +1,159 @@
+                         *************************
+                         *       dtnperf         *
+                         *                       *
+                         * DETAILED INSTRUCTIONS *
+                         *************************
+
+This document describes, in a certain detail, the functions of dtnperf.
+
+* DTNPERF - SERVER
+
+The server syntax is simple:
+
+    SYNTAX: ./dtnperf-server [options]
+
+where options are almost useless, so you can run it without anything else.
+However let's say something about them.
+
+-d <dir> : here you can specify the directory in which the received file will be
+           saved. Actually, i haven't tested it yet, so if you do it please let
+me know what you could do. The default directory is /var/dtn/dtnperf: it works
+great and i don't want to change it (yes, i'm quite lazy).
+
+-D : with this option you can see all the debug messages of the server, so you
+     can truly understand how it works, thus obtaining the complete control of
+the galaxy, the secret of the universe and maybe the immortal life.
+
+-m : by typing it, you can store the received bundles into memory, instead of a
+     file. This surely works ONLY if:
+1) the client is using -m option too
+2) the client sends bundles with a payload SMALLER than 50000 bytes.
+Read also the '-m' explanation in the client section.
+
+-h : simply shows the syntax
+
+-v : the 'verbose' mode shows some additional messages about what's happening.
+
+
+
+* DTNPERF - CLIENT
+
+Let's begin from the syntax:
+
+    SYNTAX: ./dtnperf-client -d <dest_eid> [-t <sec> | -n <num>] [options]
+
+-d <dest_eid> : is a required argument, and specifies the EID of the server.
+                An EID (Endpoint ID) is the DTN name of a node, and generally
+has a DNS-like syntax: dtn://servername.dtn. This syntax may however change.
+
+-t <sec> : this option requires a positive number, which is interpreted as a
+           number of seconds. This means that your transmission will last
+at least <sec> seconds (if you want to know why i wrote "at least", read the
+-p session).
+So, if i wanted to transmit data for 30 seconds, i should write "-t 30".
+
+-n <num> : the argument must be a positive number, eventually followed by a
+           measure unit (B for bytes, K for KBytes or M for MBytes). If no unit
+is expressed, the client assumes you want to send MBytes. If i wanted to send
+a 10 MBytes file, i should write "-n 10M", while for 1 KByte i'd write "-n 1K".
+
+
+Then there are a bunch if options, which are quite important.
+
+-p <size> : with this option, you can define the payload size of a bundle.
+            It's a very important option, because it affects the goodput result.
+If you use it in Time-Mode (-t option) there's no upper limit for the size, but
+remember that - if you specify a value greater than 50000 bytes - the client
+will create a file as big as your defined size. So make sure to have enough free
+space on your hard disk to store that file.
+Another important thing to know, when working in Time-Mode, is that the data
+transfer has a greater priority than the timeout. To understand this, let's
+assume that i made this call:
+
+             ./dtnperf-client -d dtn://dest.dtn -t 30 -p 10M
+
+and that a 10 MB transfer takes 20 seconds. The client will transmit the 10 MB
+file (and 20 seconds are gone), then it starts transmitting it again, since the
+timeout is set to 30 seconds. But it has to finish the file transfer before
+returning the resulting goodput, so the transmission will stop after 40 seconds,
+because also the second file transfer takes 20 seconds!
+
+If you use the -p option in Data-Mode (-n option) you can send an amount of data
+(specified in the -n parameter) by multiple transmissions of smaller bundles. To
+do so, you can write (i.e.)
+
+             ./dtnperf-client -d dtn://dest.dtn -n 10M -p 100K
+
+so you'll send 100 bundles, each of 100 KBytes, until a 10 MBytes amount of data
+is reached. This could be very important, because the resulting goodput of that
+command may be very different from the one obtained by:
+
+             ./dtnperf-client -d dtn://dest.dtn -n 10M -p 1M
+
+since the payload affects the band usage, and thus the goodput.
+
+IMPORTANT: if no measure unit is defined, the client assumes you're talking
+           about KBytes (while the -n option assumes MBytes).
+
+-r <eid> : this is an optional argument, and not so important at all.
+           It simply requires the reply-to EID, which is the DTN node name that
+will be delivered the server answer. With this option you can send data from one
+machine, and see the results on a different one. I've not tested this so far, so
+make some tests before.
+
+-m : this option is a leftover of the first versions of dtnperf.
+     The fact is that: when you have a payload SMALLER THAN 50000 bytes, you can
+store your bundle either into a file or into memory. The default setting is that
+you store it into a file (so a 50KB file is created and so on...), but you may
+want to use memory instead (perhaps you may think it's faster, or you don't have
+50000 bytes free on your hard disk...), so just type the -m option AND start the
+server with the same option!
+In example:
+
+             ./dtnperf-server -m (on the receiver)
+             ./dtnperf-client -d dtn://dest.dtn -n 20K -m (on the sender)
+
+When in Time-Mode (-t option), the client will automatically use memory support
+for payloads smaller than 50000 bytes.
+
+-B <num> : you may want to send a certain amount of data for many times. In this
+           case you can specify how many transmissions you want to do as a 
+positive number following the -B option.
+
+-S <sec> : if you plan to do consecutive transmissions (-B option), you could
+           set an interval of <sec> seconds between these data transfers.
+In example, i may want to transmit 1 MB for 5 times, with a 3 seconds interval:
+
+             ./dtnperf-client -d dtn://dest.dtn -n 1M -B 5 -S 3
+
+...got it?
+
+-c : this could be a very useful option.
+     It generates a CSV output (Comma Separated Values), which you can redirect
+into a .csv file and open it in a common spreadsheet, such as OpenOffice.org.
+To redirect the output you shall use the shell '>' and '>>' functions.
+In example:
+
+             ./dtnperf-client -d dtn://dest.dtn -t 30 -c >> test1.csv
+
+-h : this is the usual 'help' function, quite useless now that you've read this.
+
+-v : the 'verbose' mode prints some messages to better understand what's
+     happening inside the client brain. You can't use it with the -c option.
+
+-D : if you specify this, you'll be flooded by many debug messages. You'll see
+     what's happening inside the client, and have a mystic experience within the
+real Matrix of dtnperf.
+
+NOTE: If you have a look at the source code, you'll find that there are two more
+options which now are commented. In particular, they are '-s' and '-i'.
+These are old options, quite useless now.
+With the first one you can specify the EID of the sender: now this is automatic.
+With the '-i' option you can define the registration ID on the Bundle Daemon.
+
+Well, these were all the things you should know for a correct use of dtnperf.
+If you have questions, or suggestions as well, feel free to contact me at
+
+             piero.cornice@gmail.com
+
+Thanks =)

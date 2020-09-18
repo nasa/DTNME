@@ -1,0 +1,8 @@
+#
+# Network definition file for a localhost network which uses
+# the hostname instead of "localhost" so it acts like a 
+# distributed test.
+#
+for {set i 0} {$i < 254} {incr i} {
+    net::node $i [info hostname] [expr 10000 + $i*1000]
+}

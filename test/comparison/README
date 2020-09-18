@@ -1,0 +1,47 @@
+
+
+Files relevant:
+
+gen-emu.sh
+base-emu.tcl
+
+base-cmd.sh
+tcp-cmd-half.sh
+
+To start new experiment type:
+./gen-emu.sh and follow instructions
+
+
+TO see execution of your program that is called do 
+./base-cmd.sh and follow instructions
+
+
+User interaction for starting experiment:
+
+gen-emu.sh: allows u to set various parameters for the experiment
+	this uses  base-emu.tcl
+	which has all the meat of setting up TCL topology for emulab
+
+Program objects work in the following fashion:
+
+the TCL calls:
+
+base-cmd.sh with args inside file
+the base-cmd.sh
+will call  TCP-Half-command.sh or DTN-half-command.sh depending
+upn the protocol that is specified
+
+
+
+Loggin is set in base-cmd.sh
+
+
+mostly: gen-emu.sh and super-base-cmd are very simple things
+for indirection.
+
+note that base-emu.sh only refs to super-base-cmd <filename>
+
+
+Logs are in:
+
+/proj/DTN/nsdi/logs/<EXPNAME>/<PROTCOL-PERHOP>

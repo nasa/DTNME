@@ -1,0 +1,104 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnrespond 1 "November 16, 2010"
+.LO 1
+.SH NAME
+dtnrespond \- receive DTN queries 
+.SH SYNOPSIS
+.B dtnrespond
+.RB -l
+.IR eid
+.RB -f
+.IR matching_file
+.RB [ -r
+.IR eid ]
+.RB [ -n
+.IR num ]
+.RB [ -e
+.IR seconds ]
+.RB [ \-hv ]
+
+.SH DESCRIPTION
+.B dtnrespond
+listens for incoming query bundles. To do this,
+it connects to a dtnd daemon using the DTN API.
+It registers to receive bundles with the 
+.IR end‐point
+from the command line. It then blocks, waiting on
+bundles to arrive from dtnd. It terminates on SIGTERM (Ctrl-C)
+or after n query bundles have been received.
+.PP
+On receiving a query bundle
+.B dtnrespond
+will attempt to match the query based on the contents of the 
+.IR matching_file
+and will return the result (if available) to the source eid
+of the query bundle.
+
+.SH RETURN VALUES
+Returns 1 if there was an error processing the arguments.
+Otherwise 
+.B dtnrespond
+returns 0.
+
+.SH OPTIONS
+.TP
+.B \-\^l
+The EID on which to listen for the query bundles. It should be
+an endpoint for which the dtnd is responsible, but that
+is not currently enforced. (Required)
+.TP
+.B \-\^f
+The matching_file is a comma seperated value file that contains 
+information on the files to match against. See 
+.B dtnmatch.
+.TP
+.B \-\^r
+The reply-to EID for the bundle. If not set the src EID will be used.
+.TP
+.B \-\^n
+The number of queries to listen for before closing. Default: 0
+indicates
+.B dtnrespond
+should listen forever.
+.TP
+.B \-\^e
+The number of seconds until the response bundle expires from the DTN.
+Default is 3600 (one hour).
+.TP
+.B \-\^h
+Print a help message and exit.
+.TP
+.B \-\^v
+Be verbose. Adds diagnostic information to the standard output.
+
+.SH ENVIRONMENT
+.TP
+.B DTNAPI_ADDR
+If
+.B DTNAPI_ADDR
+is set, 
+.B dtnqueryrecv
+uses it as the hostname to connect to for DTN API operations.
+.TP
+.B DTNAPI_PORT
+If
+.B DTNAPI_PORT
+is set, its value is used as the TCP port to connect to
+for DTN API operations.
+.SH "SEE ALSO"
+dtnquery(1), dtnmatch(1), dtnd(8).

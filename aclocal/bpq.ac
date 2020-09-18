@@ -1,0 +1,20 @@
+dnl
+dnl Autoconf support for Bundle Protocol Query Extension
+dnl
+
+AC_DEFUN(AC_CONFIG_BPQ, [
+    ac_bpq='no'
+    AC_ARG_WITH(bpq,
+        AC_HELP_STRING([--with-bpq],
+                [enable Bundle Protocol Query Extension support]),
+        ac_bpq=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_bpq" = no; then
+        BPQ_ENABLED=0
+    else
+        BPQ_ENABLED=1
+        AC_DEFINE_UNQUOTED(BPQ_ENABLED, 1, [whether Bundle Protocol Query Extension support is enabled])
+    fi # BPQ_ENABLED
+])

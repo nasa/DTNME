@@ -1,0 +1,170 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnquery 1 "May 27, 2012"
+.LO 1
+.SH NAME
+dtnpublish \- send bundle with payload and BPQ publish block with name for object 
+.SH SYNOPSIS
+.B dtnquery 
+.RB -s 
+.IR src\ eid
+.RB -d 
+.IR dest\ eid
+.RB -p
+.IR payload\ file
+.RB -n
+.IR name\ published
+.RB [ -r
+.IR reply-to\ eid ]
+.RB [ -o
+.IR seconds ]
+.RB [ -e 
+.IR seconds ]
+.RB [ -w ]
+.RB [ -a
+.IR report\ count ]
+.RB [ -P
+.IR priority ]
+.RB [ -D ]
+.RB [ -F ]
+.RB [ -R ]
+.RB [ -c ]
+.RB [ -C ]
+.RB [ -1 ]
+.RB [ -N ]
+.RB [ -W ]
+.RB [ -h ]
+.RB [ -H ]
+.RB [ -v ]
+
+.SH DESCRIPTION
+.B dtnpublish
+injects a bundle into a DTN with a payload and a BPQ block of
+.I KIND_PUBLISH
+carrying some information about the payload. Typically this would
+be a name for the payload.  The original use of this was to cause 
+Named Data Objects with names containing a hash digest of the contents
+using the ni: URI scheme to be cached by appropriately configured nodes
+that it transits on the way to the destination (including both the
+local source node and the destination node). To do this, it connects
+to a dtnd daemon using the DTN API.
+.PP
+.B dtnpublish
+can be requested to ask for reports from nodes that it transits and can
+be requested to wait for a number of these reports subject to a timeout.
+
+.SH RETURN VALUES
+Returns 1 if there was an error processing the arguments or the DTN daemon
+rejects the sending request.
+Otherwise 
+.B dtnpublish
+returns 0.
+
+.SH OPTIONS
+.TP
+.B \-\^s
+The source EID for the bundle publish. It should be an endpoint for which
+the dtnd is responsible, but that is not currently enforced.
+(Required)
+.TP
+.B \-\^d
+The destination EID for the bundle. (Required)
+.TP
+.B \-\^r
+The reply-to EID for the bundle. If not set the src EID will be used.
+.TP
+.B \-\^p
+The file name to be used for the payload. It is advisable to use a full path
+name as the dtnd may not be running with the same working directory as dtnpublish.
+(Required) 
+.TP
+.B \-\^n
+The 'name' to be placed in the BPQ block sent with the bundle.  The cached bundle 
+can be accessed by sending BPQ query bundles using this name.  Typically 
+in the initial application of dtnpublish this will be a URI from the ni:
+scheme. (Required)
+.TP
+.B \-\^w
+After sending the 'publish' bundle wait for reports to come back.
+.TP
+.B \-\^a
+Number of returned reports to expect if -w is specified. Defaults to 1.
+.TP
+.B \-\^o
+The number of seconds to wait for each returned report. Default\ 0 - this means listen
+forever.  
+.TP
+.B \-\^e
+The number of seconds until the bundle expires from the DTN. Default
+is 3600 (one hour).
+.TP
+.B \-\^P
+Specify the priority to be used for the publish bundles. 
+One of 'bulk', 'normal', 'expedited' or 'reserved'.
+.TP
+.B \-\^D
+Request an end-to-end delivery report for the publish bundle.
+.TP
+.B \-\^X
+Request a bundle deletion report.
+.TP
+.B \-\^F
+Request a report each time the publish bundle is forwarded.
+.TP
+.B \-\^R
+Request a report each time the bundle is received at a new node.
+.TP
+.B \-\^c
+Request capable nodes whould take custody of the bundle when received.
+.TP
+.B \-\^C
+Request a report to the reply-to address whenever custody is transferred.
+.TP
+.B \-\^1
+Assert destination endpoint is a singleton.
+.TP
+.B \-\^N
+Assert destination endpoint is not a singleton.
+.TP
+.B \-\^W
+Set the 'do not fragment' option for the publish bundle.
+.TP
+.B \-\^h
+Print a help message and exit.
+.TP
+.B \-\^H
+Print a help message and exit.
+.TP
+.B \-\^v
+Be verbose. Adds diagnostic information to the standard output.
+
+.SH ENVIRONMENT
+.TP
+.B DTNAPI_ADDR
+If
+.B DTNAPI_ADDR
+is set, 
+.B dtnpublish
+uses it as the hostname to connect to for DTN API operations.
+.TP
+.B DTNAPI_PORT
+If
+.B DTNAPI_PORT
+is set, its value is used as the TCP port to connect to
+for DTN API operations.
+.SH "SEE ALSO"
+dtnquery(1), dtnrespond(1), dtnmatch(1), dtnd(8).

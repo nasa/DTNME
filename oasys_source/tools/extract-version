@@ -1,0 +1,16 @@
+#!/bin/sh
+
+FILE=$1
+WHAT=$2
+
+if [ ! -r $FILE ] ; then
+   echo "usage: $0 <version.dat> [version|major|minor|patch]"
+fi
+
+case $WHAT in
+    version) cat $FILE | sed 's/ /./g' ;;
+    major)   cat $FILE | awk '{print $1}' ;;
+    minor)   cat $FILE | awk '{print $2}' ;;
+    patch)   cat $FILE | awk '{print $3}' ;;
+    *)       echo "usage: $0 <version.dat> [version|major|minor|patch]" ;;
+esac

@@ -1,0 +1,3 @@
+# enabled flag for BBN IPND implementation
+BBN_IPND_ENABLED=@BBN_IPND_ENABLED@
+

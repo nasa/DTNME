@@ -1,0 +1,255 @@
+#!/usr/bin/tclsh
+#
+#    Copyright 2007 Intel Corporation
+#
+#    Licensed under the Apache License, Version 2.0 (the "License");
+#    you may not use this file except in compliance with the License.
+#    You may obtain a copy of the License at
+#
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#    See the License for the specific language governing permissions and
+#    limitations under the License.
+#
+
+package require http
+load libdtntcl[info sharedlibextension] dtnapi
+
+#----------------------------------------------------------------------
+proc shift { l } {
+    upvar $l xx
+    set xx [lrange $xx 1 end]
+}
+
+#----------------------------------------------------------------------
+proc arg0 { l } {
+    return [lindex $l 0]
+}
+
+#----------------------------------------------------------------------
+proc dbg {args} {
+    global opt
+    if {$opt(verbose)} {
+        set nonewline ""
+        if {[arg0 $args] == "-nonewline"} {
+            set nonewline -nonewline
+            shift args
+        }
+
+        set chan stdout
+        if {[llength $args] == 2} {
+            set chan [arg0 $args]
+            shift args
+        }
+        
+        set msg [arg0 $args]
+        if {$nonewline != ""} {
+            puts $nonewline $chan $msg
+        } else {
+            puts $chan $msg
+        }
+    }
+}
+
+#----------------------------------------------------------------------
+proc usage {} {
+    puts "Usage: dtnhttpproxy \[Options\]"
+    puts ""
+    puts "Options:"
+    puts "    -h | --help        Print help message"
+    puts "    -v | --verbose     Verbose mode"
+    puts "    -e | --eid <eid>   Set eid (default is dtn://<local_eid>/http)"
+}
+
+#----------------------------------------------------------------------
+proc init { argv } {
+    global opt
+    set opt(verbose) 0
+    set opt(eid)     ""
+    
+    # parse options
+    while {[llength $argv] > 0} {
+        switch -- [arg0 $argv] {
+            -h            -
+            --help        { usage; exit }
+            -v            -
+            --verbose     { set opt(verbose) 1 }
+            -e            -
+            --eid         { shift argv; set opt(eid) [arg0 $argv] }
+            default       { puts "illegal option \"[arg0 $argv]\""; usage; exit }
+        }
+        shift argv
+    }
+}
+
+#----------------------------------------------------------------------
+proc connect {} {
+    global handle
+    set handle [dtn_open]
+    if {$handle == -1} {
+        error "error in dtn_open_handle"
+    }
+
+    dbg "handle is $handle"
+}
+
+#----------------------------------------------------------------------
+proc register {} {
+    global handle opt regid DTN_REG_DEFER
+
+    set eid $opt(eid)
+    if {$eid == ""} {
+        set eid [dtn_build_local_eid $handle "http"]
+        if {$eid == ""} {
+            error "error in dtn_build_local_eid: [dtn_strerror [dtn_errno $handle]]"
+        }
+    }
+    dbg "eid is $eid"
+
+    set regid [dtn_find_registration $handle $eid]
+    if {$regid != -1} {
+        dbg "found existing registration -- id $regid, calling bind..."
+        dtn_bind $handle $regid
+    } else {
+        set regid [dtn_register $handle $eid $DTN_REG_DEFER 3600 false ""]
+        dbg "created new registration -- id $regid"
+    }
+}
+
+#----------------------------------------------------------------------
+proc proxy_loop {} {
+    global handle DTN_PAYLOAD_FILE
+    while {1} {
+        dbg "calling dtn_recv..."
+        set bundle [dtn_recv $handle $DTN_PAYLOAD_FILE -1]
+        if {$bundle == "NULL"} {
+            error "error in dtn_recv: [dtn_strerror [dtn_errno $handle]]"
+        }
+
+        set source [dtn_bundle_source_get $bundle]
+        set dest [dtn_bundle_dest_get $bundle]
+        set payload_file [dtn_bundle_payload_get $bundle]
+        set expiration [dtn_bundle_expiration_get $bundle]
+        set creation_ts "[dtn_bundle_creation_secs_get $bundle].\
+                [dtn_bundle_creation_seqno_get $bundle]"
+        
+        dbg "received bundle:"
+        dbg "  source: $source"
+        dbg "  dest: $dest"
+        dbg "  expiration: $expiration"
+        dbg "  creation_ts: $creation_ts"
+        dbg "  payload: $payload_file"
+        dbg "  payload_size: [file size $payload_file]"
+
+        set fd [open $payload_file r]
+
+        # default values for params
+        set params(mode) get
+        set params(content_type) "text/plain"
+        
+        set paramlist [lindex [split $dest ?] 1]
+        foreach param [split $paramlist \;] {
+            foreach {var val} [split $param =] {
+                set params($var) $val
+            }
+        }
+        if {![info exists params(url)]} {
+            puts stderr "no url in destination eid '$dest'"
+            continue
+        }
+
+        set url $params(url)
+        set url [regsub -all "%3a" $url :]
+        set url [regsub -all "%2f" $url /]
+
+        switch $params(mode) {
+            upload {
+                # need to wrap the multipart headers around the payload
+                set temp_file "/tmp/dtnhttpproxy-[pid]"
+                set tmpfd [open $temp_file w]
+                if {![info exists params(upload_name)]} {
+                    set params(upload_name) "file"
+                }
+                
+                puts -nonewline $tmpfd "--xYzZY\r\n"
+                puts -nonewline $tmpfd "Content-Disposition: form-data; name=\"$params(upload_name)\"; filename=\"$temp_file\";\r\n"
+                puts -nonewline $tmpfd "Content-Type: $params(content_type)\r\n"
+                puts -nonewline $tmpfd "\r\n"
+                
+                while {![eof $fd]} {
+                    set buf [read $fd 1024]
+                    puts -nonewline $tmpfd $buf
+                }
+                puts -nonewline $tmpfd "--xYzZY--\r\n"
+                
+                close $fd
+                close $tmpfd
+
+                if [catch {file delete $payload_file} err] {
+                    puts "error removing payload file: $err"
+                }
+
+                set payload_file $temp_file
+                set fd [open $temp_file]
+                set params(content_type) "multipart/form-data, boundary=xYzZY"
+                set channel -querychannel
+            }
+
+            default {
+                puts stderr "mode $params(mode) not defined"
+                continue
+            }
+        }
+        
+        if [catch {
+            dbg -nonewline " calling http::geturl for $url..."
+            set token [::http::geturl $url \
+                    -type $params(content_type) \
+                    -blocksize 1024 \
+                    -progress http_progress \
+                    $channel $fd]
+
+            dbg -nonewline " waiting..."
+            ::http::wait $token
+            dbg ""
+
+            dbg " status: [::http::status $token]"
+            dbg " error:  [::http::error $token]"
+            
+        } err] {
+            puts "error in geturl: $err"
+        }
+        puts stderr ""
+
+        if [catch {file delete $payload_file} err] {
+            puts "error removing payload file: $err"
+        }
+	
+	close $fd
+
+    }
+}
+
+proc http_progress {token total current} {
+   dbg -nonewline .
+   flush stdout
+}
+
+#----------------------------------------------------------------------
+init $argv
+
+while {1} {
+    if [catch {
+        connect
+        register
+        proxy_loop
+    } err] {
+        puts "$err"
+    }
+    catch {dtn_close $handle} err
+    after 5000
+}
+

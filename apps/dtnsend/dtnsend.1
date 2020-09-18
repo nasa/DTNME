@@ -1,0 +1,157 @@
+.\"
+.\"    Copyright 2004-2006 Intel Corporation
+.\" 
+.\"    Licensed under the Apache License, Version 2.0 (the "License");
+.\"    you may not use this file except in compliance with the License.
+.\"    You may obtain a copy of the License at
+.\" 
+.\"        http://www.apache.org/licenses/LICENSE-2.0
+.\" 
+.\"    Unless required by applicable law or agreed to in writing, software
+.\"    distributed under the License is distributed on an "AS IS" BASIS,
+.\"    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+.\"    See the License for the specific language governing permissions and
+.\"    limitations under the License.
+.\"
+
+.TH dtnsend 1 "September 4, 2005"
+.LO 1
+.SH NAME
+dtnsend \- send DTN bundles
+.SH SYNOPSIS
+.B dtnsend 
+.RB -s 
+.IR src
+.RB -d 
+.IR dest
+.RB -t
+.IR m|f|d
+.RB -p 
+.IR payload
+.RB [ -r 
+.IR reply-to ]
+.RB [ -n
+.IR num ]
+.RB [ -i 
+.IR regid ]
+.RB [ -e 
+.IR seconds ]
+.RB [ \-chvwCDFR ]
+
+.SH DESCRIPTION
+.B dtnsend
+injects a bundle into a DTN. To do this, it connects
+to a dtnd daemon using the DTN API. If
+.B \-\^w
+was specified, it registers to receive any bundle status
+reports that arrive for the reply-to EID (or the source-EID,
+if the reply-to EID was not specified).
+.PP
+Once it has connected to the dtnd and registered, it enters
+a loop, sending payloads and receiving status reports until
+the number of bundles requested have been sent.
+
+.SH RETURN VALUES
+Returns 1 if there was an error processing the arguments.
+Otherwise 
+.B dtnsend
+returns 0.
+
+.SH OPTIONS
+.TP
+.B \-\^c
+Request custody transfer. (Not currently implemented in dtnd.)
+.TP
+.B \-\^C
+Request custody transfer receipts. (Not currently implemented in dtnd.)
+.TP
+.B \-\^d
+The destination EID for the bundle. (Required)
+.TP
+.B \-\^D
+Request an end-to-end delivery receipt.
+.TP
+.B \-\^e
+The number of seconds until the bundle expires from the DTN. Default
+is 3600 (one hour).
+.TP
+.B \-\^F
+Request bundle forwarding receipts from every hop along the way.
+.TP
+.B \-\^i
+The registration ID to pass in to dtnd when registering.
+(Not currently implemented in DTN API.)
+.TP
+.B \-\^n
+The number of bundles to send.
+.TP
+.B \-\^r
+The reply-to EID for the bundle. If it is not specified, the
+source EID is used by default.
+.TP
+.B \-\^R
+Request bundle reception receipts from every hop along the way.
+.TP
+.B \-\^s
+The source EID for the bundle. It should be an endpoint for which
+the dtnd is responsible, but that is not currently enforced.
+(Required)
+.TP
+.B \-\^t
+Type of payload. Can be `m' for memory, `f' for file, or `d' for
+date. If type is `m', the
+.B \-\^p
+argument is used as the payload, byte for byte. If type is `f'
+the
+.B \-\^p
+argument is used as a filename which holds the bundle data. dtnd
+must have read permission for the file, as it will be the process
+reading the file, not
+.BR dtnsend .
+If type
+is `d' the current date is put into the bundle, and any
+.B \-\^p
+argument is ignored. (Required)
+.TP
+.B \-\^h
+Print a one-line help message and exit.
+.TP
+.B \-\^p
+The payload (when type is `m'), or the filename (when type is `f').
+Ignored when type is `d'.
+.TP
+.B \-\^v
+Be verbose. Adds diagnostic information to the standard output.
+.TP
+.B \-\^w
+After sending every payload, wait for one reply and print it.
+Note that it is currently impossible to see multiple replies with
+the
+.B \-\^w
+option. Instead, use
+.B dtnrecv
+in another window.
+
+.SH ENVIRONMENT
+.TP
+.B DTNAPI_ADDR
+If
+.B DTNAPI_ADDR
+is set, 
+.B dtnsend
+uses it as the hostname to connect to for DTN API operations.
+.TP
+.B DTNAPI_PORT
+If
+.B DTNAPI_PORT
+is set, its value is used as the TCP port to connect to
+for DTN API operations.
+.SH "SEE ALSO"
+dtnrecv(1), dtnd(8).
+.SH BUGS
+When
+.B dtnsend
+is listening for replies, it blocks and waits forever. If no response
+comes, it will never get around to sending the rest of the bundles
+it was requested to send. It would be better if it displayed bundle
+replies as the arrived instead, without blocking.

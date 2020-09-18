@@ -1,0 +1,12 @@
+#
+# Network definition file for emulab hosts.
+#
+# The test must set the emulab_test global variable
+#
+if {![info exists emulab_test]} {
+    error "must set emulab_test"
+}
+
+for {set i 0} {$i < 999} {incr i} {
+    net::node $i node-$i.$emulab_test.dtn.emulab.net 10000 "-internal_host node-$i"
+}

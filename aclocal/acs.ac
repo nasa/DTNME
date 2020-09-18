@@ -1,0 +1,20 @@
+dnl
+dnl Autoconf support for Aggregate Custody Signals 
+dnl
+
+AC_DEFUN(AC_CONFIG_ACS, [
+    ac_acs='yes'
+    AC_ARG_WITH(acs,
+        AC_HELP_STRING([--without-acs],
+                [disable Aggregate Custody Signals support]),
+        ac_acs=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_acs" = no; then
+        ACS_ENABLED=0
+    else
+        ACS_ENABLED=1
+        AC_DEFINE_UNQUOTED(ACS_ENABLED, 1, [whether Aggregate Custody Signals support is enabled])
+    fi # ACS_ENABLED
+])

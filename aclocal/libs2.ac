@@ -1,0 +1,68 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+
+#
+# Macro based on AC_CHECK_LIB but which takes a particular
+# LFLAGS setting as another argument to go into the cache.
+#
+
+# AC_CHECK_LIB_FLAGS(LIBRARY, FUNCTION, LDFLAGS,
+#                    [ACTION-IF-FOUND], [ACTION-IF-NOT-FOUND],
+#                    [OTHER-LIBRARIES])
+# ------------------------------------------------------
+#
+# Use a cache variable name containing both the library and function name,
+# because the test really is for library $1 defining function $2, not
+# just for library $1.  Separate tests with the same $1 and different $2s
+# may have different results.
+#
+# Note that using directly AS_VAR_PUSHDEF([ac_Lib], [ac_cv_lib_$1_$2])
+# is asking for troubles, since AC_CHECK_LIB($lib, fun) would give
+# ac_cv_lib_$lib_fun, which is definitely not what was meant.  Hence
+# the AS_LITERAL_IF indirection.
+#
+# FIXME: This macro is extremely suspicious.  It DEFINEs unconditionally,
+# whatever the FUNCTION, in addition to not being a *S macro.  Note
+# that the cache does depend upon the function we are looking for.
+#
+# It is on purpose we used `ac_check_lib_save_LIBS' and not just
+# `ac_save_LIBS': there are many macros which don't want to see `LIBS'
+# changed but still want to use AC_CHECK_LIB, so they save `LIBS'.
+# And ``ac_save_LIBS' is too tempting a name, so let's leave them some
+# freedom.
+AC_DEFUN([AC_CHECK_LIB_FLAGS],
+[m4_ifval([$4], , [AH_CHECK_LIB([$1])])dnl
+AS_LITERAL_IF([$1],
+              [AS_VAR_PUSHDEF([ac_Lib], [ac_cv_lib_$1_$2_$3])],
+              [AS_VAR_PUSHDEF([ac_Lib], [ac_cv_lib_$1''_$2_$3])])dnl
+AC_CACHE_CHECK([for $2 in -l$1 with $3], ac_Lib,
+[ac_check_lib_save_LIBS=$LIBS
+ac_check_lib_save_LDFLAGS=$LDFLAGS
+LIBS="-l$1 $6 $LIBS"
+LDFLAGS="$3 $LDFLAGS"
+AC_LINK_IFELSE([AC_LANG_CALL([], [$2])],
+               [AS_VAR_SET(ac_Lib, yes)],
+               [AS_VAR_SET(ac_Lib, no)])
+LIBS=$ac_check_lib_save_LIBS
+LDFLAGS=$ac_check_lib_save_LDFLAGS])
+AS_IF([test AS_VAR_GET(ac_Lib) = yes],
+      [m4_default([$4], [AC_DEFINE_UNQUOTED(AS_TR_CPP(HAVE_LIB$1))
+  LIBS="-l$1 $LIBS"
+])],
+      [$5])dnl
+AS_VAR_POPDEF([ac_Lib])dnl
+])# AC_CHECK_LIB

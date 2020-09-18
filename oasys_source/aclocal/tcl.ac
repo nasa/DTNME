@@ -1,0 +1,214 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl
+dnl Autoconf support for finding tcl
+dnl
+
+dnl
+dnl Main macro for finding a usable tcl installation 
+dnl
+AC_DEFUN(AC_CONFIG_TCL, [
+    ac_tclvers='8.6 8.5 8.4 8.3'
+    ac_tcldir='system'
+
+    AC_ARG_WITH(tcl,
+        AC_HELP_STRING([--with-tcl=DIR],
+    		   [location of a tcl installation (default system)]),
+        ac_tcldir=$withval) 
+
+    AC_ARG_WITH(tcldir,
+        AC_HELP_STRING([--with-tcldir=DIR],
+    		   [same as --with-tcl]),
+        ac_tcldir=$withval) 
+
+    AC_ARG_WITH(tclver,
+        AC_HELP_STRING([--with-tclver=VERSION],
+    		   [tcl version to use (default 8.5 - 8.3)]),
+        ac_tclvers=$withval)
+
+    dnl
+    dnl We don't accept --without-tcl
+    dnl
+    if test $ac_tcldir = no ; then
+       AC_MSG_ERROR([tcl MUST be installed to configure])
+    fi
+
+    dnl
+    dnl Tcl requires other libraries
+    dnl
+    AC_EXTLIB_PREPARE
+    AC_SEARCH_LIBS(pow, m, [],
+      AC_MSG_ERROR([can't find standard C library function (pow) required by tcl]))
+    AC_SEARCH_LIBS(dlopen, dl, [],
+      AC_MSG_ERROR([can't find standard library function (dlopen) required by tcl]))
+    AC_EXTLIB_SAVE
+
+    dnl
+    dnl First check if we have a cached value, unless the user
+    dnl specified something with --with-tcl, in which case we force 
+    dnl it to redo the checks (i.e. ignore the cached values).
+    dnl
+    if test $ac_tcldir = system -a ! x$oasys_cv_path_tcl_h = x ; then \
+	echo "checking for tcl installation... (cached) $oasys_cv_path_tcl_h/tcl.h, $oasys_cv_path_tcl_lib -l$oasys_cv_lib_tcl"
+    else
+        AC_FIND_TCL
+    fi
+
+    TCL_CFLAGS=        
+    if test ! $oasys_cv_path_tcl_h = /usr/include ; then
+	TCL_CFLAGS=-I$oasys_cv_path_tcl_h
+        EXTLIB_CFLAGS="$EXTLIB_CFLAGS $TCL_CFLAGS"
+    fi
+
+    TCL_LDFLAGS=
+    if test ! x"$oasys_cv_path_tcl_lib" = x"/usr/lib" ; then
+	TCL_LDFLAGS="-L$oasys_cv_path_tcl_lib -l$oasys_cv_lib_tcl"
+    else
+	TCL_LDFLAGS=-l$oasys_cv_lib_tcl
+    fi
+
+    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS $TCL_LDFLAGS"
+    AC_SUBST(TCL_LDFLAGS)
+
+    dnl
+    dnl Check for some APIs
+    dnl
+    AC_SEARCH_LIBS(Tcl_GetErrorLine, tcl,
+            [AC_DEFINE([HAVE_TCL_GETERRORLINE], [1], [Define if Tcl has Tcl_GetErrorLine function.])])
+])
+
+dnl
+dnl Find tcl
+dnl
+AC_DEFUN(AC_FIND_TCL, [
+    oasys_cv_path_tcl_h=
+
+    ac_save_CPPFLAGS="$CPPFLAGS"
+    ac_save_LDFLAGS="$LDFLAGS"
+    ac_save_LIBS="$LIBS"
+
+    if test $ac_tcldir = system -o $ac_tcldir = yes -o $ac_tcldir = "" ; then
+        ac_tcldir=system
+        ac_tclincdirs="/usr/include /usr/local/include"
+	for ac_tclver in $ac_tclvers ; do
+           ac_tclincdirs="$ac_tclincdirs /usr/include/tcl$ac_tclver /usr/local/include/tcl$ac_tclver"
+           ac_tclincdirs="$ac_tclincdirs"
+       done
+        ac_tcllibdirs="/usr/lib /usr/local/lib"
+    else
+        ac_tclincdirs=$ac_tcldir/include
+        ac_tcllibdirs="$ac_tcldir/lib"
+    fi
+
+    for ac_tclver in $ac_tclvers ; do	
+        echo ""
+        AC_MSG_NOTICE([checking for tcl installation (version $ac_tclver)])
+
+    for ac_tclincdir in $ac_tclincdirs; do
+
+        ac_tclver_major=`echo $ac_tclver | cut -d . -f1`
+	ac_tclver_minor=`echo $ac_tclver | cut -d . -f2`
+	CPPFLAGS="$ac_save_CPPFLAGS -I$ac_tclincdir"
+	LDFLAGS="$ac_save_LDFLAGS"
+	LIBS="$ac_save_LIBS"
+	
+	dnl
+	dnl First check the version in the header file. If there's a match, 
+	dnl fall through to the other check to make sure it links.
+	dnl If not, then we can break out of the two inner loops.
+	dnl
+        AC_MSG_CHECKING([for tcl.h (version $ac_tclver) in $ac_tclincdir])
+
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <tcl.h>
+           
+                #if (TCL_MAJOR_VERSION != ${ac_tclver_major}) || \
+                    (TCL_MINOR_VERSION != ${ac_tclver_minor})
+                #error "incorrect version"
+                #endif
+            ],
+            
+            [
+            ]),
+
+          [
+              AC_MSG_RESULT([yes])
+          ],
+          [
+              AC_MSG_RESULT([no])
+              continue
+          ])
+
+      for ac_tcllibdir in $ac_tcllibdirs; do
+      for ac_tcllib in tcl$ac_tclver tcl$ac_tclver_major$ac_tclver_minor tcl; do
+
+	LDFLAGS="$ac_save_LDFLAGS -L$ac_tcllibdir"
+    	if test x"$STATIC" = x"extlibs" ; then
+		LIBS="-Wl,-Bstatic -l$ac_tcllib -Wl,-Bdynamic -ldl -lm $ac_save_LIBS"
+	else
+		LIBS="-l$ac_tcllib $ac_save_LIBS"
+	fi
+
+        AC_MSG_CHECKING([for tcl library in $ac_tcllibdir: $LIBS])
+
+	AC_LINK_IFELSE(
+	  AC_LANG_PROGRAM(
+	    [
+                #include <tcl.h>
+           
+                #if (TCL_MAJOR_VERSION != ${ac_tclver_major}) || \
+                    (TCL_MINOR_VERSION != ${ac_tclver_minor})
+                #error "incorrect version"
+                #endif
+            ],
+            
+            [
+                Tcl_Interp* interp = Tcl_CreateInterp();
+            ]),
+
+          [
+              AC_MSG_RESULT([yes])
+              oasys_cv_path_tcl_h=$ac_tclincdir
+              oasys_cv_path_tcl_lib=$ac_tcllibdir
+              oasys_cv_lib_tcl=$ac_tcllib
+
+              #Buggy 
+              #if test ! x"$STATIC" = x"yes" ; then
+                  #oasys_cv_path_tcl_lib="${ac_tcllibdir} -Wl,-rpath,${ac_tcllibdir}"
+                  #oasys_cv_lib_tcl="${ac_tcllib} -Wl,-rpath,${ac_tcllibdir}"
+              #fi
+
+              break 4
+          ],
+          [
+              AC_MSG_RESULT([no])
+          ])
+    done
+    done
+    done
+    done
+
+    CPPFLAGS="$ac_save_CPPFLAGS"
+    LDFLAGS="$ac_save_LDFLAGS"
+    LIBS="$ac_save_LIBS"
+
+    if test x$oasys_cv_path_tcl_h = x ; then
+        AC_MSG_ERROR([Please install the tcl development files headers and libraries. Can't find usable tcl.h ])
+    fi
+])

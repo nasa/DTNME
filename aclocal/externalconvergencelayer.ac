@@ -1,0 +1,29 @@
+dnl
+dnl Autoconf support for external convergence layer
+dnl
+
+AC_DEFUN(AC_CONFIG_EXTERNAL_CL, [
+    ac_ecl='yes'
+    AC_ARG_ENABLE(ecl,
+        AC_HELP_STRING([--disable-ecl],
+    		   	[disable external convergence layer support]),
+        ac_ecl=$enableval) 
+    dnl
+    dnl First make sure we even want it
+    dnl
+    AC_MSG_CHECKING(whether to enable external convergence layer support)
+    if test "$ac_ecl" = no; then
+        AC_MSG_RESULT(no)
+        EXTERNAL_CL_ENABLED=0
+    else
+        AC_MSG_RESULT(yes)
+
+        AC_OASYS_SUPPORTS(XERCES_C_ENABLED)
+	if test $ac_oasys_supports_result != yes ; then
+	    AC_MSG_ERROR([external convergence layer support requires xerces... install it or configure --disable-ecl])
+	fi
+
+        EXTERNAL_CL_ENABLED=1
+        AC_DEFINE_UNQUOTED(EXTERNAL_CL_ENABLED, 1, [whether external convergence layer support is enabled])
+    fi # EXTERNAL_CL_ENABLED
+])

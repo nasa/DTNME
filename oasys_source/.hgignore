@@ -1,0 +1,47 @@
+syntax: glob
+
+# some defaults pulled from the CVS manual then modified
+tags
+TAGS
+*~
+\.\#*
+.del-*
+*.a
+*.olb
+*.o
+*.obj
+*.so
+*.exe
+*.elc
+*.ln
+core
+
+# other good defaults
+.gdb_history
+.glimpse_*
+*.d
+*.dylib
+*.dSYM
+autoscan.log
+config.cache
+config.log
+config.status
+configure.scan
+autom4te.cache
+
+# specific ignores
+Rules.make
+System.make
+oasys-config.h
+doc/doxygen/*
+test/*-test
+tools/hexdump
+tools/md5chunks
+tools/oasys_tclsh
+tools/proc-watcher
+tools/randfile
+tools/zsize
+build*
+include*
+share*
+

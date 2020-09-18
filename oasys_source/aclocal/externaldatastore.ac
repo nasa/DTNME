@@ -1,0 +1,23 @@
+dnl
+dnl Autoconf support for external data store
+dnl
+
+AC_DEFUN(AC_CONFIG_EXTERNAL_DS, [
+    ac_eds='no'
+    AC_ARG_ENABLE(eds,
+        AC_HELP_STRING([--enable-eds],
+    		   	[enable external data store support]),
+        ac_eds=$enableval) 
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_eds" = no; then
+        EXTERNAL_DS_ENABLED=0
+    else
+        if test ! "$XERCES_C_ENABLED" = 1 ; then
+	    AC_MSG_ERROR([external data store support requires xerces... install it or configure --disable-eds])
+        fi
+        EXTERNAL_DS_ENABLED=1
+        AC_DEFINE_UNQUOTED(EXTERNAL_DS_ENABLED, 1, [whether external data store support is enabled])
+    fi # EXTERNAL_DS_ENABLED
+])

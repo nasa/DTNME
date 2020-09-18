@@ -1,0 +1,1860 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+<xs:annotation>
+    <xs:documentation xml:lang="en">
+    Copyright 2006-2007 The MITRE Corporation
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+    The US Government will not be charged any license fee and/or royalties
+    related to this software. Neither name of The MITRE Corporation; nor the
+    names of its contributors may be used to endorse or promote products
+    derived from this software without specific prior written permission.
+    </xs:documentation>
+</xs:annotation>
+
+<!-- TYPES -->
+
+    <!-- Simple types -->
+
+    <xs:simpleType name="dtnStatusType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="justBooted"/>
+            <xs:enumeration value="shuttingDown"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="bundlePriorityType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="bulk"/>
+            <xs:enumeration value="normal"/>
+            <xs:enumeration value="expedited"/>
+            <xs:enumeration value="_unknown_priority_"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="eventSourceType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="peer"/>
+            <xs:enumeration value="application"/>
+            <xs:enumeration value="dataStore"/>
+            <xs:enumeration value="admin"/>
+            <xs:enumeration value="fragmentation"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="bundleForwardActionType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="forward"/>
+            <xs:enumeration value="copy"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="contactReasonType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="no_info"/>
+            <xs:enumeration value="user"/>
+            <xs:enumeration value="broken"/>
+            <xs:enumeration value="cl_error"/>
+            <xs:enumeration value="cl_version"/>
+            <xs:enumeration value="shutdown"/>
+            <xs:enumeration value="reconnect"/>
+            <xs:enumeration value="idle"/>
+            <xs:enumeration value="timeout"/>
+            <xs:enumeration value="blocked"/>
+            <xs:enumeration value="unblocked"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:simpleType name="linkTypeType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="alwayson"/>
+            <xs:enumeration value="ondemand"/>
+            <xs:enumeration value="scheduled"/>
+            <xs:enumeration value="opportunistic"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="linkStateType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="unavailable"/>
+            <xs:enumeration value="available"/>
+            <xs:enumeration value="opening"/>
+            <xs:enumeration value="open"/>
+            <xs:enumeration value="busy"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="eidTypeType">
+        <xs:union>
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                   <xs:enumeration value="*:*"/>
+                   <xs:enumeration value="dtn:none"/>
+                </xs:restriction>
+            </xs:simpleType>
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:pattern value="\S+://(\S|/)+/\*"/>
+                </xs:restriction>
+            </xs:simpleType>
+            <xs:simpleType>
+                <xs:restriction base="xs:anyURI"/>
+            </xs:simpleType>
+        </xs:union>
+    </xs:simpleType>
+
+    <xs:simpleType name="percentType">
+	<xs:restriction base="xs:integer">
+	    <xs:minInclusive value="0"/>
+	    <xs:maxInclusive value="100"/>
+	</xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="failureActionType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="drop"/>
+            <xs:enumeration value="defer"/>
+            <xs:enumeration value="exec"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="bundleLocationType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="memory"/>
+            <xs:enumeration value="disk"/>
+            <xs:enumeration value="nodata"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Bundle Type -->
+    
+    <xs:attributeGroup name="bundleAttributes">
+        <xs:attribute name="bundleid" type="xs:unsignedLong" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Local bundle identifier.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="is_fragment" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the bundle is a fragment.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="is_admin" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the bundle is an administrative record.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="do_not_fragment" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the bundle may be fragmented.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="priority" type="bundlePriorityType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Bundle priority or class of service.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="custody_requested" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether bundle custody is requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="local_custody" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the local node has custody of the bundle.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="singleton_dest" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the destination is exactly one endpoint.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="custody_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether custody receipts are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="receive_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether hop-by-hop reception receipts are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="forward_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether hop-by-hop forwarding reports are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="delivery_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether end-to-end delivery receipts are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="deletion_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether bundle deletion reports are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="app_acked_rcpt" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether application acknowlegements are requested.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="creation_ts_seconds" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Seconds since 1/1/2000.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="creation_ts_seqno" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Subsecond sequence number.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="expiration" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Bundle expiration time.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="orig_length" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Length of original bundle.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="frag_offset" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Offset of fragment in the original bundle.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="owner" type="xs:string" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Declared DTN node that "owns" the bundle (could be empty).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="custodyid" type="xs:unsignedLong" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Custody identifier for Aggregate Custody Signals.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+
+        <xs:attribute name="ecos_flags" type="xs:unsignedLong" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+The value of the ECOS block flags byte
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="ecos_ordinal" type="xs:unsignedLong" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+The value of the ECOS block ordinal field
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="ecos_flowlabel" type="xs:unsignedLong" use="optional">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+The value of the ECOS block flow label field
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+
+    <xs:complexType name="eidType">
+        <xs:attribute name="uri" type="eidTypeType" use="required"/>
+    </xs:complexType>
+
+    <xs:attributeGroup name="payloadAttributes">
+        <xs:attribute name="length" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Payload length.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="rcvd_length" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Actual length of payload available.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="base_offset" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+For bundle fragments, offset into the file (todo)
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+
+    <xs:complexType name="gbofIdType">
+        <xs:sequence>
+            <xs:element name="source" type="eidType"/>
+        </xs:sequence>
+
+        <xs:attribute name="creation_ts" type="xs:long" use="required">
+            <xs:annotation><xs:documentation xml:lang="en">
+                Seconds (and subsecond sequence number) since 1/1/2000.
+            </xs:documentation></xs:annotation>
+	</xs:attribute>
+        <xs:attribute name="is_fragment" type="xs:boolean" use="required">
+            <xs:annotation><xs:documentation xml:lang="en">
+                Whether the bundle is a fragment.
+            </xs:documentation></xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="frag_length" type="xs:unsignedInt" use="required">
+            <xs:annotation><xs:documentation xml:lang="en">
+                Fragment length.
+            </xs:documentation></xs:annotation>
+	</xs:attribute>
+        <xs:attribute name="frag_offset" type="xs:unsignedInt" use="required">
+            <xs:annotation><xs:documentation xml:lang="en">
+                Offset of fragment in the original bundle.
+            </xs:documentation></xs:annotation>
+        </xs:attribute>
+    </xs:complexType>
+
+    <xs:complexType name="bundleType">
+        <xs:sequence>
+            <xs:element name="source" type="eidType"/>
+            <xs:element name="dest" type="eidType"/>
+            <xs:element name="custodian" type="eidType"/>
+            <xs:element name="replyto" type="eidType"/>
+            <xs:element name="prevhop" type="eidType"/>
+            <xs:element name="length" type="xs:unsignedInt"/>
+            <xs:element name="location" type="bundleLocationType"/>
+            <xs:element name="payload_file" type="xs:string" minOccurs="0" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="bundleAttributes"/>
+    </xs:complexType>
+    
+    <!-- Contact Type -->
+    
+    <xs:attributeGroup name="contactAttributes">
+        <xs:attribute name="start_time_sec" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Time when the contact began (seconds and subsecond sequence number since 1/1/2000).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="start_time_usec" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="duration" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Contact duration (0 if unknown).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="bps" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Approximate bandwidth available.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="latency" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Approximate latency.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="pkt_loss_prob" type="percentType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Packet loss probability.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+    
+    <xs:complexType name="contactType">
+        <xs:sequence>
+            <xs:element name="link_attr" type="linkType"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="contactAttributes"/>
+    </xs:complexType>
+        
+    <!-- Convergence Layer Info Type -->
+    
+    <xs:attributeGroup name="clInfoAttributes">
+        <xs:attribute name="local_addr" type="xs:string">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Local address.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="remote_addr" type="xs:string">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Remote address.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="local_port" type="xs:unsignedShort">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Local port.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="remote_port" type="xs:unsignedShort">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Remote port.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="segment_ack_enabled" type="xs:boolean">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Use per segment acks.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="negative_ack_enabled" type="xs:boolean">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Use negative acks.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="keepalive_interval" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Seconds between keepalive packets.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="segment_length" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Maximum size of transmitted segments.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="busy_queue_depth" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Maximum number of bundles allowed in connection queue.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="reactive_frag_enabled" type="xs:boolean">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether reactive fragmentation is enabled.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="sendbuf_length" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Buffer size for sending data (bytes).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="recvbuf_length" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Buffer size for receiving data (bytes).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="data_timeout" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Milliseconds to wait for data arrival.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="rate" type="xs:unsignedByte">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Rate (in bps)
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="bucket_depth" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Token bucket depth (in bits)
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="channel" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Default channel.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+
+    <xs:complexType name="clInfoType">
+        <xs:attributeGroup ref="clInfoAttributes"/>
+    </xs:complexType>
+        
+    <!-- Link Type -->
+    
+    <xs:attributeGroup name="linkAttributes">
+        <xs:attribute name="type" type="linkTypeType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Type of the link.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="nexthop" type="xs:string" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Next hop (ie, underlay) address.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="state" type="linkStateType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+State of the link.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="is_reachable" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the link is reachable.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="is_usable" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the link is usable.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="how_reliable" type="percentType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+How reliable the link is.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="how_available" type="percentType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+How available the link is.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+<!-- @@@ should this be here?
+        <xs:attribute name="reactive_frag_enabled" type="xs:boolean" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether reactive fragmentation is enabled.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+-->
+        <xs:attribute name="clayer" type="xs:string" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Name of the convergence layer.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="min_retry_interval" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Minimum amount to wait between attempts to re-open the link (seconds).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="max_retry_interval" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Maximum amount to wait between attempts to re-open the link (seconds).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="idle_close_time" type="xs:unsignedInt" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Seconds of idle time before the link is closed. Zero for always on links (i.e. they are never closed).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+    
+    <xs:complexType name="linkType">
+        <xs:sequence>
+            <xs:element name="clinfo" type="clInfoType" minOccurs="0"/>
+            <xs:element name="remote_eid" type="eidType"/>
+            <xs:element name="link_id" type="xs:string"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="linkAttributes"/>
+    </xs:complexType>
+
+    <!-- Route Entry Type -->
+    
+    <xs:attributeGroup name="routeEntryAttributes">
+        <xs:attribute name="route_priority" type="xs:integer" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Route priority.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="action" type="bundleForwardActionType" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Forwarding behavior.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="link" type="xs:string" use="required">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Next hop link.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+    
+    <xs:complexType name="routeEntryType">
+        <xs:sequence>
+            <xs:element name="dest_pattern" type="eidType"/>
+            <xs:element name="source_pattern" type="eidType"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="routeEntryAttributes"/>
+    </xs:complexType>
+    
+    <!-- Custody Signal Type -->
+    
+    <xs:attributeGroup name="custodySignalAttributes">
+        <xs:attribute name="admin_type" type="xs:unsignedByte" use="required"/>
+        <xs:attribute name="admin_flags" type="xs:unsignedByte" use="required"/>
+        <xs:attribute name="succeeded" type="xs:boolean" use="required"/>
+        <xs:attribute name="reason" type="xs:unsignedByte" use="required"/>
+        <xs:attribute name="orig_frag_offset" type="xs:unsignedLong" use="required"/>
+        <xs:attribute name="orig_frag_length" type="xs:unsignedLong" use="required"/>
+        <xs:attribute name="custody_signal_seconds" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="custody_signal_seqno" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="orig_creation_seconds" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="orig_creation_seqno" type="xs:unsignedInt" use="required"/>
+    </xs:attributeGroup>
+
+    <xs:complexType name="custodySignalType">
+        <xs:attributeGroup ref="custodySignalAttributes"/>
+    </xs:complexType>
+
+    <!-- Registration Type -->
+
+    <xs:attributeGroup name="registrationAttributes">
+        <xs:attribute name="regid" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="action" type="failureActionType" use="required"/>
+        <xs:attribute name="script" type="xs:string" use="required"/>
+        <xs:attribute name="expiration" type="xs:unsignedInt" use="required"/>
+    </xs:attributeGroup>
+
+    <xs:complexType name="registrationType">
+        <xs:sequence>
+            <xs:element name="endpoint" type="eidType"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="registrationAttributes"/>
+    </xs:complexType>
+
+    <!-- Link Configuration Parameters -->
+
+    <xs:attributeGroup name="linkConfigParams">
+        <xs:attribute name="is_usable" type="xs:boolean">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether the link is allowed to be used to transmit bundles.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="reactive_frag_enabled" type="xs:boolean">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Whether reactive fragmentation is enabled.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="nexthop" type="xs:string">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Next hop address.
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <!-- Following are DTNME parameters not listed in the DP interface -->
+        <xs:attribute name="min_retry_interval" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Minimum amount to wait between attempts to re-open the link (seconds).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="max_retry_interval" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Maximum amount to wait between attempts to re-open the link (seconds).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="idle_close_time" type="xs:unsignedInt">
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+Seconds of idle time before the link is closed. Zero for always on links (i.e. they are never closed).
+                </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:attributeGroup>
+    
+    <xs:complexType name="linkConfigType">
+        <xs:sequence>
+            <xs:element name="cl_params" type="key_value_pair" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="linkConfigParams"/>
+    </xs:complexType>
+        
+    <!-- Generic parameters -->
+
+    <xs:complexType name="key_value_pair">
+        <xs:sequence>
+	    <xs:element name="name" type="xs:string"/>
+	    <xs:choice minOccurs="1" maxOccurs="1">
+		<xs:element name="bool_value" type="xs:boolean"/> 
+		<xs:element name="u_int_value" type="xs:unsignedInt"/>
+		<xs:element name="int_value" type="xs:int"/>
+		<xs:element name="str_value" type="xs:string"/>
+	    </xs:choice> 
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Bundle Attributes Query types -->
+
+    <xs:simpleType name="bundleAttributesSimpleQueryType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="bundleid"/>
+            <xs:enumeration value="is_admin"/>
+            <xs:enumeration value="do_not_fragment"/>
+            <xs:enumeration value="priority"/>
+            <xs:enumeration value="custody_requested"/>
+            <xs:enumeration value="local_custody"/>
+            <xs:enumeration value="singleton_dest"/>
+            <xs:enumeration value="custody_rcpt"/>
+            <xs:enumeration value="receive_rcpt"/>
+            <xs:enumeration value="forward_rcpt"/>
+            <xs:enumeration value="delivery_rcpt"/>
+            <xs:enumeration value="deletion_rcpt"/>
+            <xs:enumeration value="app_acked_rcpt"/>
+            <xs:enumeration value="expiration"/>
+            <xs:enumeration value="orig_length"/>
+            <xs:enumeration value="owner"/>
+            <xs:enumeration value="source"/>
+            <xs:enumeration value="dest"/>
+            <xs:enumeration value="custodian"/>
+            <xs:enumeration value="replyto"/>
+            <xs:enumeration value="prevhop"/>
+            <xs:enumeration value="location"/>
+            <xs:enumeration value="payload_file"/>
+            <xs:enumeration value="meta_block_list"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+<!--    <xs:simpleType name="bundleMetaBlockTypeType">
+        <xs:restriction base="xs:unsignedByte">
+            <xs:minInclusive value="2"/>
+        </xs:restriction>
+    </xs:simpleType>
+-->
+
+    <xs:complexType name="bundleMetaBlockQueryType">
+        <xs:choice>
+            <xs:element name="type" type="xs:long"/>
+            <xs:element name="identifier" type="xs:unsignedInt"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="bundleAttributesQueryType">
+        <xs:choice>
+            <xs:element name="query" type="bundleAttributesSimpleQueryType"/>
+            <xs:element name="meta_blocks" type="bundleMetaBlockQueryType"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:attributeGroup name="bundleQueriedAttributes">
+        <xs:attribute name="bundleid" type="xs:unsignedLong" use="optional"/>
+        <xs:attribute name="is_admin" type="xs:boolean" use="optional"/>
+        <xs:attribute name="do_not_fragment" type="xs:boolean" use="optional"/>
+        <xs:attribute name="priority" type="bundlePriorityType" use="optional"/>
+        <xs:attribute name="custody_requested" type="xs:boolean" use="optional"/>
+        <xs:attribute name="local_custody" type="xs:boolean" use="optional"/>
+        <xs:attribute name="singleton_dest" type="xs:boolean" use="optional"/>
+        <xs:attribute name="custody_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="receive_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="forward_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="delivery_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="deletion_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="app_acked_rcpt" type="xs:boolean" use="optional"/>
+        <xs:attribute name="expiration" type="xs:unsignedInt" use="optional"/>
+        <xs:attribute name="orig_length" type="xs:unsignedInt" use="optional"/>
+        <xs:attribute name="owner" type="xs:string" use="optional"/>
+        <xs:attribute name="location" type="bundleLocationType" use="optional"/>
+        <xs:attribute name="payload_file" type="xs:string" use="optional"/>
+    </xs:attributeGroup>
+
+    <xs:complexType name="metadataBlockType">
+        <xs:attribute name="identifier" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="generated" type="xs:boolean" use="required"/>
+        <xs:attribute name="type" type="xs:unsignedInt" use="required"/>
+        <xs:attribute name="contents" type="xs:base64Binary" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="bundleAttributesReportType">
+        <xs:sequence>
+            <xs:element name="dest" type="eidType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="custodian" type="eidType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="replyto" type="eidType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="prevhop" type="eidType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="meta_blocks" type="metadataBlockType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attributeGroup ref="bundleQueriedAttributes"/>
+    </xs:complexType>
+
+    
+    
+<!-- EVENTS -->
+
+    <!-- Bundle Received Event -->
+
+    <xs:element name="bundle_received_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a new bundle arrival.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="source" type="xs:string" use="required"/>
+            <xs:attribute name="dest" type="xs:string" use="required"/>
+            <xs:attribute name="custodian" type="xs:string" use="required"/>
+            <xs:attribute name="replyto" type="xs:string" use="required"/>
+            <xs:attribute name="prevhop" type="xs:string" use="required"/>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+            <xs:attribute name="custodyid" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="expiration" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="bytes_received" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="custody_transfer_requested" type="xs:boolean" use="required"/>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="priority" type="bundlePriorityType" use="required"/>
+            <xs:attribute name="ecos_flags" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="ecos_ordinal" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="ecos_flowlabel" type="xs:unsignedInt" use="optional"/>
+            <xs:attribute name="num_meta_blocks" type="xs:unsignedInt" use="optional"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Bundle Custody Accepted Event -->
+
+    <xs:element name="bundle_custody_accepted_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals custody of a bundle was accepted
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="custodyid" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="custodian_str" type="xs:string" use="required"/>
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Data Transmitted Event -->
+    
+    <xs:element name="data_transmitted_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a bundle or bundle fragment transmission.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz debug
+            <xs:sequence>
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+            </xs:sequence>
+dz debug -->
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="bytes_sent" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="reliably_sent" type="xs:unsignedInt" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Bundle Delivered Event -->
+
+    <xs:element name="bundle_delivered_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a new bundle arrival that is destined for this node.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz debug
+            <xs:sequence>
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+            </xs:sequence>
+dz debug -->
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Bundle Delivery Event -->
+
+    <xs:element name="bundle_delivery_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a new bundle arrival that is destined for an external router.  External routers access the bundle using the payload filename attribute.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+<!-- dz debug
+                <xs:element name="gbof_id" type="gbofIdType"/>
+dz debug -->
+                <xs:element name="bundle" type="bundleType"/>
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Bundle Send Cancelled Event -->
+
+    <xs:element name="bundle_send_cancelled_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals when a bundle that was previously requested to be sent using RequestSendBundle is cancelled upon a subsequent request of RequestCancelBundleSend.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+<!-- dz debug
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+dz debug -->
+                <xs:element name="link_id" type="xs:string"/>
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Bundle Expired Event -->
+    
+    <xs:element name="bundle_expired_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals bundle expiration.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz debug
+            <xs:sequence>
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+            </xs:sequence>
+dz debug -->
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Bundle Injected Event -->
+
+    <xs:element name="bundle_injected_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals that a Inject Bundle Request was successful, and correlates the newly generated GBOF_ID with the Request ID. This event does NOT signal that the bundle was transmitted, because a Send Bundle Request is required for that.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="request_id" type="xs:string"/>
+<!-- dz debug
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+dz debug -->
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Link Opened Event -->
+    
+    <xs:element name="link_opened_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals when a link is opened.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="contact_attr" type="contactType"/>
+            </xs:sequence>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Link Closed Event -->
+
+    <xs:element name="link_closed_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals when a link has closed.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="contact_attr" type="contactType"/>
+            </xs:sequence>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Link Created Event -->
+    
+    <xs:element name="link_created_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals the creation of a new link.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="link_attr" type="linkType"/>
+            </xs:sequence>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Link Deleted Event -->
+
+    <xs:element name="link_deleted_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a link deletion.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Link Available Event -->
+
+    <xs:element name="link_available_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals availability of a link.  ONDEMAND links still need to be opened (open_link_request) before they can be used.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Link Unavailable Event -->
+    
+    <xs:element name="link_unavailable_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a link as unavailable.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Link Attribute Change Event -->
+    
+    <xs:element name="link_attribute_changed_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a link attribute has changed.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="link_attr" type="linkType"/>
+            </xs:sequence>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Contact Attribute Change Event -->
+
+    <xs:element name="contact_attribute_changed_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals when a contact attribute has changed.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="contact_eid" type="eidType"/>
+                <xs:element name="contact_attr" type="contactType"/>
+            </xs:sequence>
+            <xs:attribute name="reason" type="contactReasonType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Link Busy Event -->
+    
+    <xs:element name="link_busy_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a link as busy.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="link" type="linkType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- EID Reachable Event -->
+
+    <xs:element name="eid_reachable_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals discovery of a new EID.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="peer_eid" type="eidType"/>
+            </xs:sequence>
+            <xs:attribute name="interface_name" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Route Add Event -->
+    
+    <xs:element name="route_add_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a new static route added from the DTN console.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="route_entry" type="routeEntryType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Route Delete Event -->
+
+    <xs:element name="route_delete_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a static route was deleted from the DTN console.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="dest" type="eidType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Custody Signal Event -->
+    
+    <xs:element name="custody_signal_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a bundle custody transfer.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+<!-- dz debug
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+dz debug -->
+                <xs:element name="custody_signal_attr" type="custodySignalType"/>
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Aggreagate Custody Signal Event -->
+    
+    <xs:element name="aggregate_custody_signal_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals an aggregate bundle custody transfer.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="acs_data" type="xs:base64Binary" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Custody Timeout Event -->
+
+    <xs:element name="custody_timeout_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a bundle custody transfer timeout.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz debug
+            <xs:sequence>
+                <xs:element name="gbof_id" type="gbofIdType"/> 
+            </xs:sequence>
+dz debug -->
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> 
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Intentional Name Resolved Event -->
+    
+    <xs:element name="intentional_name_resolved_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Pass-through response to intentional name resolver.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+        <xs:sequence>
+            <xs:element name="request_id" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="response_id" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="router_eid" type="eidType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="lb_dp_eid" type="eidType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="intentional_name" type="eidType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="grain_state" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="canonical_eids" type="eidType" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="app_eids" type="eidType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Registration Added Event -->
+
+    <xs:element name="registration_added_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a new application registration
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="registration" type="registrationType"/>
+            </xs:sequence>
+            <xs:attribute name="source" type="eventSourceType" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Registration Removed Event -->
+
+    <xs:element name="registration_removed_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a registration removal
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="registration" type="registrationType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Registration Expired Event -->
+
+    <xs:element name="registration_expired_event">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signals a registration expiration
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="regid" type="xs:unsignedInt" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+
+
+<!-- REQUESTS --> 
+
+    <!-- Open Link Request -->
+
+    <xs:element name="open_link_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a link be opened.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Close Link Request -->
+
+    <xs:element name="close_link_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a link be closed.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Add Link Request -->
+    
+    <xs:element name="add_link_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a link be added.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+	    <xs:sequence>
+	        <xs:element name="link_config_params" type="linkConfigType" minOccurs="0"/>
+                <xs:element name="remote_eid" type="eidType"/>
+	    </xs:sequence>
+	    <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="link_type" type="linkTypeType" use="required"/>
+            <xs:attribute name="clayer" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Delete Link Request -->
+    
+    <xs:element name="delete_link_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a link be deleted.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Reconfigure Link Request -->
+
+    <xs:element name="reconfigure_link_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a link be reconfigured.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+	    <xs:sequence>
+	        <xs:element name="link_config_params" type="linkConfigType"/>
+	    </xs:sequence>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Send Bundle Request -->
+
+    <xs:element name="send_bundle_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a bundle with "gbof_id" and "local_id" be sent on "link_id" with a particular "fwd_action". See bundleForwardActionType.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+	    <xs:sequence>
+<!-- dz debug
+                <xs:element name="gbof_id" type="gbofIdType"/>   
+dz debug -->
+                <xs:element name="metadata_block" type="metadataBlockType"
+                            minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+
+        <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+	    <xs:attribute name="link_id" type="xs:string" use="required"/>
+	    <xs:attribute name="fwd_action" type="bundleForwardActionType" use="required"/>
+	    <xs:attribute name="frag_size" type="xs:unsignedLong" use="optional"/>
+	    <xs:attribute name="frag_offset" type="xs:unsignedLong" use="optional"/>
+
+        <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Send Bundle Broadcast Request -->
+
+    <xs:element name="send_bundle_broadcast_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a bundle with "gbof_id" and "local_id" be broadcasted with a particular "fwd_action". See bundleForwardActionType.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+	    <xs:sequence>
+<!-- dz debug
+            <xs:element name="gbof_id" type="gbofIdType"/>
+dz debug -->
+	        <xs:element name="metadata_block" type="metadataBlockType"
+                            minOccurs="0" maxOccurs="unbounded"/>
+	    </xs:sequence>
+
+        <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+	    <xs:attribute name="fwd_action" type="bundleForwardActionType" use="required"/>
+	    <xs:attribute name="frag_size" type="xs:unsignedLong" use="optional"/>
+	    <xs:attribute name="frag_offset" type="xs:unsignedLong" use="optional"/>
+
+        <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Cancel Bundle Request -->
+    
+    <xs:element name="cancel_bundle_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a bundle transmission be cancelled.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz	    <xs:sequence>   -->
+<!-- dz                <xs:element name="gbof_id" type="gbofIdType"/>    -->
+<!-- dz	    </xs:sequence>   -->
+
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Inject Bundle Request -->
+
+    <xs:element name="inject_bundle_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a router generated bundle be sent.  Pay special attention to required and optional attributes.  This message type requires that the bundle payload be base64 encoded.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+	        <xs:sequence>
+		        <xs:element name="source" type="eidType"/>
+		        <xs:element name="dest" type="eidType"/>
+		        <xs:element name="replyto" type="eidType" minOccurs="0"/>
+		        <xs:element name="custodian" type="eidType" minOccurs="0"/>
+	        </xs:sequence>
+            <xs:attribute name="request_id" type="xs:string" use="required"/>
+            <xs:attribute name="link_id" type="xs:string" use="required"/>
+            <xs:attribute name="fwd_action" type="bundleForwardActionType" use="optional"/>
+            <xs:attribute name="priority" type="bundlePriorityType" use="optional"/>
+            <xs:attribute name="expiration" type="xs:unsignedInt" use="optional"/>
+            <xs:attribute name="payload_file" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Delete Bundle Request -->
+    
+    <xs:element name="delete_bundle_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that a stored bundle be deleted.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+<!-- dz	    <xs:sequence>  -->
+<!-- dz                <xs:element name="gbof_id" type="gbofIdType"/>  --> 
+<!-- dz	    </xs:sequence>  -->
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Take Custody of Bundle Request -->
+    
+    <xs:element name="take_custody_of_bundle_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Request that the local node take custody of a bundle.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+<!-- dz            <xs:attribute name="gbofid_str" type="xs:string" use="required"/> -->
+            <xs:attribute name="gbofid_str" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+
+    <!-- Set CL Params Request -->
+    
+    <xs:element name="set_cl_params_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Pass-through request to BPA to set convergence layer adapter params.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+        <xs:sequence>
+            <xs:element name="cl_params" type="key_value_pair" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+	<xs:attribute name="clayer" type="xs:string" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Intentional Name Resolution Request -->
+    
+    <xs:element name="intentional_name_resolution_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Pass-through request to intentional name resolver.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+        <xs:sequence>
+            <xs:element name="gbof_id" type="gbofIdType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="request_id" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="router_eid" type="eidType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="intentional_name" type="eidType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="grain_state" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Deliver Bundle To Application Request -->
+
+    <xs:element name="deliver_bundle_to_app_request">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Requests delivery of a specific bundle to a specific registration on this node.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="endpoint" type="eidType"/>
+<!-- dz                <xs:element name="gbof_id" type="gbofIdType"/>   -->
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+
+<!-- QUERIES / REPORTS -->
+
+    <!-- Links -->
+
+    <xs:element name="link_query" type="xs:anyType">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on links.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="link_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on links.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="link" type="linkType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="link_attributes_query">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on links.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="query_id" type="xs:string"/>
+                <xs:element name="link_id" type="xs:string"/>
+                <xs:element name="query_params" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="link_attributes_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on links.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="query_id" type="xs:string"/>
+
+                <xs:element name="report_params" type="key_value_pair" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- Contacts -->
+
+    <xs:element name="contact_query" type="xs:anyType">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on contacts.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="contact_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on contacts.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="contact" type="contactType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Static Routes -->
+
+    <xs:element name="route_query" type="xs:anyType">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on static routes.
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="route_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on static routes.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="route_entry" type="routeEntryType" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+    
+    <!-- Bundles -->
+    
+    <xs:element name="bundle_query" type="xs:anyType">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on bundles (incl. custody bundles).
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="bundle_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on bundles.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="bundle" type="bundleType"  minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="bundle_attributes_query">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Query for information on bundles (incl. custody bundles).
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="query_id" type="xs:string"/>
+<!-- dz                <xs:element name="gbof_id" type="gbofIdType"/>   -->
+                <xs:element name="query_params" type="bundleAttributesQueryType" minOccurs="1" maxOccurs="unbounded"/>
+            </xs:sequence>
+            <xs:attribute name="local_id" type="xs:unsignedLong" use="required"/>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="bundle_attributes_report">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Meta-information on bundles.
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="query_id" type="xs:string"/>
+                <xs:element name="report_params" type="bundleAttributesReportType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="shutdown_request" type="xs:anyType">
+        <xs:annotation>
+            <xs:documentation xml:lang="en">
+Signal DTNME Server to shutdown
+            </xs:documentation>
+        </xs:annotation>
+    </xs:element>
+
+    <xs:element name="bpa">
+    <xs:annotation>
+        <xs:documentation xml:lang="en">
+Carry two or more router message on a single packet.
+        </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+        <xs:all>
+            <xs:element ref="bundle_received_event" minOccurs="0"/>
+            <xs:element ref="bundle_custody_accepted_event" minOccurs="0"/>
+            <xs:element ref="data_transmitted_event" minOccurs="0"/>
+            <xs:element ref="bundle_delivered_event" minOccurs="0"/>
+            <xs:element ref="bundle_delivery_event" minOccurs="0"/>
+            <xs:element ref="bundle_expired_event" minOccurs="0"/>
+            <xs:element ref="bundle_send_cancelled_event" minOccurs="0"/>
+            <xs:element ref="bundle_injected_event" minOccurs="0"/>
+            <xs:element ref="link_opened_event" minOccurs="0"/>
+            <xs:element ref="link_closed_event" minOccurs="0"/>
+            <xs:element ref="link_created_event" minOccurs="0"/>
+            <xs:element ref="link_deleted_event" minOccurs="0"/>
+            <xs:element ref="link_available_event" minOccurs="0"/>
+            <xs:element ref="link_unavailable_event" minOccurs="0"/>
+            <xs:element ref="link_attribute_changed_event" minOccurs="0"/>
+            <xs:element ref="contact_attribute_changed_event" minOccurs="0"/>
+            <xs:element ref="link_busy_event" minOccurs="0"/>
+            <xs:element ref="eid_reachable_event" minOccurs="0"/>
+            <xs:element ref="route_add_event" minOccurs="0"/>
+            <xs:element ref="route_delete_event" minOccurs="0"/>
+            <xs:element ref="custody_signal_event" minOccurs="0"/>
+            <xs:element ref="aggregate_custody_signal_event" minOccurs="0"/>
+            <xs:element ref="custody_timeout_event" minOccurs="0"/>
+            <xs:element ref="intentional_name_resolved_event" minOccurs="0"/>
+            <xs:element ref="registration_added_event" minOccurs="0"/>
+            <xs:element ref="registration_removed_event" minOccurs="0"/>
+            <xs:element ref="registration_expired_event" minOccurs="0"/>
+            <xs:element ref="open_link_request" minOccurs="0"/>
+            <xs:element ref="close_link_request" minOccurs="0"/>
+            <xs:element ref="add_link_request" minOccurs="0"/>
+            <xs:element ref="delete_link_request" minOccurs="0"/>
+            <xs:element ref="reconfigure_link_request" minOccurs="0"/>
+            <xs:element ref="send_bundle_request" minOccurs="0"/>
+            <xs:element ref="send_bundle_broadcast_request" minOccurs="0"/>
+            <xs:element ref="cancel_bundle_request" minOccurs="0"/>
+            <xs:element ref="inject_bundle_request" minOccurs="0"/>
+            <xs:element ref="delete_bundle_request" minOccurs="0"/>
+            <xs:element ref="take_custody_of_bundle_request" minOccurs="0"/>
+            <xs:element ref="set_cl_params_request" minOccurs="0"/>
+            <xs:element ref="intentional_name_resolution_request" minOccurs="0"/>
+            <xs:element ref="deliver_bundle_to_app_request" minOccurs="0"/>
+            <xs:element ref="link_query" minOccurs="0"/>
+            <xs:element ref="link_report" minOccurs="0"/>
+            <xs:element ref="link_attributes_query" minOccurs="0"/>
+            <xs:element ref="link_attributes_report" minOccurs="0"/>
+            <xs:element ref="contact_query" minOccurs="0"/>
+            <xs:element ref="contact_report" minOccurs="0"/>
+            <xs:element ref="route_query" minOccurs="0"/>
+            <xs:element ref="route_report" minOccurs="0"/>
+            <xs:element ref="bundle_query" minOccurs="0"/>
+            <xs:element ref="bundle_report" minOccurs="0"/>
+            <xs:element ref="shutdown_request" minOccurs="0"/>
+            <xs:element ref="bundle_attributes_query" minOccurs="0"/>
+            <xs:element ref="bundle_attributes_report" minOccurs="0"/>
+        </xs:all>
+        <xs:attribute name="eid" type="xs:string" use="optional"/>
+        <xs:attribute name="eid_ipn" type="xs:string" use="optional"/>
+        <xs:attribute name="hello_interval" type="xs:unsignedShort" use="optional"/>
+        <xs:attribute name="alert" type="dtnStatusType" use="optional"/>
+        <xs:attribute name="server_eid" type="xs:string" use="optional"/>
+        <xs:attribute name="sequence_ctr" type="xs:unsignedLong" use="required"/>
+    </xs:complexType>
+</xs:element>
+
+</xs:schema>

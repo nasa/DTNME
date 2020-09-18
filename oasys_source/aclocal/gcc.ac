@@ -1,0 +1,436 @@
+dnl
+dnl    Copyright 2005-2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+
+dnl
+dnl Figure out which version of gcc/g++ to use.
+dnl
+AC_DEFUN(AC_OASYS_CONFIG_GCC_VERSION, [
+    dnl
+    dnl Handle --with-cc=CC and --with-cxx=CXX
+    dnl
+    ac_with_cc=$CC
+    AC_ARG_WITH(cc,
+        AC_HELP_STRING([--with-cc=CC],
+    		   [name (or path) of the C compiler to use]),
+                       ac_with_cc=$withval)
+
+    ac_with_cxx=$CXX
+    AC_ARG_WITH(cxx,
+        AC_HELP_STRING([--with-cxx=CXX],
+    		   [name (or path) of the C++ compiler to use]),
+                       ac_with_cxx=$withval)
+    
+    if test "x$ac_with_cc" = "x" ; then
+        ac_try_cc="gcc gcc-4.4 gcc-4.3 gcc-4.2 gcc-4.1 gcc-4.0 gcc-3.4 gcc-3.3"
+        ac_try_cxx="g++ g++-4.4 g++-4.3 g++-4.2 g++-4.1 g++-4.0 g++-3.4 g++-3.3"
+    else
+        ac_try_cc=$ac_with_cc
+
+	if test x"$ac_with_cxx" = x ; then
+            ac_try_cxx=`echo $ac_with_cc | sed 's/cc/++/'`
+	    AC_MSG_NOTICE([inferring C++ compiler '$ac_try_cxx' from C compiler setting])
+	else
+	    ac_try_cxx=$ac_with_cxx
+	fi
+
+	CC=$ac_try_cc
+	CXX=$ac_try_cxx
+    fi
+
+    dnl
+    dnl Check that the compiler specified works
+    dnl
+    AC_MSG_CHECKING([for a C compiler (trying $ac_try_cc)])
+    AC_MSG_RESULT([])
+    AC_PROG_CC($ac_try_cc)
+    
+    AC_MSG_CHECKING([for a C++ compiler (trying $ac_try_cxx)])
+    AC_MSG_RESULT([])
+    AC_PROG_CXX($ac_try_cxx)
+
+    dnl
+    dnl Apparently AC_PROG_CXX isn't enough to actually test the c++
+    dnl compiler...
+    dnl
+    AC_MSG_CHECKING([whether the C++ compiler works])
+    AC_LANG_PUSH(C++)
+    AC_LINK_IFELSE(AC_LANG_PROGRAM([/*nothing*/],[/*nothing*/]),
+		   AC_MSG_RESULT(yes),
+		   AC_MSG_RESULT(no) 
+		   AC_MSG_FAILURE(C++ compiler does not work))
+    AC_LANG_POP(C++)
+    
+    dnl 
+    dnl We want the C preprocessor as well
+    dnl    
+    AC_PROG_CPP
+
+    dnl
+    dnl Figure out the version and set version-specific options
+    dnl
+
+    EXTRA_CFLAGS=""
+    EXTRA_CXXFLAGS=""
+
+    AC_CACHE_CHECK(for the version of the GNU C compiler, oasys_cv_prog_gccver, [
+      oasys_cv_prog_gccver=`$CC -dumpversion | cut -d. -f1-2`
+    ])      
+
+    AC_CACHE_CHECK(for the version of the GNU C++ compiler, oasys_cv_prog_gxxver, [
+      oasys_cv_prog_gxxver=`$CXX -dumpversion | cut -d. -f1-2`
+    ])
+
+    if test $oasys_cv_prog_gccver != $oasys_cv_prog_gxxver ; then
+        echo "*** "
+	echo "*** warning: C compiler version $oasys_cv_prog_gccver doesn't equal"
+	echo "***          C++ compiler version $oasys_cv_prog_gxxver"
+        echo "*** "
+    fi
+
+    # 
+    # Set version-specific compiler options
+    #
+    case "$oasys_cv_prog_gccver" in
+        #
+        # for gcc 2.9.X and 3.1, the auto-dependency features don't work, and 
+        # _GNU_SOURCE isn't defined, so do both those things here
+        #
+        3.1*|2.9*)
+            EXTRA_CFLAGS="-std=gnu11 -D_BSD_SOURCE"
+            EXTRA_CXXFLAGS="-std=c++1y"
+	    DEPFLAGS=""
+            echo "*** "
+	    echo "*** warning: using old compiler $cc version $oasys_cv_prog_gccver,"
+	    echo "***          automatic dependency generation will not work"
+            echo "*** "
+	    ;;
+	#
+	# For 3.2 and beyond, use auto-dependency flags. 
+	# Note that for m4 to output a '$' requires the '@S|@' heinosity below.
+	#
+	3.*|4.*|5.*|6.*|7.*|8|8.*)
+            EXTRA_CFLAGS="-std=gnu11 -D_BSD_SOURCE"
+            EXTRA_CXXFLAGS="-std=c++1y"
+	    DEPFLAGS=['-MMD -MP -MT "@S|@*.o @S|@*.E"']
+	    ;;
+	#
+	# Otherwise bail
+	#
+        *)
+	    echo "error: unsupported compiler version $oasys_cv_prog_gccver"
+	    exit  1
+	    ;;
+    esac
+    AC_SUBST(DEPFLAGS)
+
+    dnl
+    dnl Look for the appropriate ar and ranlib tools for this build
+    dnl
+    AC_CHECK_TOOL(AR, ar)
+    AC_CHECK_TOOL(RANLIB, ranlib)
+
+    if test -z "$AR" ; then
+       AC_MSG_ERROR([can't find a working ar tool])
+    fi
+])
+
+dnl
+dnl GCC options
+dnl
+AC_DEFUN(AC_OASYS_CONFIG_GCC_OPTS, [
+    dnl
+    dnl Handle --enable-debug[=yes|no]
+    dnl 	   --disable-debug
+    dnl
+    AC_ARG_ENABLE(debug,
+                  AC_HELP_STRING([--disable-debug],
+                                 [compile with debugging turned off]),
+                  [debug=$enableval],
+                  [debug=yes])
+    
+    AC_MSG_CHECKING([whether to compile with debugging])
+    AC_MSG_RESULT($debug)
+    
+    DEBUG=
+    if test $debug = yes ; then 
+        DEBUG="-g -fno-inline"
+    else
+        DEBUG="-DNDEBUG"
+    fi
+    AC_SUBST(DEBUG)
+	
+    dnl
+    dnl Handle --enable-debug-memory[=yes|no]
+    dnl 	   --disable-debug-memory
+    dnl
+    AC_ARG_ENABLE(debug_memory,
+                  AC_HELP_STRING([--enable-debug-memory],
+                                 [enable memory debugging]),
+                  [debug_memory=$enableval],
+                  [debug_memory=no])
+    
+    AC_MSG_CHECKING([whether to compile with memory debugging])
+    AC_MSG_RESULT($debug_memory)
+    
+    if test $debug_memory = yes ; then
+        AC_DEFINE_UNQUOTED(OASYS_DEBUG_MEMORY_ENABLED, 1,
+                       [whether oasys memory debugging is enabled])
+    fi
+
+    dnl
+    dnl Handle --enable-debug-locking[=yes|no]
+    dnl --disable-debug-locking
+    dnl
+    AC_ARG_ENABLE(debug_locking,
+                  AC_HELP_STRING([--enable-debug-locking],
+                                 [enable lock debugging]),
+                  [debug_locking=$enableval],
+                  [debug_locking=no])
+    
+    AC_MSG_CHECKING([whether to compile with lock debugging])
+    AC_MSG_RESULT($debug_locking)
+    
+    if test $debug_locking = yes ; then
+        AC_DEFINE_UNQUOTED(OASYS_DEBUG_LOCKING_ENABLED, 1,
+                       [whether oasys lock debugging is enabled])
+    fi
+    
+    dnl
+    dnl Handle --enable-debug-logging[=yes|no]
+    dnl --disable-debug-logging
+    dnl
+    AC_ARG_ENABLE(debug_logging,
+                  AC_HELP_STRING([--enable-debug-logging],
+                                 [enable log_debug]),
+                  [debug_logging=$enableval],
+                  [debug_logging=no])
+    
+    AC_MSG_CHECKING([whether to compile with log_debug enabled])
+    AC_MSG_RESULT($debug_logging)
+    
+    if test $debug_logging = yes ; then
+        AC_DEFINE_UNQUOTED(OASYS_LOG_DEBUG_ENABLED, 1,
+                       [whether oasys log_debug is enabled])
+    fi
+    
+    dnl
+    dnl Handle --enable-optimize[=yes|no]
+    dnl 	   --disable-optimize
+    dnl
+    optimize=yes
+    AC_ARG_ENABLE(optimize,
+                  AC_HELP_STRING([--disable-optimize],
+                                 [compile with optimization turned off]),
+                  [optimize=$enableval],
+                  [optimize=yes])
+    
+    AC_MSG_CHECKING([whether to compile with optimization])
+    AC_MSG_RESULT($optimize)
+
+    OPTIMIZE=
+    OPTIMIZE_WARN=
+    if test $optimize = yes ; then
+        OPTIMIZE="-O2 -fno-strict-aliasing"
+        OPTIMIZE_WARN=-Wuninitialized
+    fi
+    AC_SUBST(OPTIMIZE)
+    AC_SUBST(OPTIMIZE_WARN)
+
+    dnl
+    dnl Handle --enable-profiling[=yes|no]
+    dnl        --disable-profiling
+    profile=
+    AC_ARG_ENABLE(profile,
+                  AC_HELP_STRING([--enable-profile],[compile with profiling]),
+                  [profile=$enableval],
+                  [profile=no])
+    
+    AC_MSG_CHECKING([whether to compile with profiling])
+    AC_MSG_RESULT($profile)
+
+    PROFILE=
+    if test $profile = yes ; then
+        PROFILE="-pg"   
+    fi
+    AC_SUBST(PROFILE)
+
+    dnl
+    dnl Handle --enable-static[=yes|no]
+    dnl        --enable-static-external-libs[=yes|no]
+    dnl
+    AC_ARG_ENABLE(static,
+                  AC_HELP_STRING([--enable-static],
+                                 [statically link all binaries]),
+                  [static=$enableval],
+                  [static=no])
+
+    AC_MSG_CHECKING([whether to link statically])
+    AC_MSG_RESULT($static)
+
+    AC_ARG_ENABLE(static-external-libs,
+                  AC_HELP_STRING([--enable-static-external-libs],
+                                 [use static external libraries]),
+                  [staticextlibs=$enableval],
+                  [staticextlibs=no])
+
+    AC_MSG_CHECKING([whether to link using static external libraries])
+    AC_MSG_RESULT($staticextlibs)
+
+    STATIC=no
+    if [[ $static = yes ]] ; then
+       STATIC=yes
+       LDFLAGS="$LDFLAGS -static"
+    elif [[ $staticextlibs = yes ]] ; then
+       STATIC=extlibs
+    fi
+    AC_SUBST(STATIC)
+
+    AC_MSG_CHECKING([whether to try to build shared libraries])
+    if [[ $static = yes ]] ; then
+        AC_MSG_RESULT(no)
+    else
+
+    dnl    
+    dnl Handle --enable-shlibs 
+    dnl
+    dnl Turns on shared library building which also builds all code 
+    dnl with -fPIC -DPIC.
+    dnl
+    AC_ARG_ENABLE(shlibs,
+                  AC_HELP_STRING([--enable-shlibs],
+                                 [enable building of shared libraries (default try)]),
+                  [shlibs=$enableval],
+                  [shlibs=yes])
+
+    AC_MSG_RESULT($shlibs)
+
+    SHLIBS=no
+    PICFLAGS=""
+    LDFLAGS_SHLIB=""
+    if [[ $shlibs = yes ]] ; then
+       ac_save_LDFLAGS=$LDFLAGS
+       ac_save_CFLAGS=$CFLAGS
+       picflags="-fPIC -DPIC"
+       CFLAGS="$picflags $ac_save_CFLAGS -Werror"
+       AC_MSG_CHECKING([whether the compiler supports -fPIC])
+       AC_COMPILE_IFELSE([int myfunc() {return 0;}], [pic=yes], [pic=no])
+       AC_MSG_RESULT($pic)
+
+       if [[ $pic = yes ]] ; then
+           
+           for shopt in -shared "-shared -fPIC" "-dynamiclib -single_module" ; do
+             AC_MSG_CHECKING([whether the compiler can link a dynamic library with $shopt])
+	     LDFLAGS="$shopt $ac_save_LDFLAGS"
+             AC_LINK_IFELSE([void myfunc() {}], [shlink=yes], [shlink=no])
+             AC_MSG_RESULT($shlink)
+
+             if [[ $shlink = yes ]] ; then
+                 SHLIBS=yes
+                 PICFLAGS=$picflags
+                 LDFLAGS_SHLIB="$shopt $PICFLAGS"
+
+		 AC_MSG_CHECKING([extension for dynamic libraries])
+		 dnl XXX/demmer this could be done in some better way but I don't know how
+		 if [[ "$shopt" = "-dynamiclib -single_module" ]] ; then
+                     SHLIB_EXT=dylib
+		 elif [[ "$shopt" = "-shared -fPIC" ]] ; then
+                     SHLIB_EXT=so
+                 elif [[ $shopt = -shared ]] ; then
+                     SHLIB_EXT=so
+                 else
+                     # shouldn't happen if above options are correctly checked
+                     AC_MSG_ERROR(internal error in configure script)
+                 fi
+		 AC_MSG_RESULT($SHLIB_EXT)
+
+		 AC_MSG_CHECKING([if the compiler supports -Wl,--rpath=.])
+		 LDFLAGS="$LDFLAGS -Wl,-rpath=/foo"
+		 AC_LINK_IFELSE([void myfunc() {}], [rpath=yes], [rpath=no])
+		 AC_MSG_RESULT($rpath)
+		 if [[ $rpath = yes ]] ; then
+		     RPATH="-Wl,-rpath=. -Wl,-rpath=\$(prefix)/lib"
+		 fi
+                 break
+             fi
+           done
+       fi
+
+       CFLAGS=$ac_save_CFLAGS
+       LDFLAGS=$ac_save_LDFLAGS
+    fi
+    AC_SUBST(SHLIBS)
+    AC_SUBST(SHLIB_EXT)
+    AC_SUBST(PICFLAGS)
+    AC_SUBST(RPATH)
+    AC_SUBST(LDFLAGS_SHLIB)
+
+    fi # ! $static = yes
+
+    dnl
+    dnl Add options to add extra compilation flags
+    dnl
+    dnl EXTRA_CFLAGS=""
+    AC_ARG_WITH(extra-cflags,
+        AC_HELP_STRING([--with-extra-cflags=?],
+	 	       [additional options to pass to the compiler]),
+                       EXTRA_CFLAGS=$withval)
+    AC_SUBST(EXTRA_CFLAGS)
+
+    dnl EXTRA_CXXFLAGS=""
+    AC_ARG_WITH(extra-cxxflags,
+        AC_HELP_STRING([--with-extra-cxxflags=?],
+                [additional options to pass to the compiler]),
+                        EXTRA_CXXFLAGS=$withval)
+    AC_SUBST(EXTRA_CXXFLAGS)
+
+    EXTRA_LDFLAGS=""
+    AC_ARG_WITH(extra-ldflags,
+        AC_HELP_STRING([--with-extra-ldflags=?],
+	 	       [additional options to pass to the linker]),
+                       EXTRA_LDFLAGS=$withval)
+    AC_SUBST(EXTRA_LDFLAGS)
+])
+
+dnl
+dnl Configure gcc
+dnl
+AC_DEFUN(AC_OASYS_CONFIG_GCC, [
+    dnl
+    dnl Handle the various autoconf options for cross compilation that 
+    dnl set either --target or (better?) both --build and --host.
+    dnl
+    if test ! -z "$host_alias" ; then
+        TARGET=$host_alias
+    elif test ! -z "$target_alias" ; then
+        TARGET=$target_alias
+    elif test ! -z "$target" ; then
+        TARGET=$target
+    else
+        TARGET=native
+    fi
+    AC_SUBST(TARGET)
+
+    AC_OASYS_CONFIG_GCC_VERSION
+    AC_OASYS_CONFIG_GCC_OPTS
+
+    dnl
+    dnl Set the build system in a variable so it's usable by
+    dnl Makefiles and other scripts
+    dnl
+    BUILD_SYSTEM=`uname -s || echo UNKNOWN | sed 's/CYGWIN.*/CYGWIN/'`
+    AC_SUBST(BUILD_SYSTEM)
+])

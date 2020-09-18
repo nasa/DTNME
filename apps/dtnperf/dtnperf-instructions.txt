@@ -1,0 +1,69 @@
+                        ***********************
+                        *       DTNPERF       *
+                        *                     *
+                        *      help file      *
+                        ***********************
+
+This file contains some instruction in order to use dtnperf.
+First of all, dtnperf is a software by which you can test a DTN, obtaining its
+goodput.
+I wrote dtnperf trying to mantain a syntax compatibility with the famous Iperf,
+commonly used to test TCP performances.
+At the present time, dtnperf consists of two files: a client application and a
+server.
+Like all the DTN applications, you first need to run the DTN daemon on each DTN
+node.
+Then run the server on the destination machine and the client on the sender
+machine.
+
+Client application:
+------------------
+With dtnperf you can execute your tests either in Time-Mode or in Data-Mode.
+
+* Time-Mode: you tell the software "send bundles for N seconds" and it will
+return how many bytes have been sent.
+You can activate Time-Mode with the -t option, followed by the
+number of seconds your test is going to last.
+The default payload size for each bundle is 50000 bytes, but you can change it
+using the -p option, followed by the amount of bytes you want to use.
+
+NOTE: the default of 50000 bytes has a motivation. Bundles are normally saved
+into a file, but you can specify to use memory instead (-m option). So the
+maximum size for each bundle must be at last 50000 bytes (in DTN 2.1). If you
+want to send greater payloads, bundles will be saved into a file. So make sure
+to have enough space on your hard-disk to store that file.
+
+* Data-Mode: you tell the software "send a bundle of N bytes" and you'll be
+returned the time taken by the transmission.
+You can activate Data-Mode with the -n option, followed by the
+number of bytes you want to send. You can send the same bundle many times (-B
+option), and set a sleeping time between transmissions (-S option).
+
+NOTE: because of the limitation described above (see Time-Mode NOTE), if you
+want to transmit more that 50000 bytes using memory, Data-Mode will send as many
+bundles as necessary, using multiple transmissions. You can avoid this using a
+file for the storage of bundle payload. If you do so, make sure to have enough
+free space on your hard-disk.
+
+In both Time and Data Modes, you can generate a CSV output. This can be very
+useful for creating tables. By now, you must redirect the dtnperf client output
+to a file, using the shell functions '>' and '>>'. In the future, you'll be able
+to specify a CSV output file.
+For a complete list of all the options, run the -h option.
+
+Server application:
+------------------
+The server application is quite easy to use: it can be run without options.
+However you may want to save received bundles into memory (instead of file), so
+you can specify the -m option. You can also tell in which directory you want to
+save that destination file, just use the -d option.
+For a complete options list, use the -h option.
+
+Ok, that's all folks! I hope dtnperf will be useful to you.
+Just one thing... dtnperf is free. This means that you can copy and distribute
+it for free. You can also change its code, but i ask you to send me an email
+(piero.cornice@gmail.com)
+and notify me the changes you want to do, BEFORE doing them. Thank you.
+
+Piero Cornice - piero.cornice(at)gmail.com
+Marco Livini - marco.livini(at)gmail.com

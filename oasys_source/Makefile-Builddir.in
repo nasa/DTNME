@@ -1,0 +1,10 @@
+#
+# Makefile to build in directories other than the source directory
+#
+SRCDIR   := @SRCDIR@
+BUILDDIR := @BUILDDIR@
+
+vpath %.c  $(SRCDIR)
+vpath %.cc $(SRCDIR)
+
+include $(SRCDIR)/Makefile

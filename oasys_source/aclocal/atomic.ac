@@ -1,0 +1,63 @@
+dnl
+dnl    Copyright 2006 Intel Corporation
+dnl 
+dnl    Licensed under the Apache License, Version 2.0 (the "License");
+dnl    you may not use this file except in compliance with the License.
+dnl    You may obtain a copy of the License at
+dnl 
+dnl        http://www.apache.org/licenses/LICENSE-2.0
+dnl 
+dnl    Unless required by applicable law or agreed to in writing, software
+dnl    distributed under the License is distributed on an "AS IS" BASIS,
+dnl    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+dnl    See the License for the specific language governing permissions and
+dnl    limitations under the License.
+dnl
+
+dnl -------------------------------------------------------------------------
+dnl Configure the options for oasys atomic functions
+dnl -------------------------------------------------------------------------
+AC_DEFUN(AC_OASYS_CONFIG_ATOMIC, [
+    dnl
+    dnl Handle --enable-atomic-nonatomic[=yes|no]
+    dnl
+    dnl
+    AC_ARG_ENABLE(atomic_nonatomic,
+                  AC_HELP_STRING([--enable-atomic-nonatomic],
+                    [compile with non-atomic "atomic" routines (testing only)]),
+                  [atomic_nonatomic=$enableval],
+                  [atomic_nonatomic=no])
+    
+    AC_MSG_CHECKING([whether to compile with non-atomic "atomic" routines])
+    AC_MSG_RESULT($atomic_nonatomic)
+
+    if test $atomic_nonatomic = yes ; then
+        AC_MSG_NOTICE([***])
+        AC_MSG_NOTICE([*** WARNING: non-atomic "atomic" routines are for testing only ***])
+        AC_MSG_NOTICE([***])
+
+        AC_DEFINE_UNQUOTED(OASYS_ATOMIC_NONATOMIC, 1,
+                       [whether non-atomic "atomic" routines are enabled])
+    else
+
+    dnl
+    dnl Handle --enable-atomic-asm[=yes|no]
+    dnl        --disable-atomic-asm
+    dnl
+    AC_ARG_ENABLE(atomic_asm,
+                  AC_HELP_STRING([--disable-atomic-asm],
+                         [compile without assembly-based atomic functions]),
+                  [atomic_asm=$enableval],
+                  [atomic_asm=yes])
+    
+    AC_MSG_CHECKING([whether to compile with assembly-based atomic functions])
+    AC_MSG_RESULT($atomic_asm)
+
+    if test $atomic_asm = no ; then
+        AC_DEFINE_UNQUOTED(OASYS_ATOMIC_MUTEX, 1,
+                      [whether atomic routines are implemented with a mutex])
+    fi
+
+    fi
+])
+

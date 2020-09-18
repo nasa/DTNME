@@ -1,0 +1,38 @@
+Building an oasys package for Debian
+------------------------------------
+
+This debian package does not conform to any of the real Debian
+policies or guidelines, but it's been included here for convenience.
+
+Make sure you have debuild, debhelper, and fakeroot installed.
+
+The process used to build the debian packages is:
+
+First update the debian/changelog, typically using:
+dch -v <version>
+
+Then check in the updated changelog and create a release tag
+containing the update.
+
+Then export a snapshot of the release tag using:
+hg archive -r <release_tag> -d ../oasys-<version>
+
+Now cd .. and run
+dpkg-source -b oasys-<version>
+
+cd oasys-<version> && debuild -r fakeroot binary
+
+Then, to buld an apt repository, the following commands were used,
+where debian_version is the release name (i.e. sarge/etch) of the
+target system:
+
+reprepro -b <repository_dir> includedeb <debian_version> \
+	 liboasys-<version>_<arch>.deb
+
+reprepro -b <repository_dir> includedeb <debian_version> \
+	 liboasys-dev-<version>_<arch>.deb
+
+reprepro -b <repository_dir> -S contrib -P optional \
+	 includedsc <debian_version> liboasys_<version>.dsc
+
+

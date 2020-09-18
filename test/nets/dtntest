@@ -1,0 +1,11 @@
+#
+# Net file for the intel dummynet minilab
+#
+# Note we use different hostnames for the internal test communication
+# to force it to go through dummynet
+
+for {set i 0} {$i < 5} {incr i} {
+    set host dtntest[expr $i + 1]
+    net::node $i $host 10000
+#    net::node $i $host 10000 "-internal_host $host-dummynet"
+}

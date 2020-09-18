@@ -1,0 +1,19 @@
+dnl
+dnl Autoconf support for the EHS External Router
+dnl
+ AC_DEFUN(AC_CONFIG_EHSROUTER, [
+     ac_ehsrouter='no'
+     AC_ARG_WITH(ehsrouter,
+         AC_HELP_STRING([--with-ehsrouter],
+                 [enable building the EHS External Router which also requires Xerces C]),
+         ac_ehsrouter=$withval)
+     dnl
+     dnl First make sure we even want it
+     dnl
+     if test "$ac_ehsrouter" = no; then
+         EHSROUTER_ENABLED=0
+     else
+         EHSROUTER_ENABLED=1
+         AC_DEFINE_UNQUOTED(EHSROUTER_ENABLED, 1, [whether to build the EHS External Router])
+     fi # EHSROUTER_ENABLED
+ ])

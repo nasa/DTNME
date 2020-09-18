@@ -1,0 +1,19 @@
+#ifndef __win32__
+#define __win32__ 
+#endif
+
+/*
+ * Pragmas for super paranoid warnings we wish to ignore 
+ */
+
+/* unreferenced inline function has been removed */
+#pragma warning(disable: 4514) 
+
+/* there is no warning number X */
+#pragma warning(disable: 4619)
+
+/* bytes padding added after data member */
+#pragma warning(disable: 4820)
+
+/* Get rid of the GNU attributes */
+#define __attribute__(x)

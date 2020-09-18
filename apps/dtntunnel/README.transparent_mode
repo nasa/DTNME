@@ -1,0 +1,63 @@
+About Transparent Mode
+
+A host running dtntunnel in transparent mode ("-p" option) can act as an IP 
+network router for TCP and UDP protocols, that are redirected to dtntunnel with 
+the help of IPTables and TProxy.
+
+Transparent mode is implemented with the use of Tproxy mechanism, which is 
+supported in Linux only. For the description of Tproxy see tproxy.txt in the 
+Documentation/networking subdirectory of Linux kernel source tree.
+
+Here is how this looks at the network level. Hosts A and B are reachable via DTN
+while local networks of A and B may even be not connected via IP protocol:
+[IP Host A] <-> [DTN node with dtntunnel] <-> (DTN Network) <-> 
+            <-> [DTN node with dtntunnel] <-> [IP Host B]
+
+Here is how this looks at the application level. Application client and server
+communicate transparently as if there was an IP network between them. Both 
+client and server see IP addresses and ports of each other, not of dtntunnel as 
+it is without transparent mode enabled:
+[Application client] <-> [dtntunnel -T] <-> (DTN Network) <->
+                     <-> [dtntunnel -L] <-> [Application server]
+
+In order to let transparent mode work, insert the following IPTables and routing 
+rules on the host where you run dtntunnel in tunnel mode ("-T" option):
+iptables -t mangle -N DTNTUNNEL
+iptables -t mangle -A DTNTUNNEL -j MARK --set-mark 1
+iptables -t mangle -A DTNTUNNEL -j ACCEPT
+iptables -t mangle -A PREROUTING -p $PROTO -m socket -j DTNTUNNEL
+iptables -t mangle -A PREROUTING -p $PROTO --dport $APPLICATION_PORT -j TPROXY \
+         --on-port $DTNTUNNEL_PORT --tproxy-mark 1/1
+ip rule add fwmark 1 lookup 100
+ip route add local 0.0.0.0/0 dev lo table 100
+
+If you run application client on the same host as dtntunnel in tunnel mode, you 
+have to insert an additional IPTables rule:
+iptables -t mangle -A OUTPUT -o $EXTERNAL_IF -p $PROTO --dport $APPLICATION_PORT \
+         -j MARK --set-xmark 1
+NOTE: This will work only for application client running on the same host as 
+dtntunnel in tunnel mode, not for a server running on the same host as dtntunnel 
+in listen mode ("-L" option).
+
+In the above commands $PROTO is either tcp or udp;
+$APPLICATION_PORT is a port number used by an application protocol, ex. 22 for SSH, 
+53 for DNS, 80 for HTTP, port range can be given in the form 22:23;
+$DTNTUNNEL_PORT is the dtntunnel lport as given in tunnel specification;
+$EXTERNAL_IF is a name of a network interface towards the remote network that is 
+to be reached via DTN.
+
+NOTE: Don't forget to add network routes on the hosts that will use dtntunnel host 
+as a router. In the most simple case setting the default gateway address to the 
+address of the host running dtntunnel is enough.
+
+In transparent mode dtntunnel can use multiple destination EIDs in order to be able
+to transport data to multiple IP networks reachable through different DTN nodes.
+To enable this feature specify <destination eid table file name> instead of 
+<destination_eid> in dtntunnel command line.
+
+Eid table file format: <IP network address> <DTN node EID>.
+Eid table file example:
+192.168.4.0/24 dtn://dtn1.dtn/dtntunnel/app
+192.168.5.0/24 dtn://dtnme.dtn/dtntunnel/app
+
+Sergey Sireskin ssireskin at gmail com

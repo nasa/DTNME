@@ -1,0 +1,69 @@
+dnl
+dnl Autoconf support for finding OpenSSL
+dnl
+dnl
+
+AC_DEFUN(AC_CONFIG_OPENSSL, [
+    if test "$ac_bsp" = yes; then
+        ac_openssldir='yes'
+        
+        AC_ARG_WITH(openssl,
+            AC_HELP_STRING([--with-openssl=DIR],
+                [location of an OpenSSL installation (default system)]),
+            ac_openssldir=$withval)
+        
+        ac_save_CPPFLAGS="$CPPFLAGS"
+        ac_save_LDFLAGS="$LDFLAGS"
+        ac_save_LIBS="$LIBS"
+        
+        dnl
+        dnl Now check if we have a cached value, unless the user specified
+        dnl something explicit with the --with-openssl= argument, in
+        dnl which case we force it to redo the checks (i.e. ignore the
+        dnl cached values)
+        dnl
+        if test "$ac_openssldir" = yes -a ! x$openssl_cv_include = x ; then
+            echo "checking for OpenSSL installation... (cached) $openssl_cv_include/openssl/evp.h, $openssl_cv_lib -lcrypto"
+        else
+            if test "$ac_openssldir" = system -o \
+                    "$ac_openssldir" = yes -o \
+                    "$ac_openssldir" = "" ; 
+            then
+                ac_openssldir="/usr/include"
+                
+                openssl_include=$ac_openssldir
+                openssl_lib="/usr/lib"
+            else
+                openssl_include=$ac_openssldir/include
+                CPPFLAGS="-I$openssl_include"
+                openssl_lib=$ac_openssldir/lib
+                LDFLAGS="-L$openssl_lib"
+           fi
+            
+        fi
+        
+        AC_CHECK_HEADERS([$openssl_include/openssl/evp.h], [], [AC_MSG_FAILURE([Cannot find OpenSSL.
+       On Debian-based Linux systems, you need the 'libssl-dev' package.])])
+        
+        AC_CHECK_LIB([crypto], [EVP_DigestInit], [], [AC_MSG_FAILURE([Cannot find OpenSSL.
+       On Debian-based Linux systems, you need the 'libssl-dev' package.])])
+        
+        AC_CHECK_LIB([crypto], [EVP_sha256], [], [AC_MSG_FAILURE([Cannot find EVP_sha256.
+       On Mac OS X systems, you probably need an updated OpenSSL package, version 0.9.8.
+       Specify   --with-openssl=/path/to/openssl LDFLAGS="-Wl,-search_paths_first"])])
+
+       if test "$openssl_include" != /usr/include ; then
+          EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I$openssl_include"
+       fi
+
+       if test "$openssl_lib" != /usr/lib ; then
+	   EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L$openssl_lib"
+       fi
+       
+       EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lcrypto"
+
+       CPPFLAGS=$ac_save_CPPFLAGS
+       LDFLAGS=$ac_save_LDFLAGS
+       LIBS=$ac_save_LIBS
+    fi
+])

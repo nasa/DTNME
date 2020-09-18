@@ -1,0 +1,20 @@
+dnl
+dnl Autoconf support for Bundle Security Protocol
+dnl
+
+AC_DEFUN(AC_CONFIG_BSP, [
+    ac_bsp='no'
+    AC_ARG_WITH(bsp,
+        AC_HELP_STRING([--with-bsp],
+    		   	[enable Bundle Security Protocol support (EXPERIMENTAL)]),
+        ac_bsp=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_bsp" = no; then
+        BSP_ENABLED=0
+    else
+        BSP_ENABLED=1
+        AC_DEFINE_UNQUOTED(BSP_ENABLED, 1, [whether Bundle Security Protocol support is enabled])
+    fi # BSP_ENABLED
+])

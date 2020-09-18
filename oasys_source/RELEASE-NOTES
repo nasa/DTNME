@@ -1,0 +1,45 @@
+Release Notes for Oasys
+----------------------
+1.6.0 (July 2012)
+
+New features:
+=============
+
+- Improved support for ODBC-based storage databases based on SQLite 
+  implementation in Oasys 1.5.0.
+
+    * Full implementation for MySQL
+
+    * Improved implementation for SQLite
+
+    * Base ODBC support factored out to allow easier addition of other 
+      ODBC interfaces (e.g., PostgreSQL)
+
+    * Support of key types other than integer for the main tables 
+      managed by Oasys (needed for Links)
+
+    * Support for 'auxiliary' tables tied to particular main tables 
+      in an ODBC database. Auxiliary tables can have multiple data 
+      columns instead of the single 'blob' column containing 
+      (typically) a serialization of a complete data structure 
+      instance with generic support for connecting data items with 
+      the associated column in the auxiliary table. The intention 
+      is that auxiliary table rows are tied to corresponding main
+      table rows using SQL triggers to ensure referential integrity.
+
+    * Additional storage configuration to identify SQL scripts that
+      can be executed before and after the main SQL tables are created
+      to create the auxiliary tables and associated triggers as well as 
+      doing any other non-standard additions to the database schema. 
+
+Bug fixes:
+==========
+- Enforced check for existence of a suitable version of Xerces-C when 
+  configuring Oasys. Oasys requires version 2.x rather than version 3.y
+  with x >= 6.  Version 3 has a different interface and cannot be used.
+
+- Corrections to configuration of search paths when installing Oasys or 
+  using it with another package wuch as DTNME.
+
+- Corrections to dummy begin_transaction and end_transaction routines 
+  that are implemented in storage types that do not support transactions.
