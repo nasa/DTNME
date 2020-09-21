@@ -15,7 +15,7 @@ then
 printf "Uh Oh, something went wrong\nAn error occured while trying to run build-configure.sh for oasys\n"
 exit 1
 fi
-./configure --disable-debug-locking --with-odbc=no --with-python=no --with-extra-cflags="-O0 -ggdb3" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3"
+./configure --disable-debug-locking --with-odbc=no --with-python=no --with-extra-cflags="-O0 -ggdb3 -w" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3 -w"
 
 if [ $? -ne 0 ]
 then
@@ -47,7 +47,7 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to run 'build
 exit 1
 fi
 
-./configure --with-acs --with-ecos --with-oasys=./oasys_source --disable-ecl --disable-edp --enable-bid64bit --with-ltpudp --with-odbc=no --with-extra-cflags="-O0 -ggdb3" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3"
+./configure --with-acs --with-ecos --with-oasys=./oasys_source --disable-ecl --disable-edp --enable-bid64bit --with-ltpudp --with-odbc=no --with-extra-cflags="-O0 -ggdb3 -w" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3 -w -fpermissive"
 
 if [ $? -ne 0 ]
 then
