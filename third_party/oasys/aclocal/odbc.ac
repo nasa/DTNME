@@ -25,9 +25,9 @@ AC_DEFUN(AC_CONFIG_ODBC, [
 
     AC_ARG_WITH(odbc,
       [AC_HELP_STRING([--with-odbc],
-                      [compile in odbc support (default try)])],
+                      [compile in odbc support (default no)])],
       [ac_use_odbc=$withval],
-      [ac_use_odbc=try])
+      [ac_use_odbc=no])
     
     AC_MSG_CHECKING([whether odbc support should be enabled (needs ODBC version >= 3.51)])
 
