@@ -2,6 +2,8 @@
 
 cd third_party/oasys
 
+chmod +x tools/extract-version
+
 if [ $? -ne 0 ]
 then
 printf "Uh Oh, something went wrong\nAn error occured while trying to change directory to the oasys_source directory\n"
