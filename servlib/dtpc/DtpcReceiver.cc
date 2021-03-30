@@ -79,6 +79,9 @@ DtpcReceiver::reset_stats()
 void
 DtpcReceiver::run()
 {
+    char threadname[16] = "DtpcReceiver";
+    pthread_setname_np(pthread_self(), threadname);
+   
     // XXX/dz check for prior existence of a registration? (on reload) 
     // Move to a bind method for on the fly [un]binds?
     u_int32_t regid = GlobalStore::instance()->next_regid(); 
@@ -314,7 +317,7 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
                 break;
             }
 
-            log_debug("posting DtpcAckReceivedEvent - EID: %s, Profile: %"PRIu32" SeqCtr: %"PRIu64,
+            log_debug("posting DtpcAckReceivedEvent - EID: %s, Profile: %" PRIu32 " SeqCtr: %" PRIu64,
                       bundle->source().c_str(), profile_id, seq_ctr);
 
             // post a DTPC ACK received event and clean up
@@ -390,8 +393,6 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
         }
 
         if (is_valid) {
-            log_debug("DPDU received - post DtpcDataReceivedEvent");
-
             // pass on the valid DPDU structure for further processing
             pdu->set_profile_id(profile_id);
             pdu->set_seq_ctr(seq_ctr);
@@ -400,7 +401,7 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
             pdu->set_creation_ts(bundle->creation_ts().seconds_);
             u_int64_t exp = BundleTimestamp::TIMEVAL_CONVERSION + 
                             bundle->creation_ts().seconds_ + 
-                            bundle->expiration();
+                            bundle->expiration_secs();
             pdu->set_expiration_ts(exp);  // actual expiration time
 
             DtpcDaemon::instance()->post(new DtpcDataReceivedEvent(pdu, bref));

@@ -37,10 +37,11 @@
  */
 #define DTN_MAX_ENDPOINT_ID 256 /* max endpoint_id size (bytes) */
 #define DTN_MAX_PATH_LEN PATH_MAX /* max path length */
-#define DTN_MAX_EXEC_LEN ARG_MAX /* length of string passed to exec() */
+//#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+#define DTN_MAX_EXEC_LEN 1050000 /* length of string passed to exec() */
 #define DTN_MAX_AUTHDATA 1024 /* length of auth/security data*/
 #define DTN_MAX_REGION_LEN 64 /* 64 chars "should" be long enough */
-#define DTN_MAX_BUNDLE_MEM 50000 /* biggest in-memory bundle is ~50K*/
+#define DTN_MAX_BUNDLE_MEM 1048576 /* biggest in-memory bundle is 1MB*/
 #define DTN_MAX_BLOCK_LEN 1024 /* length of block data (currently 1K) */
 #define DTN_MAX_BLOCKS 256 /* number of blocks in bundle */
 
@@ -502,7 +503,7 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 			 return FALSE;
 		 if (!xdr_dtn_sequence_id_t (xdrs, &objp->obsoletes_id))
 			 return FALSE;
-		buf = XDR_INLINE (xdrs, 4 * BYTES_PER_XDR_UNIT);
+		buf = XDR_INLINE (xdrs, 5 * BYTES_PER_XDR_UNIT);
 		if (buf == NULL) {
 			 if (!xdr_bool (xdrs, &objp->ecos_enabled))
 				 return FALSE;
@@ -512,12 +513,15 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 				 return FALSE;
 			 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
 				 return FALSE;
+			 if (!xdr_u_int (xdrs, &objp->bp_version))
+				 return FALSE;
 
 		} else {
 		IXDR_PUT_BOOL(buf, objp->ecos_enabled);
 		IXDR_PUT_U_LONG(buf, objp->ecos_flags);
 		IXDR_PUT_U_LONG(buf, objp->ecos_ordinal);
 		IXDR_PUT_U_LONG(buf, objp->ecos_flow_label);
+		IXDR_PUT_U_LONG(buf, objp->bp_version);
 		}
 		 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 			sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))
@@ -547,7 +551,7 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 			 return FALSE;
 		 if (!xdr_dtn_sequence_id_t (xdrs, &objp->obsoletes_id))
 			 return FALSE;
-		buf = XDR_INLINE (xdrs, 4 * BYTES_PER_XDR_UNIT);
+		buf = XDR_INLINE (xdrs, 5 * BYTES_PER_XDR_UNIT);
 		if (buf == NULL) {
 			 if (!xdr_bool (xdrs, &objp->ecos_enabled))
 				 return FALSE;
@@ -557,12 +561,15 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 				 return FALSE;
 			 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
 				 return FALSE;
+			 if (!xdr_u_int (xdrs, &objp->bp_version))
+				 return FALSE;
 
 		} else {
 		objp->ecos_enabled = IXDR_GET_BOOL(buf);
 		objp->ecos_flags = IXDR_GET_U_LONG(buf);
 		objp->ecos_ordinal = IXDR_GET_U_LONG(buf);
 		objp->ecos_flow_label = IXDR_GET_U_LONG(buf);
+		objp->bp_version = IXDR_GET_U_LONG(buf);
 		}
 		 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 			sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))
@@ -600,6 +607,8 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 	 if (!xdr_u_int (xdrs, &objp->ecos_ordinal))
 		 return FALSE;
 	 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
+		 return FALSE;
+	 if (!xdr_u_int (xdrs, &objp->bp_version))
 		 return FALSE;
 	 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 		sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))

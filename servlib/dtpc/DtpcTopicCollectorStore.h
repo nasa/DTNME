@@ -20,10 +20,10 @@
 
 #ifdef DTPC_ENABLED
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/serialize/TypeShims.h>
-#include <oasys/storage/InternalKeyDurableTable.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/serialize/TypeShims.h>
+#include <third_party/oasys/storage/InternalKeyDurableTable.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 

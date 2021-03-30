@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -38,9 +38,9 @@
 #include <list>
 #include <string>
 
-#include <oasys/debug/Log.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/Timer.h>
 
 #include "../bundling/BundleInfoCache.h"
 #include "../naming/EndpointID.h"
@@ -71,7 +71,7 @@ public:
     static const u_int32_t LINKSTATEROUTER_REGID = 1;
     static const u_int32_t PING_REGID = 2;
     static const u_int32_t EXTERNALROUTER_REGID = 3;
-    static const u_int32_t OLD_REGID = 4;
+    static const u_int32_t RESERVED_REGID = 4;
     static const u_int32_t ADMIN_REGID_IPN = 5;
     static const u_int32_t IPN_ECHO_REGID = 6;
     static const u_int32_t MAX_RESERVED_REGID = 9;
@@ -83,7 +83,7 @@ public:
     typedef enum {
         DROP,		///< Drop bundles
         DEFER,		///< Spool bundles until requested
-        EXEC		///< Execute the specified callback procedure
+//dzdebug        EXEC		///< Execute the specified callback procedure
     } failure_action_t;
 
     /**
@@ -224,7 +224,7 @@ protected:
     /**
      * Class to implement registration expirations.
      */
-    class ExpirationTimer : public oasys::Timer {
+    class ExpirationTimer : public oasys::SharedTimer {
     public:
         ExpirationTimer(Registration* reg)
             : reg_(reg) {}
@@ -233,6 +233,8 @@ protected:
         
         Registration* reg_;
     };
+    
+    typedef std::shared_ptr<ExpirationTimer> SPtr_ExpirationTimer;
 
     void init_expiration_timer();
     void cleanup_expiration_timer();
@@ -246,7 +248,7 @@ protected:
     std::string script_;
     u_int32_t expiration_;
     u_int32_t creation_time_;
-    ExpirationTimer* expiration_timer_;
+    SPtr_ExpirationTimer expiration_timer_;
     bool active_;    
     bool bound_;    
     bool expired_;

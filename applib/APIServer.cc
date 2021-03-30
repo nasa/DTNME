@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -42,22 +42,24 @@
 #include <sys/stat.h>
 #include <limits.h>
 
-#include <oasys/compat/inet_aton.h>
-#include <oasys/compat/rpc.h>
-#include <oasys/io/FileIOClient.h>
-#include <oasys/io/NetUtils.h>
-#include <oasys/util/Pointers.h>
-#include <oasys/util/ScratchBuffer.h>
-#include <oasys/util/XDRUtils.h>
+#include <third_party/oasys/compat/inet_aton.h>
+#include <third_party/oasys/compat/rpc.h>
+#include <third_party/oasys/io/FileIOClient.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/util/Pointers.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/XDRUtils.h>
 
 #include "APIServer.h"
-#include "bundling/APIBlockProcessor.h"
-#include "bundling/UnknownBlockProcessor.h"
+#include "bundling/BP6_APIBlockProcessor.h"
+#include "bundling/BP6_BundleStatusReport.h"
 #include "bundling/Bundle.h"
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleProtocol.h"
+#include "bundling/BundleProtocolVersion7.h"
 #include "bundling/BundleStatusReport.h"
+#include "bundling/BundleTimestamp.h"
 #include "bundling/SDNV.h"
 #include "bundling/GbofId.h"
 #include "naming/EndpointID.h"
@@ -67,7 +69,7 @@
 #include "reg/RegistrationTable.h"
 #include "routing/BundleRouter.h"
 #include "storage/GlobalStore.h"
-#include "session/Session.h"
+#include "storage/BundleStore.h"
 
 #ifdef DTPC_ENABLED
 #    include "dtpc/DtpcApplicationDataItem.h"
@@ -83,7 +85,7 @@ namespace dtn {
 //----------------------------------------------------------------------
 APIServer::APIServer()
       // DELETE_ON_EXIT flag is not set; see below.
-    : TCPServerThread("APIServer", "/dtn/apiserver", 0)	
+    : TCPServerThread("APIServer", "/dtn/apiserver", 0)    
 {
     enabled_    = true;
     local_addr_ = htonl(INADDR_LOOPBACK);
@@ -168,7 +170,7 @@ APIServer::shutdown_hook()
     client_list_lock.unlock();
 
 #define MAX_SPIN_TIME (5 * 1000000) // max sleep in usec
-#define EACH_SPIN_TIME 10000	// sleep 10ms each time
+#define EACH_SPIN_TIME 10000    // sleep 10ms each time
 
     // As clients exit they unregister themselves, so if a client is
     // still on the list we assume that it is still alive.  So here we
@@ -238,7 +240,6 @@ APIClient::APIClient(int fd, in_addr_t addr, u_int16_t port, APIServer *parent)
     xdrmem_create(&xdr_decode_, buf_ + 8, DTN_MAX_API_MSG - 8, XDR_DECODE);
 
     bindings_ = new APIRegistrationList();
-    sessions_ = new APIRegistrationList();
 #ifdef DTPC_ENABLED
     dtpc_bindings_ = new DtpcRegistrationList();
 #endif
@@ -249,7 +250,6 @@ APIClient::~APIClient()
 {
     log_debug("client destroyed");
     delete_z(bindings_);
-    delete_z(sessions_);
 #ifdef DTPC_ENABLED
     delete_z(dtpc_bindings_);
 #endif
@@ -303,9 +303,6 @@ APIClient::close_client()
     }
 #endif
 
-    // XXX/demmer memory leak here?
-    sessions_->clear();
-    
     parent_->unregister_client(this);
 }
 
@@ -360,6 +357,9 @@ APIClient::handle_handshake()
 void
 APIClient::run()
 {
+    char threadname[16] = "APIClient";
+    pthread_setname_np(pthread_self(), threadname);
+   
     int ret;
     u_int8_t type;
     u_int32_t len;
@@ -460,7 +460,6 @@ APIClient::run()
             DISPATCH(DTN_BEGIN_POLL,        handle_begin_poll);
             DISPATCH(DTN_CANCEL_POLL,       handle_cancel_poll);
             DISPATCH(DTN_CLOSE,             handle_close);
-            DISPATCH(DTN_SESSION_UPDATE,    handle_session_update);
             DISPATCH(DTN_PEEK,              handle_peek);
             DISPATCH(DTN_RECV_RAW,          handle_recv_raw);
 
@@ -637,7 +636,7 @@ APIClient::handle_register()
     switch (failure_action) {
     case DTN_REG_DEFER: f_action = Registration::DEFER; break;
     case DTN_REG_DROP:  f_action = Registration::DROP;  break;
-    case DTN_REG_EXEC:  f_action = Registration::EXEC;  break;
+//dzdebug    case DTN_REG_EXEC:  f_action = Registration::EXEC;  break;
     default: {
         log_err("invalid registration flags 0x%x", reginfo.flags);
         return DTN_EINVAL;
@@ -660,15 +659,6 @@ APIClient::handle_register()
     
     u_int32_t session_flags = 0;
     bool ack_delivery_flag = false;
-    if (reginfo.flags & DTN_SESSION_CUSTODY) {
-        session_flags |= Session::CUSTODY;
-    }
-    if (reginfo.flags & DTN_SESSION_SUBSCRIBE) {
-        session_flags |= Session::SUBSCRIBE;
-    }
-    if (reginfo.flags & DTN_SESSION_PUBLISH) {
-        session_flags |= Session::PUBLISH;
-    }
     if (reginfo.flags & DTN_DELIVERY_ACKS) {
         ack_delivery_flag = true;
     }
@@ -679,9 +669,9 @@ APIClient::handle_register()
         return DTN_EINVAL;
     }
 
-    if (f_action == Registration::EXEC) {
-        script.assign(reginfo.script.script_val, reginfo.script.script_len);
-    }
+//dzdebug    if (f_action == Registration::EXEC) {
+//dzdebug        script.assign(reginfo.script.script_val, reginfo.script.script_len);
+//dzdebug    }
 
     u_int32_t regid = GlobalStore::instance()->next_regid();
     reg = new APIRegistration(regid, endpoint, f_action, r_action,
@@ -694,11 +684,6 @@ APIClient::handle_register()
         reg->set_active(true);
     }
 
-    if (session_flags & Session::CUSTODY) {
-        sessions_->push_back(reg);
-        ASSERT(reg->session_notify_list() != NULL);
-    }
-    
     BundleDaemon::post_and_wait(new RegistrationAddedEvent(reg, EVENTSRC_APP),
                                 &notifier_);
     
@@ -955,7 +940,18 @@ APIClient::handle_send()
     }
 
     BundleRef b("APIClient::handle_send");
-    b = new Bundle();
+    if (spec.bp_version == 6) {
+        b = new Bundle(BundleProtocol::BP_VERSION_6);
+    } else if (spec.bp_version == 7) {
+        b = new Bundle(BundleProtocol::BP_VERSION_7);
+    } else {
+        // BP version not specified (or invalid) so use the default config version
+        if (BundleDaemon::params_.api_send_bp_version7_) {
+            b = new Bundle(BundleProtocol::BP_VERSION_7);
+        } else {
+            b = new Bundle(BundleProtocol::BP_VERSION_6);
+        }
+    }
     
     // make sure any xdr calls to malloc are cleaned up
     oasys::ScopeXDRFree f1((xdrproc_t)xdr_dtn_bundle_spec_t,
@@ -968,20 +964,14 @@ APIClient::handle_send()
     // source  could be dtn:none; allow for a NULL URI to
     // be treated as dtn:none
     if (spec.source.uri[0] == '\0') {
-        b->mutable_source()->assign(EndpointID::NULL_EID());
+        b->set_source(EndpointID::NULL_EID());
     } else {
-        b->mutable_source()->assign(&spec.source);
+        std::string src_eid = spec.source.uri;
+        b->set_source(src_eid);
     }
 
     // destination has to be specified
     b->mutable_dest()->assign(&spec.dest);
-
-    // magic values for zeroing out creation timestamp time
-    log_info("spec: %" PRIu64 " %" PRIu64, spec.creation_ts.secs, spec.creation_ts.seqno);
-    if(spec.creation_ts.secs == 42 && 
-       spec.creation_ts.seqno == 1337) {
-        b->set_creation_ts(BundleTimestamp(0, b->creation_ts().seqno_));
-    }
 
     // replyto defaults to null
     if (spec.replyto.uri[0] == '\0') {
@@ -1103,9 +1093,6 @@ APIClient::handle_send()
     // Now look up the registration ID passed in to see if the bundle
     // was sent as part of a session
     Registration* reg = reg_table->get(regid);
-    if (reg && reg->session_flags() != 0) {
-        b->mutable_session_eid()->assign(reg->endpoint().str());
-    }
 
     // delivery options
     if (spec.dopts & DOPTS_CUSTODY)
@@ -1129,6 +1116,10 @@ APIClient::handle_send()
     if (spec.dopts & DOPTS_DO_NOT_FRAGMENT)
         b->set_do_not_fragment(true);
 
+    if (b->receipt_requested()) {
+        b->set_req_time_in_status_rpt(true);
+    }
+
 #if 0
     // expiration time
     struct timeval now;
@@ -1147,163 +1138,17 @@ APIClient::handle_send()
     }
 #endif
 
-    b->set_expiration(spec.expiration);
+    b->set_expiration_secs(spec.expiration);
 
-    // sequence id and obsoletes id
-    if (spec.sequence_id.data.data_len != 0)
-    {
-        std::string str(spec.sequence_id.data.data_val,
-                        spec.sequence_id.data.data_len);
-        
-        bool ok = b->mutable_sequence_id()->parse(str);
-        if (! ok) {
-            log_err("invalid sequence id '%s'", str.c_str());
-            return DTN_EINVAL;
-        }
-    }
 
-    if (spec.obsoletes_id.data.data_len != 0)
-    {
-        std::string str(spec.obsoletes_id.data.data_val,
-                        spec.obsoletes_id.data.data_len);
-        
-        bool ok = b->mutable_obsoletes_id()->parse(str);
-        if (! ok) {
-            log_err("invalid obsoletes id '%s'", str.c_str());
-            return DTN_EINVAL;
-        }
-    }
+    // Note - BPv7 does not support the ECOS block - see old code base if needed
 
-    // ECOS Block specified?
-#ifdef ECOS_ENABLED
+    // Note - BPv7 is not currently supporting dtn_extension_block_t - see old code base if needed
 
-    if (spec.ecos_enabled)
-    {
-      b->set_ecos_enabled(true);
-      b->set_ecos_flags(spec.ecos_flags & 0x0f);
-      b->set_ecos_ordinal(spec.ecos_ordinal & 0xff);
-      b->set_ecos_flowlabel(spec.ecos_flow_label);
+    // Note - BPv7 does not currently support metadata blocks - see old code base if needed
 
-      // prepare flags and data for our ECOS block
-      u_int8_t block_flags = 0;    // overridden in block processor so not set here
-      u_int8_t ecos_flags = b->ecos_flags();
-      u_int8_t ecos_ordinal = b->ecos_ordinal();
- 
-      oasys::ScratchBuffer<u_char*, 16> scratch_ecos;
-      int max_len = 2 + SDNV::encoding_len(spec.ecos_flow_label); // assume flow label just in case - no harm if not needed
-      // get pointer to a buffer that has the required length
-      u_char* data = scratch_ecos.buf(max_len);
 
-      int len = 0;
-      data[len++] = ecos_flags;
-      scratch_ecos.incr_len(1);
-      data[len++] = ecos_ordinal;
-      scratch_ecos.incr_len(1);
 
-      if (b->ecos_has_flowlabel()) {
-        int bytes = SDNV::encode(spec.ecos_flow_label, &data[len], max_len - len);
-
-        if (bytes > 0) {
-          len += bytes;
-          scratch_ecos.incr_len(bytes);
-        } else {
-          log_err("Error SDNV encoding flow label");
-        }
-      }
-
-      // add our ECOS as an API block
-      u_int16_t block_type = BundleProtocol::EXTENDED_CLASS_OF_SERVICE_BLOCK;
-      BlockProcessor* ecosbpr = BundleProtocol::find_processor(block_type);
-      BlockInfo* info = b->api_blocks()->append_block(ecosbpr);
-      ecosbpr->init_block(info, b->api_blocks(), NULL, block_type,
-                          block_flags, scratch_ecos.buf(), len);
-    }
-#endif
-
-    // extension blocks
-    for (u_int i = 0; i < spec.blocks.blocks_len; i++) {
-        dtn_extension_block_t* block = &spec.blocks.blocks_val[i];
-
-        BlockProcessor* new_bp = BundleProtocol::find_processor(block->type);
-        if (new_bp == UnknownBlockProcessor::instance()) {
-        	new_bp = APIBlockProcessor::instance();
-        	log_warn("sent bundle %" PRIbid " has block type %d not known by this daemon",
-        			 b->bundleid(), block->type);
-        }
-        BlockInfo* info =
-            b->api_blocks()->append_block(new_bp);
-        new_bp->
-            init_block(info,
-					   b->api_blocks(),
-					   b.object(),
-                       block->type,
-                       block->flags,
-                       (u_char*)block->data.data_val,
-                       block->data.data_len);
-        info->set_complete(true);
-    }
-
-    // metadata blocks
-    for (unsigned int i = 0; i < spec.metadata.metadata_len; ++i) {
-        dtn_extension_block_t* block = &spec.metadata.metadata_val[i];
-
-        LinkRef null_link("APIServer::handle_send");
-        MetadataVec * vec = b->generated_metadata().find_blocks(null_link);
-        if (vec == NULL) {
-            vec = b->mutable_generated_metadata()->create_blocks(null_link);
-        }
-        ASSERT(vec != NULL);
-
-        MetadataBlock * meta_block = new MetadataBlock(
-                                             (u_int64_t)block->type,
-                                             (u_char *)block->data.data_val,
-                                             (u_int32_t)block->data.data_len);
-        meta_block->set_flags((u_int64_t)block->flags);
-
-        // XXX/demmer currently this block needs to be stuck on the
-        // outgoing metadata for the null link (so it's transmit to
-        // all destinations) as well as on the recv_metadata vector so
-        // it's conveyed to local applications. this should really be
-        // cleaned up...
-        vec->push_back(meta_block);
-        b->mutable_recv_metadata()->push_back(meta_block);
-
-        // XXX/kscott This has to get put somewhere where it will be serialized
-        // so that if it is delivered locally, it'll be available after a restart.
-        // Need to prepend the metadata type SDNV (block->type) to the actual
-        // content of the BlockInfo (difference between BlockInfo and MetadataBlock)
-        {
-        u_char temp[block->data.data_len+20];
-        int curPos = 0;
-
-        BlockProcessor *owner =
-            BundleProtocol::find_processor(BundleProtocol::METADATA_BLOCK);
-        BlockInfo* info =
-            b->api_blocks()->append_block(owner);
-        curPos += SDNV::encode(block->type, &(temp[curPos]), 1024);
-        curPos += SDNV::encode(block->data.data_len, &(temp[curPos]), 1024);
-        memcpy(&(temp[curPos]),
-               (u_char*)block->data.data_val, block->data.data_len);
-
-        APIBlockProcessor::instance()->
-            init_block(info,
-            		   b->api_blocks(),
-            		   b.object(),
-            		   BundleProtocol::METADATA_BLOCK,
-            		   block->flags,
-                       temp,
-                       curPos+block->data.data_len);
-        info->set_complete(true);
-        }
-    }
-
-    // validate the bundle metadata
-    oasys::StringBuffer error;
-    if (!b->validate(&error)) {
-        log_err("bundle validation failed: %s", error.data());
-        return DTN_EINVAL;
-    }
-    
     // set up the payload, including calculating its length, but don't
     // copy it in yet
     size_t payload_len;
@@ -1339,24 +1184,35 @@ APIClient::handle_send()
 
     // before filling in the payload, we first probe the router to
     // determine if there's sufficient storage for the bundle
-    bool result;
-    int  reason;
-    BundleDaemon::post_and_wait(
-        new BundleAcceptRequest(b, EVENTSRC_APP, &result, &reason),
-        &notifier_);
 
-    if (!result) {
-        log_info("DTN_SEND bundle not accepted: reason %s",
-                 BundleStatusReport::reason_to_str(reason));
-
-        switch (reason) {
-        case BundleProtocol::REASON_DEPLETED_STORAGE:
-            return DTN_ENOSPACE;
-        default:
-            return DTN_EINTERNAL;
+    // try to reserve storage space for the payload
+    BundleStore* bs = BundleStore::instance();
+    uint64_t tmp_payload_storage_bytes_reserved = 0;
+    uint32_t ctr = 0;
+    while (!should_stop() && (++ctr < 50) && (tmp_payload_storage_bytes_reserved != payload_len))
+    {
+        if (bs->try_reserve_payload_space(payload_len)) {
+            tmp_payload_storage_bytes_reserved = payload_len;
+        } else {
+            usleep(100000);
         }
     }
+        
+    if (!should_stop()) {
+        if (tmp_payload_storage_bytes_reserved != payload_len) {
+           log_info("DTN_SEND bundle not accepted: Storage depleted");
+            return DTN_ENOSPACE;
+        } else {
+            // bundle already approved to use payload space
+            bs->reserve_payload_space(b.object());
 
+            // release the temp reserved space since the bundle now has the actually space reserved
+            bs->release_payload_space(tmp_payload_storage_bytes_reserved);
+        }
+    } else {
+        return DTN_EINTERNAL;
+    }
+ 
     switch (payload.location) {
     case DTN_PAYLOAD_MEM:
         b->mutable_payload()->set_data((u_char*)payload.buf.buf_val,
@@ -1365,8 +1221,9 @@ APIClient::handle_send()
         
     case DTN_PAYLOAD_FILE:
         FILE* file;
-        int r, left;
-        u_char buffer[4096];
+        int r;
+        size_t left;
+        u_char buffer[1024*1024];
         size_t offset;
 
         if ((file = fopen(filename, "r")) == NULL)
@@ -1429,7 +1286,8 @@ APIClient::handle_send()
     BundleReceivedEvent* ev = new BundleReceivedEvent(b.object(), EVENTSRC_APP, reg);
     ev->bytes_received_ = payload_len;
 
-    BundleDaemon::post_and_wait(ev, &notifier_);
+//dzdebug    BundleDaemon::post_and_wait(ev, &notifier_);
+    BundleDaemon::post(ev);
     
     // return the bundle id struct
     if (!xdr_dtn_bundle_id_t(&xdr_encode_, &id)) {
@@ -1456,23 +1314,13 @@ APIClient::handle_cancel()
     }
     
     GbofId gbof_id;
-    gbof_id.mutable_source()->assign( std::string(id.source.uri) );
-    gbof_id.mutable_creation_ts()->seconds_ = id.creation_ts.secs;
-    gbof_id.mutable_creation_ts()->seqno_ = id.creation_ts.seqno;
-    gbof_id.set_is_fragment(id.orig_length > 0);
-    gbof_id.set_frag_length(id.orig_length);
-    gbof_id.set_frag_offset(id.frag_offset);
+    gbof_id.set_source( std::string(id.source.uri) );
+    gbof_id.set_creation_ts(id.creation_ts.secs, id.creation_ts.seqno);
+    gbof_id.set_fragment(id.orig_length > 0, id.frag_offset, id.orig_length);
     
     BundleRef bundle;
 
-#ifdef PENDING_BUNDLES_IS_MAP
     bundle = BundleDaemon::instance()->dupefinder_bundles()->find(gbof_id.str());
-#else
-    //XXX/dz this is the original code...
-    oasys::ScopeLock pending_lock(
-        BundleDaemon::instance()->pending_bundles()->lock(), "handle_cancel");
-    bundle = BundleDaemon::instance()->pending_bundles()->find(gbof_id.str());
-#endif
     
     if (!bundle.object()) {
         log_warn("no bundle matching [%s]; cannot cancel", 
@@ -1561,7 +1409,6 @@ APIClient::handle_recv()
     }
 
     ASSERT(reg != NULL);
-
     BundleRef bref("APIClient::handle_recv");
 #if 0
     bref = reg->bundle_list()->pop_front();
@@ -1623,154 +1470,20 @@ APIClient::handle_recv()
     if (b->custody_rcpt())      spec.dopts |= DOPTS_CUSTODY_RCPT;
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
-    spec.expiration = b->expiration();
+    spec.expiration = b->expiration_secs();
     spec.creation_ts.secs = b->creation_ts().seconds_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
 
-    // copy out the sequence id and obsoletes id
-    std::string sequence_id_str, obsoletes_id_str;
-    if (! b->sequence_id().empty()) {
-        sequence_id_str = b->sequence_id().to_str();
-        spec.sequence_id.data.data_val = const_cast<char*>(sequence_id_str.c_str());
-        spec.sequence_id.data.data_len = sequence_id_str.length();
-    }
-
-    if (! b->obsoletes_id().empty()) {
-        obsoletes_id_str = b->obsoletes_id().to_str();
-        spec.obsoletes_id.data.data_val = const_cast<char*>(obsoletes_id_str.c_str());
-        spec.obsoletes_id.data.data_len = obsoletes_id_str.length();
-    }
+    spec.bp_version = b->bp_version();
 
     // copy extension blocks from recv_blocks and api_blocks
     // Note that the data_length is the total length of the block
     // including the preamble and any EIDs associated with the block
     //
-    unsigned int blocks_found = 0;
-    unsigned int data_len = 0;
-    for (unsigned int i = 0; i < b->recv_blocks().size(); ++i) {
-        if ((b->recv_blocks()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-            (b->recv_blocks()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-            (b->recv_blocks()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-            continue;
-        }
-        blocks_found++;
-        data_len += b->recv_blocks()[i].data_length();
-    }
-    for (unsigned int i = 0; i < b->api_blocks_r().size(); ++i) {
-        if ((b->api_blocks_r()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-            (b->api_blocks_r()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-            (b->api_blocks_r()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-            continue;
-        }
-        blocks_found++;
-        data_len += b->api_blocks_r()[i].data_length();
-    }
 
-    if (blocks_found > 0) {
-        unsigned int buf_len = (blocks_found * sizeof(dtn_extension_block_t)) +
-                               data_len;
-        void * buf = malloc(buf_len);
-        memset(buf, 0, buf_len);
-        log_debug("Block found on recv_blocks");
+    // NOTE - For BPv7, not delivering any extension/metadata blocks
 
-        dtn_extension_block_t * bp = (dtn_extension_block_t *)buf;
-        char * dp = (char*)buf + (blocks_found * sizeof(dtn_extension_block_t));
-        for (unsigned int i = 0; i < b->recv_blocks().size(); ++i) {
-            if ((b->recv_blocks()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-                (b->recv_blocks()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-                (b->recv_blocks()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-                continue;
-            }
-
-            bp->type          = b->recv_blocks()[i].type();
-            bp->flags         = b->recv_blocks()[i].flags();
-            bp->data.data_len = b->recv_blocks()[i].data_length();
-            bp->data.data_val = dp;
-            memcpy(dp, b->recv_blocks()[i].data(), bp->data.data_len);
-            if(bp->data.data_len < 120) {
-                log_debug("Extension block data = %s", bp->data.data_val);
-            } else {
-                log_debug("Extension block data is longer than 120 bytes");
-            }
-
-            // These 2 lines were swapped before, causing problems with multiple extension blocks
-            dp += bp->data.data_len;
-            bp++;
-        }
-        for (unsigned int i = 0; i < b->api_blocks_r().size(); ++i) {
-            if ((b->api_blocks_r()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-                (b->api_blocks_r()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-                (b->api_blocks_r()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-                continue;
-            }
-
-            bp->type          = b->api_blocks_r()[i].type();
-            bp->flags         = b->api_blocks_r()[i].flags();
-            bp->data.data_len = b->api_blocks_r()[i].data_length();
-            bp->data.data_val = dp;
-            memcpy(dp, b->api_blocks_r()[i].data(), bp->data.data_len);
-
-            // These 2 lines were swapped before, causing problems with multiple extension blocks
-            dp += bp->data.data_len;
-            bp++;
-        }
-
-        spec.blocks.blocks_len = blocks_found;
-        spec.blocks.blocks_val = (dtn_extension_block_t *)buf;
-    }
-
-    // copy metadata extension blocks including ones generated for null link
-    // This will include any blocks generated by the API.  There may be others
-    // in future but not at present. [EBD - July 2012]
-    blocks_found = 0;
-    data_len = 0;
-    LinkRef null_link("APIServer::handle_send");
-    MetadataVec * vec = b->generated_metadata().find_blocks(null_link);
-
-    for (unsigned int i = 0; i < b->recv_metadata().size(); ++i) {
-        blocks_found++;
-        data_len += b->recv_metadata()[i]->metadata_len();
-    }
-    if (vec != NULL) {
-		for (unsigned int i = 0; i < vec->size(); ++i) {
-			blocks_found++;
-			data_len += (*vec)[i]->metadata_len();
-		}
-    }
-
-    if (blocks_found > 0) {
-        unsigned int buf_len = (blocks_found * sizeof(dtn_extension_block_t)) +
-                               data_len;
-        void * buf = (char *)malloc(buf_len);
-        memset(buf, 0, buf_len);
-
-        dtn_extension_block_t * bp = (dtn_extension_block_t *)buf;
-        char * dp = (char*)buf + (blocks_found * sizeof(dtn_extension_block_t));
-        for (unsigned int i = 0; i < b->recv_metadata().size(); ++i) {
-            bp->type          = b->recv_metadata()[i]->ontology();
-            bp->flags         = b->recv_metadata()[i]->flags();
-            bp->data.data_len = b->recv_metadata()[i]->metadata_len();
-            bp->data.data_val = dp;
-            memcpy(dp, b->recv_metadata()[i]->metadata(), bp->data.data_len);
-            dp += bp->data.data_len;
-            bp++;
-        }
-        if (vec != NULL) {
-			for (unsigned int i = 0; i < vec->size(); ++i) {
-				bp->type          = (*vec)[i]->ontology();
-				bp->flags         = (*vec)[i]->flags();
-				bp->data.data_len = (*vec)[i]->metadata_len();
-				bp->data.data_val = dp;
-				memcpy(dp, (*vec)[i]->metadata(), bp->data.data_len);
-				dp += bp->data.data_len;
-				bp++;
-			}
-        }
-
-        spec.metadata.metadata_len = blocks_found;
-        spec.metadata.metadata_val = (dtn_extension_block_t *)buf;
-    }
 
     size_t payload_len = b->payload().length();
 
@@ -1821,6 +1534,7 @@ APIClient::handle_recv()
 
         payload.filename.filename_val = (char*)tmpfile.path();
         payload.filename.filename_len = tmpfile.path_len() + 1;
+
         tmpfile.close();
         
     } else {
@@ -1829,39 +1543,134 @@ APIClient::handle_recv()
     }
 
     payload.location = location;
-    
+
+   
+
+    //dzdebug - handle BP6 and BP7 status reports...
+    //
+
+
     /*
      * If the bundle is a status report, parse it and copy out the
      * data into the status report.
      */
-    BundleStatusReport::data_t sr_data;
-    if (BundleStatusReport::parse_status_report(&sr_data, b))
-    {
-        payload.status_report = &status_report;
-        sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-        status_report.bundle_id.creation_ts.secs =
-            sr_data.orig_creation_tv_.seconds_;
-        status_report.bundle_id.creation_ts.seqno =
-            sr_data.orig_creation_tv_.seqno_;
-        status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
-        status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
+    if (b->is_admin()) {
+        if (b->is_bpv6()) {
+            BP6_BundleStatusReport::data_t sr_data;
 
-        status_report.reason = (dtn_status_report_reason_t)sr_data.reason_code_;
-        status_report.flags =  (dtn_status_report_flags_t)sr_data.status_flags_;
+            if (BP6_BundleStatusReport::parse_status_report(&sr_data, b))
+            {
+                payload.status_report = &status_report;
 
-        status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
-        status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
-        status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
-        status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
-        status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
-        status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
-        status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
-        status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
-        status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
-        status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
-        status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
-        status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+                sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
+                status_report.bundle_id.creation_ts.secs =
+                    sr_data.orig_creation_tv_.seconds_;
+                status_report.bundle_id.creation_ts.seqno =
+                    sr_data.orig_creation_tv_.seqno_;
+                status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
+                status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
+
+                status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
+                status_report.flags =  (dtn_status_report_flags_t) sr_data.status_flags_;
+
+                status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
+                status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
+                status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
+                status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
+                status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
+                status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
+                status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
+                status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
+                status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
+                status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
+                status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
+                status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+            }
+        } else if (b->is_bpv7()) {
+            CborParser parser;
+            CborValue cvPayloadArray;
+            CborValue cvPayloadElements;
+
+            CborUtilBP7 cborutil("apisrvr.recv");
+
+            size_t payload_len = b->payload().length();
+            oasys::ScratchBuffer<u_char*, 256> scratch(payload_len);
+            const uint8_t* payload_buf = 
+                b->payload().read_data(0, payload_len, scratch.buf(payload_len));
+
+            do {
+                if (CborNoError != cbor_parser_init(payload_buf, payload_len, 0, &parser, &cvPayloadArray)) {
+                    break; // stop further processing
+                }
+
+                cborutil.set_fld_name("APISrvr-PayloadArray");
+                uint64_t block_elements;
+                if (CBORUTIL_SUCCESS != cborutil.validate_cbor_fixed_array_length(cvPayloadArray, 2, 2, block_elements)) {
+                    break; // stop further processing
+                }
+
+                if (CborNoError != cbor_value_enter_container(&cvPayloadArray, &cvPayloadElements)) {
+                    break; // stop further processing
+                }
+
+                // Admin Type
+                cborutil.set_fld_name("APISrvr-AdminType");
+                uint64_t admin_type = 0;
+                if (CBORUTIL_SUCCESS != cborutil.decode_uint(cvPayloadElements, admin_type)) {
+                    break; // stop further processing
+                }
+
+                if (admin_type == BundleProtocolVersion7::ADMIN_STATUS_REPORT)
+                {
+                    BundleStatusReport::data_t sr_data;
+                    if (BundleStatusReport::parse_status_report(cvPayloadElements, cborutil, sr_data))
+                    {
+                        payload.status_report = &status_report;
+
+                        sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
+                        status_report.bundle_id.creation_ts.secs =
+                            sr_data.orig_creation_ts_.seconds_;
+                        status_report.bundle_id.creation_ts.seqno =
+                            sr_data.orig_creation_ts_.seqno_;
+                        status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
+                        status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
+
+                        status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
+
+                        int flags = 0;
+
+                        // BundleStatusReport STATUS_xxx values mathc those in dtn_types.h:dtn_status_report_flags_t
+                        // - setting bits in the flags byte to match how BPv6 interfaced to the apps
+                        //
+                        // converting timestamps from millisecs since 1/1/2000 to current time as seconds
+                        if (sr_data.received_)
+                        {
+                            flags |= BundleStatusReport::STATUS_RECEIVED;
+                            status_report.receipt_ts.secs     = sr_data.received_timestamp_ / 1000;
+                        }
+                        if (sr_data.forwarded_)
+                        {
+                            flags |= BundleStatusReport::STATUS_FORWARDED;
+                            status_report.forwarding_ts.secs  = sr_data.forwarded_timestamp_ / 1000;
+                        }
+                        if (sr_data.delivered_)
+                        {
+                            flags |= BundleStatusReport::STATUS_DELIVERED;
+                            status_report.delivery_ts.secs    = sr_data.delivered_timestamp_ / 1000;
+                        }
+                        if (sr_data.deleted_)
+                        {
+                            flags |= BundleStatusReport::STATUS_DELETED;
+                            status_report.deletion_ts.secs    = sr_data.deleted_timestamp_ / 1000;
+                        }
+                        status_report.flags =  (dtn_status_report_flags_t) flags;
+                    }           
+                }
+            } while (false);
+        }
     }
+
+
     
     if (!xdr_dtn_bundle_spec_t(&xdr_encode_, &spec))
     {
@@ -1884,6 +1693,9 @@ APIClient::handle_recv()
     if (spec.metadata.metadata_val) {
         free(spec.metadata.metadata_val);
     }
+
+    // check to see if the bundle can be deleted after a good delivery
+    reg->bundle_delivery_succeeded(bref);
 
     log_info("DTN_RECV: "
              "successfully delivered bundle %" PRIbid " to registration %d",
@@ -1990,24 +1802,10 @@ APIClient::handle_recv_raw()
     if (b->custody_rcpt())      spec.dopts |= DOPTS_CUSTODY_RCPT;
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
-    spec.expiration = b->expiration();
+    spec.expiration = b->expiration_secs();
     spec.creation_ts.secs = b->creation_ts().seconds_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
-
-    // copy out the sequence id and obsoletes id
-    std::string sequence_id_str, obsoletes_id_str;
-    if (! b->sequence_id().empty()) {
-        sequence_id_str = b->sequence_id().to_str();
-        spec.sequence_id.data.data_val = const_cast<char*>(sequence_id_str.c_str());
-        spec.sequence_id.data.data_len = sequence_id_str.length();
-    }
-
-    if (! b->obsoletes_id().empty()) {
-        obsoletes_id_str = b->obsoletes_id().to_str();
-        spec.obsoletes_id.data.data_val = const_cast<char*>(obsoletes_id_str.c_str());
-        spec.obsoletes_id.data.data_len = obsoletes_id_str.length();
-    }
 
     if (NULL == raw_convergence_layer_) {
         raw_convergence_layer_ = new RecvRawConvergenceLayer();
@@ -2022,7 +1820,7 @@ APIClient::handle_recv_raw()
         return -1;
     }
 
-    BlockInfoVec* blocks = BundleProtocol::prepare_blocks(b, raw_convergence_layer_linkref_);
+    SPtr_BlockInfoVec blocks = BundleProtocol::prepare_blocks(b, raw_convergence_layer_linkref_);
     size_t total_len = BundleProtocol::generate_blocks(b, blocks, raw_convergence_layer_linkref_);
     ASSERT(blocks != NULL);
 
@@ -2033,7 +1831,7 @@ APIClient::handle_recv_raw()
                                               buf.buf(), 0, total_len,
                                               &complete);
     if (!complete) {
-        size_t formatted_len = BundleProtocol::total_length(blocks);
+        size_t formatted_len = BundleProtocol::total_length(b, blocks);
         log_err("APIServer.dtn_recv_raw: bundle too big (%zu)",
                 formatted_len);
         return -1;
@@ -2121,6 +1919,9 @@ APIClient::handle_recv_raw()
         free(spec.metadata.metadata_val);
     }
 
+    // check to see if the bundle can be deleted after a good delivery
+    reg->bundle_delivery_succeeded(bref);
+
     log_info("DTN_RECV_RAW: "
              "successfully delivered bundle %" PRIbid " to registration %d",
              b->bundleid(), reg->regid());
@@ -2193,103 +1994,13 @@ APIClient::handle_peek()
     if (b->custody_rcpt())      spec.dopts |= DOPTS_CUSTODY_RCPT;
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
-    spec.expiration = b->expiration();
+    spec.expiration = b->expiration_secs();
     spec.creation_ts.secs = b->creation_ts().seconds_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
 
-    // copy out the sequence id and obsoletes id
-    std::string sequence_id_str, obsoletes_id_str;
-    if (! b->sequence_id().empty()) {
-        sequence_id_str = b->sequence_id().to_str();
-        spec.sequence_id.data.data_val = const_cast<char*>(sequence_id_str.c_str());
-        spec.sequence_id.data.data_len = sequence_id_str.length();
-    }
+    // NOTE - For BPv7, not delivering any extension/metadata blocks
 
-    if (! b->obsoletes_id().empty()) {
-        obsoletes_id_str = b->obsoletes_id().to_str();
-        spec.obsoletes_id.data.data_val = const_cast<char*>(obsoletes_id_str.c_str());
-        spec.obsoletes_id.data.data_len = obsoletes_id_str.length();
-    }
-
-    // copy extension blocks
-    unsigned int blocks_found = 0;
-    unsigned int data_len = 0;
-    for (unsigned int i = 0; i < b->recv_blocks().size(); ++i) {
-        if ((b->recv_blocks()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-            (b->recv_blocks()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-            (b->recv_blocks()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-            continue;
-        }
-        blocks_found++;
-        data_len += b->recv_blocks()[i].data_length();
-    }
-
-    if (blocks_found > 0) {
-        unsigned int buf_len = (blocks_found * sizeof(dtn_extension_block_t)) +
-                               data_len;
-        void * buf = malloc(buf_len);
-        memset(buf, 0, buf_len);
-
-        dtn_extension_block_t * bp = (dtn_extension_block_t *)buf;
-        char * dp = (char*)buf + (blocks_found * sizeof(dtn_extension_block_t));
-        for (unsigned int i = 0; i < b->recv_blocks().size(); ++i) {
-            if ((b->recv_blocks()[i].type() == BundleProtocol::PRIMARY_BLOCK) ||
-                (b->recv_blocks()[i].type() == BundleProtocol::PAYLOAD_BLOCK) ||
-                (b->recv_blocks()[i].type() == BundleProtocol::METADATA_BLOCK)) {
-                continue;
-            }
-
-            bp->type          = b->recv_blocks()[i].type();
-            bp->flags         = b->recv_blocks()[i].flags();
-            bp->data.data_len = b->recv_blocks()[i].data_length();
-            bp->data.data_val = dp;
-            memcpy(dp, b->recv_blocks()[i].data(), bp->data.data_len);
-
-            if(bp->data.data_len < 120) {
-                log_debug("Extension block data = %s", bp->data.data_val);
-            } else {
-                log_debug("Extension block data is longer than 120 bytes");
-            }
-
-            // These 2 lines were swapped before, causing problems with multiple extension blocks
-            dp += bp->data.data_len;
-            bp++;
-        }
-
-        spec.blocks.blocks_len = blocks_found;
-        spec.blocks.blocks_val = (dtn_extension_block_t *)buf;
-    }
-
-    // copy metadata extension blocks
-    blocks_found = 0;
-    data_len = 0;
-    for (unsigned int i = 0; i < b->recv_metadata().size(); ++i) {
-        blocks_found++;
-        data_len += b->recv_metadata()[i]->metadata_len();
-    }
-
-    if (blocks_found > 0) {
-        unsigned int buf_len = (blocks_found * sizeof(dtn_extension_block_t)) +
-                               data_len;
-        void * buf = (char *)malloc(buf_len);
-        memset(buf, 0, buf_len);
-
-        dtn_extension_block_t * bp = (dtn_extension_block_t *)buf;
-        char * dp = (char*)buf + (blocks_found * sizeof(dtn_extension_block_t));
-        for (unsigned int i = 0; i < b->recv_metadata().size(); ++i) {
-            bp->type          = b->recv_metadata()[i]->ontology();
-            bp->flags         = b->recv_metadata()[i]->flags();
-            bp->data.data_len = b->recv_metadata()[i]->metadata_len();
-            bp->data.data_val = dp;
-            memcpy(dp, b->recv_metadata()[i]->metadata(), bp->data.data_len);
-            dp += bp->data.data_len;
-            bp++;
-        }
-
-        spec.metadata.metadata_len = blocks_found;
-        spec.metadata.metadata_val = (dtn_extension_block_t *)buf;
-    }
 
     size_t payload_len = b->payload().length();
 
@@ -2349,38 +2060,128 @@ APIClient::handle_peek()
 
     payload.location = location;
     
+    //dzdebug - handle BP6 and BP7 status reports...
+    //
+
+
     /*
      * If the bundle is a status report, parse it and copy out the
      * data into the status report.
      */
-    BundleStatusReport::data_t sr_data;
-    if (BundleStatusReport::parse_status_report(&sr_data, b))
-    {
-        payload.status_report = &status_report;
-        sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-        status_report.bundle_id.creation_ts.secs =
-            sr_data.orig_creation_tv_.seconds_;
-        status_report.bundle_id.creation_ts.seqno =
-            sr_data.orig_creation_tv_.seqno_;
-        status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
-        status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
+    if (b->is_admin()) {
+        if (b->is_bpv6()) {
+            BP6_BundleStatusReport::data_t sr_data;
 
-        status_report.reason = (dtn_status_report_reason_t)sr_data.reason_code_;
-        status_report.flags =  (dtn_status_report_flags_t)sr_data.status_flags_;
+            if (BP6_BundleStatusReport::parse_status_report(&sr_data, b))
+            {
+                payload.status_report = &status_report;
+                sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
+                status_report.bundle_id.creation_ts.secs =
+                    sr_data.orig_creation_tv_.seconds_;
+                status_report.bundle_id.creation_ts.seqno =
+                    sr_data.orig_creation_tv_.seqno_;
+                status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
+                status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
 
-        status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
-        status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
-        status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
-        status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
-        status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
-        status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
-        status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
-        status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
-        status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
-        status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
-        status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
-        status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+                status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
+                status_report.flags =  (dtn_status_report_flags_t) sr_data.status_flags_;
+
+                status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
+                status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
+                status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
+                status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
+                status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
+                status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
+                status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
+                status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
+                status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
+                status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
+                status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
+                status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+            }
+        } else if (b->is_bpv7()) {
+            CborParser parser;
+            CborValue cvPayloadArray;
+            CborValue cvPayloadElements;
+
+            CborUtilBP7 cborutil("apisrvr.peek");
+
+            size_t payload_len = b->payload().length();
+            oasys::ScratchBuffer<u_char*, 256> scratch(payload_len);
+            const uint8_t* payload_buf = 
+                b->payload().read_data(0, payload_len, scratch.buf(payload_len));
+
+            do {
+                if (CborNoError != cbor_parser_init(payload_buf, payload_len, 0, &parser, &cvPayloadArray)) {
+                    break; // stop further processing
+                }
+
+                cborutil.set_fld_name("APISrvr-PayloadArray");
+                uint64_t block_elements;
+                if (CBORUTIL_SUCCESS != cborutil.validate_cbor_fixed_array_length(cvPayloadArray, 2, 2, block_elements)) {
+                    break; // stop further processing
+                }
+
+                if (CborNoError != cbor_value_enter_container(&cvPayloadArray, &cvPayloadElements)) {
+                    break; // stop further processing
+                }
+
+                // Admin Type
+                cborutil.set_fld_name("APISrvr-AdminType");
+                uint64_t admin_type = 0;
+                if (CBORUTIL_SUCCESS != cborutil.decode_uint(cvPayloadElements, admin_type)) {
+                    break; // stop further processing
+                }
+
+                if (admin_type == BundleProtocolVersion7::ADMIN_STATUS_REPORT)
+                {
+                    BundleStatusReport::data_t sr_data;
+                    if (BundleStatusReport::parse_status_report(cvPayloadElements, cborutil, sr_data))
+                    {
+                        payload.status_report = &status_report;
+
+                        sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
+                        status_report.bundle_id.creation_ts.secs =
+                            sr_data.orig_creation_ts_.seconds_;
+                        status_report.bundle_id.creation_ts.seqno =
+                            sr_data.orig_creation_ts_.seqno_;
+                        status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
+                        status_report.bundle_id.orig_length = sr_data.orig_frag_length_;
+
+                        status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
+
+                        int flags = 0;
+
+                        // BundleStatusReport STATUS_xxx values mathc those in dtn_types.h:dtn_status_report_flags_t
+                        // - setting bits in the flags byte to match how BPv6 interfaced to the apps
+                        // converting timestamps from millisecs to seconds
+                        if (sr_data.received_)
+                        {
+                            flags |= BundleStatusReport::STATUS_RECEIVED;
+                            status_report.receipt_ts.secs     = sr_data.received_timestamp_ / 1000;
+                        }
+                        if (sr_data.forwarded_)
+                        {
+                            flags |= BundleStatusReport::STATUS_FORWARDED;
+                            status_report.forwarding_ts.secs  = sr_data.forwarded_timestamp_ / 1000;
+                        }
+                        if (sr_data.delivered_)
+                        {
+                            flags |= BundleStatusReport::STATUS_DELIVERED;
+                            status_report.delivery_ts.secs    = sr_data.delivered_timestamp_ / 1000;
+                        }
+                        if (sr_data.deleted_)
+                        {
+                            flags |= BundleStatusReport::STATUS_DELETED;
+                            status_report.deletion_ts.secs    = sr_data.deleted_timestamp_ / 1000;
+                        }
+                        status_report.flags =  (dtn_status_report_flags_t) flags;
+                    }           
+                }
+            } while (false);
+        }
     }
+
     
     if (!xdr_dtn_bundle_spec_t(&xdr_encode_, &spec))
     {
@@ -2423,7 +2224,7 @@ APIClient::handle_begin_poll()
         return DTN_EXDR;
     }
 
-    int err = wait_for_notify("poll", timeout, &recv_reg, &notify_reg,
+    int err = wait_for_notify("poll", timeout, &recv_reg, NULL,
                              &sock_ready);
     log_debug("handle_begin_poll: wait_for_notify returns sock_ready(%d)\n",
               sock_ready);
@@ -2513,73 +2314,6 @@ APIClient::handle_close()
 
 //----------------------------------------------------------------------
 int
-APIClient::handle_session_update()
-{
-    APIRegistration* reg = NULL;
-    bool             sock_ready = false;
-    dtn_timeval_t    timeout;
-
-    // unpack the arguments
-    if ((!xdr_dtn_timeval_t(&xdr_decode_, &timeout)))
-    {
-        log_err("error in xdr unpacking arguments");
-        return DTN_EXDR;
-    }
-    
-    int err = wait_for_notify("session_update", timeout, NULL, &reg,
-                              &sock_ready);
-    if (err != 0) {
-        return err;
-    }
-    
-    // if there's data on the socket, that either means the socket was
-    // closed by an exiting application or the app is violating the
-    // protocol...
-    if (sock_ready) {
-        return handle_unexpected_data("handle_session_update");
-    }
-
-    ASSERT(reg != NULL);
-    
-    BundleRef bref("APIClient::handle_session_update");
-    bref = reg->session_notify_list()->pop_front();
-    Bundle* b = bref.object();
-    ASSERT(b != NULL);
-    
-    log_debug("handle_session_update: "
-              "popped *%p for registration %d (timeout %d)",
-              b, reg->regid(), timeout);
-
-    
-    ASSERT(b->session_flags() != 0);
-
-    unsigned int session_flags = 0;
-    if (b->session_flags() & Session::SUBSCRIBE) {
-        session_flags |= DTN_SESSION_SUBSCRIBE;
-    }
-    // XXX/demmer what to do about UNSUBSCRIBE/PUBLISH??
-
-    dtn_endpoint_id_t session_eid;
-    b->session_eid().copyto(&session_eid);
-    
-    if (!xdr_u_int(&xdr_encode_, &session_flags) ||
-        !xdr_dtn_endpoint_id_t(&xdr_encode_, &session_eid))
-    {
-        log_err("internal error in xdr");
-        return DTN_EXDR;
-    }
-    
-    log_info("session_update: "
-             "notification for session %s status %s",
-             b->session_eid().c_str(), Session::flag_str(b->session_flags()));
-
-    BundleDaemon::post(new BundleDeliveredEvent(b, reg));
-
-    return DTN_SUCCESS;
-}
-
-//----------------------------------------------------------------------
-int
 APIClient::wait_for_notify(const char*       operation,
                            dtn_timeval_t     dtn_timeout,
                            APIRegistration** recv_ready_reg,
@@ -2662,30 +2396,6 @@ APIClient::wait_for_notify(const char*       operation,
 
     // ditto for sessions
     if (session_ready_reg) {
-        log_debug("wait_for_notify(%s): checking %zu sessions",
-                  operation, sessions_->size());
-    
-        for (iter = sessions_->begin(); iter != sessions_->end(); ++iter)
-        {
-
-            if (should_stop()) return DTN_ETIMEOUT; 
-
-            reg = *iter;
-            ASSERT(reg->session_notify_list() != NULL);
-            if (! reg->session_notify_list()->empty()) {
-                log_debug("wait_for_notify(%s): "
-                          "immediately returning notified reg %d",
-                          operation, reg->regid());
-                *session_ready_reg = reg;
-                return 0;
-            }
-
-            pollfds[i].fd = reg->session_notify_list()->notifier()->read_fd();
-            pollfds[i].events = POLLIN;
-            pollfds[i].revents = 0;
-            ++i;
-            ASSERT(i <= npollfds);
-        }
     }
 
     if (timeout == 0) {
@@ -2739,17 +2449,6 @@ APIClient::wait_for_notify(const char*       operation,
     }
 
     if (session_ready_reg) {
-        for (iter = sessions_->begin(); iter != sessions_->end(); ++iter)
-        {
-
-            if (should_stop()) return DTN_ETIMEOUT; 
-
-            reg = *iter;
-            if (! reg->session_notify_list()->empty()) {
-                *session_ready_reg = reg;
-                break;
-            }
-        }
     }
 
     if ((recv_ready_reg    && *recv_ready_reg    == NULL) &&
@@ -2809,10 +2508,11 @@ APIClient::handle_dtpc_register()
 
     log_info_p("/dtpc/apiclient", "post and wait for DtpcTopicRegistrationEvent");
  
+    oasys::Notifier my_notifier("/dtpc");
     DtpcDaemon::post_and_wait(new DtpcTopicRegistrationEvent(topic_id, 
                                                              has_elision_func, 
                                                              &result, &reg),
-                                &notifier_);
+                                &my_notifier);
     
     switch (result) {
         case -1: 
@@ -2868,8 +2568,9 @@ APIClient::handle_dtpc_unregister()
     }
 
     int result = 0;
+    oasys::Notifier my_notifier("/dtpc");
     DtpcDaemon::post_and_wait(new DtpcTopicUnregistrationEvent(topic_id, reg, &result),
-                                &notifier_);
+                                &my_notifier);
     
     switch (result) {
         case -1: 
@@ -3341,12 +3042,12 @@ APIClient::is_dtpc_bound(u_int32_t topic_id, DtpcRegistration** reg)
 {
     DtpcRegistrationList::iterator iter;
     for (iter = dtpc_bindings_->begin(); iter != dtpc_bindings_->end(); ++iter) {
-	if ((*iter)->dtpc_topic_id() == topic_id) {
+        if ((*iter)->topic_id() == topic_id) {
             if (NULL != reg) {
                 *reg = (*iter);
             }
-	    return true;
-	}
+            return true;
+        }
     }
 
     return false;

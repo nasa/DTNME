@@ -22,20 +22,14 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <map>
 #include <string.h>
-#include <xercesc/framework/MemBufFormatTarget.hpp>
 
-#include <oasys/debug/Logger.h>
-#include <oasys/serialize/XercesXMLSerialize.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 
 
@@ -44,8 +38,8 @@
 #include "EhsEventHandler.h"
 #include "EhsLink.h"
 #include "EhsSrcDstWildBoolMap.h"
-#include "router-custom.h"
 
+#include "routing/ExternalRouterClientIF.h"
 
 
 namespace dtn {
@@ -53,7 +47,8 @@ namespace dtn {
 class EhsDtnNode;
 
 class EhsRouter: public EhsEventHandler,
-                 public oasys::Thread
+                 public oasys::Thread,
+                 public ExternalRouterClientIF
 {
 public:
     /**
@@ -74,7 +69,7 @@ public:
     /**
      * Main event handling function.
      */
-    virtual void handle_event(EhsEvent* event);
+    virtual void handle_event(EhsEvent* event) override;
     virtual void event_handlers_completed(EhsEvent* event);
 
     /**
@@ -82,10 +77,14 @@ public:
      */
     virtual bool accept_bundle(EhsBundleRef& bref, std::string& link_id, 
                                std::string& remote_addr);
-    /**
-     * Pass through a message to the EhsExernalRouter to be sent to the DTNME node
-     */
-    virtual void send_msg(rtrmessage::bpa& msg);
+
+    /** 
+     ** override pure virtual from ExternalRouterClientIF
+     **/
+    virtual void send_msg(std::string* msg) override; 
+ 
+
+
 
     /**
      * An EhsLink class uses this to return its bundles to be re-routed because it closed
@@ -111,6 +110,7 @@ public:
     virtual void fwdlink_transmit_dump(oasys::StringBuffer* buf);
     virtual void unrouted_bundle_stats_by_src_dst(oasys::StringBuffer* buf);
     virtual void set_link_statistics(bool enabled);
+    virtual void get_num_links(uint64_t& links_open, uint64_t& num_links);
 
     /**
      * Accessors
@@ -151,25 +151,25 @@ protected:
     /**
      * Thread run method
      */
-    void run();
+    void run() override;
 
     /**
      * Event handler methods
      */
-    virtual void handle_route_bundle_req(EhsRouteBundleReq* event);
-    virtual void handle_delete_bundle_req(EhsDeleteBundleReq* event);
-    virtual void handle_bpa_received(EhsBpaReceivedEvent* event);
-    virtual void handle_bundle_transmitted_event(EhsBundleTransmittedEvent* event);
+    virtual void handle_cbor_received(EhsCborReceivedEvent* event) override;
+
+    virtual void handle_route_bundle_req(EhsRouteBundleReq* event) override;
+    virtual void handle_delete_bundle_req(EhsDeleteBundleReq* event) override;
+    virtual void handle_bundle_transmitted_event(EhsBundleTransmittedEvent* event) override;
 
     /**
      * Message processing methods
      */
-    virtual void process_link_report(rtrmessage::bpa* msg);
-    virtual void process_link_available_event(rtrmessage::bpa* msg);
-    virtual void process_link_opened_event(rtrmessage::bpa* msg);
-    virtual void process_link_unavailable_event(rtrmessage::bpa* msg);
-    virtual void process_link_busy_event(rtrmessage::bpa* msg);
-    virtual void process_link_closed_event(rtrmessage::bpa* msg);
+    virtual void process_link_report_v0(CborValue& cvElement);
+    virtual void process_link_available_msg_v0(CborValue& cvElement);
+    virtual void process_link_opened_msg_v0(CborValue& cvElement);
+    virtual void process_link_closed_msg_v0(CborValue& cvElement);
+    virtual void process_link_unavailable_msg_v0(CborValue& cvElement);
 
     /**
      * getters
@@ -224,9 +224,5 @@ protected:
 };
 
 } // namespace dtn
-
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_ROUTER_H_ */

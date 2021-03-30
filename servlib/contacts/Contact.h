@@ -17,12 +17,12 @@
 #ifndef _CONTACT_H_
 #define _CONTACT_H_
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/debug/Formatter.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/Ref.h>
-#include <oasys/util/RefCountedObject.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/Ref.h>
+#include <third_party/oasys/util/RefCountedObject.h>
+#include <third_party/oasys/util/Time.h>
 
 namespace dtn {
 
@@ -83,7 +83,12 @@ public:
      * Accessor to the convergence layer info.
      */
     CLInfo* cl_info() { return cl_info_; }
-    
+
+    /**
+     * retrieve the incoming list size from the cla via CLInfo
+     */
+    void get_cla_stats(oasys::StringBuffer& buf);
+
     /**
      * Accessor to the link
      */

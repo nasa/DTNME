@@ -19,9 +19,9 @@
 
 #include <string>
 #include <list>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 namespace dtn {
 

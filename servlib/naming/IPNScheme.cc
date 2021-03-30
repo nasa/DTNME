@@ -13,7 +13,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -40,8 +40,8 @@
 #include <inttypes.h>
 #include <stdlib.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "IPNScheme.h"
 #include "EndpointID.h"
@@ -204,6 +204,30 @@ IPNScheme::match(const EndpointIDPattern& pattern, const EndpointID& eid)
     }
 
     return ((pat_node == eid_node) && (pat_service == eid_service));
+}
+
+//----------------------------------------------------------------------
+bool
+IPNScheme::ipn_node_match(const EndpointID& eid1, const EndpointID& eid2)
+{
+    if ((eid1.scheme() != this) || (eid2.scheme() != this)) {
+        return false;
+    }
+
+    uint64_t eid1_node;
+    uint64_t eid2_node;
+    uint64_t dummy_service;
+    std::string eid_ssp = eid1.ssp();
+    if (! IPNScheme::parse(eid_ssp, &eid1_node, &dummy_service)) {
+        return false;
+    }
+
+    eid_ssp = eid2.ssp();
+    if (! IPNScheme::parse(eid_ssp, &eid2_node, &dummy_service)) {
+        return false;
+    }
+
+    return (eid1_node == eid2_node);
 }
 
 //----------------------------------------------------------------------

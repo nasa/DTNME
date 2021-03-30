@@ -68,8 +68,14 @@ DtpcApplicationDataItem::serialize(oasys::SerializeAction* a)
 
     if (a->action_code() == oasys::Serialize::UNMARSHAL) {
         if (sz > allocated_size_) {
-            data_ = (u_int8_t*) realloc(data_, sz);
-            allocated_size_ = sz;
+            u_int8_t* tmp = (u_int8_t*) realloc(data_, sz);
+            if (tmp != nullptr) {
+                data_ = tmp;
+                allocated_size_ = sz;
+            } else {
+                log_err_p("/dtpc", "DtpcApplicationDataItem::serialize - Error in realloc of size: %zu", sz);
+                return; 
+            }
         }
         size_ = sz;
     }
@@ -81,8 +87,14 @@ void
 DtpcApplicationDataItem::set_data(size_t size, u_int8_t* data)
 {
     if (size > allocated_size_) {
-        data_ = (u_int8_t*) realloc(data_, size);
-        allocated_size_ = size;
+        u_int8_t* tmp = (u_int8_t*) realloc(data_, size);
+        if (tmp != nullptr) {
+            data_ = tmp;
+            allocated_size_ = size;
+        } else {
+            log_err_p("/dtpc", "DtpcApplicationDataItem::set_data - Error in realloc of size: %zu", size);
+            return;
+        }
     }
     size_ = size;
     memcpy(data_, data, size_);
@@ -93,8 +105,14 @@ void
 DtpcApplicationDataItem::reserve(size_t size)
 {
     if (size > allocated_size_) {
-        data_ = (u_int8_t*) realloc(data_, size);
-        allocated_size_ = size;
+        u_int8_t* tmp = (u_int8_t*) realloc(data_, size);
+        if (tmp != nullptr) {
+            data_ = tmp;
+            allocated_size_ = size;
+        } else {
+            log_err_p("/dtpc", "DtpcApplicationDataItem::set_data - Error in realloc of size: %zu", size);
+            return;
+        }
     }
     size_ = size;
 }

@@ -24,9 +24,9 @@
 #include <sys/time.h>
 #include <time.h>
 
-#include <oasys/io/IO.h>
-#include <oasys/tclcmd/TclCommand.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/io/IO.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "bundling/BundleEvent.h"
 
@@ -177,9 +177,9 @@ DtpcDaemon::init()
 
 //----------------------------------------------------------------------
 void
-DtpcDaemon::post(BundleEvent* event)
+DtpcDaemon::post(BundleEvent* event, bool at_back)
 {
-    instance_->post_event(event);
+    instance_->post_event(event, at_back);
 }
 
 //----------------------------------------------------------------------
@@ -237,7 +237,7 @@ DtpcDaemon::get_daemon_stats(oasys::StringBuffer* buf)
                  "%zu pending_timers",
                  event_queue_size(),
                  stats_.events_processed_,
-                 oasys::TimerSystem::instance()->num_pending_timers());
+                 oasys::SharedTimerSystem::instance()->num_pending_timers());
 }
 
 
@@ -252,7 +252,7 @@ DtpcDaemon::reset_stats()
 void
 DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
 {
-    log_info("DTPC Topic Registration event received for ID: %"PRIu32" has elision func: %s",
+    log_info("DTPC Topic Registration event received for ID: %" PRIu32 " has elision func: %s",
              event->topic_id_, event->has_elision_func_?"true":"false");
 
     // verify that the topic exists - if not then add or abort per configuration
@@ -262,7 +262,7 @@ DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
     if (NULL == topic) {
         if (params_.require_predefined_topics_) {
             // on the fly topics not allowed
-            log_err("DTPC Topic Registration event: registration rejected - no predefined Topic ID: %"PRIu32,
+            log_err("DTPC Topic Registration event: registration rejected - no predefined Topic ID: %" PRIu32,
                     event->topic_id_);
             *event->result_ = -1;
             return;
@@ -270,7 +270,7 @@ DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
             // add the on the fly topic
 	    oasys::StringBuffer errmsg;
             if (! toptab->add(&errmsg, event->topic_id_, false, "<on the fly API topic registration>")) {
-                log_err("DTPC Topic Registration event: error adding on the fly Topic ID: %"PRIu32,
+                log_err("DTPC Topic Registration event: error adding on the fly Topic ID: %" PRIu32,
                         event->topic_id_);
                 *event->result_ = -2; // internal error
                 return;
@@ -281,7 +281,7 @@ DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
 
     DtpcTopicRegistrationIterator iter = topic_reg_map_.find(event->topic_id_);
     if (iter != topic_reg_map_.end()) {
-        log_debug("DTPC Topic Registration event: registration rejected - busy for Topic ID: %"PRIu32,
+        log_debug("DTPC Topic Registration event: registration rejected - busy for Topic ID: %" PRIu32,
                  event->topic_id_);
         *event->result_ = -3; // busy
         return;
@@ -292,7 +292,7 @@ DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
     result = topic_reg_map_.insert(DtpcTopicRegistrationPair(event->topic_id_, reg));
 
     if ( result.second == false ) {
-        log_err("DTPC Topic Registration event: error storing registration for Topic ID: %"PRIu32,
+        log_err("DTPC Topic Registration event: error storing registration for Topic ID: %" PRIu32,
                  event->topic_id_);
 
         *event->result_ = -2; // internal error
@@ -307,7 +307,7 @@ DtpcDaemon::handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event)
 void
 DtpcDaemon::handle_dtpc_topic_unregistration(DtpcTopicUnregistrationEvent* event)
 {
-    log_info("DTPC Topic Unregistration event received for ID: %"PRIu32,
+    log_info("DTPC Topic Unregistration event received for ID: %" PRIu32,
              event->topic_id_);
 
     DtpcTopicRegistrationIterator iter = topic_reg_map_.find(event->topic_id_);
@@ -329,7 +329,7 @@ DtpcDaemon::handle_dtpc_topic_unregistration(DtpcTopicUnregistrationEvent* event
 void 
 DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
 {
-    log_info("DTPC Send Data Item event received for Topic ID: %"PRIu32,
+    log_info("DTPC Send Data Item event received for Topic ID: %" PRIu32,
              event->topic_id_);
 
     // verify that the topic exists - if not then add or abort per configuration
@@ -337,7 +337,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
     if (! toptab->find(event->topic_id_) ) {
         if (params_.require_predefined_topics_) {
             // on the fly topics not allowed
-            log_err("DTPC Send Data Item event: request rejected - no predefined Topic ID: %"PRIu32,
+            log_err("DTPC Send Data Item event: request rejected - no predefined Topic ID: %" PRIu32,
                     event->topic_id_);
             *event->result_ = -1;
             return;
@@ -345,7 +345,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
             // add the on the fly topic
 	    oasys::StringBuffer errmsg;
             if (! toptab->add(&errmsg, event->topic_id_, false, "<on the fly SEND topic registration>")) {
-                log_err("DTPC Send Data Item: error adding on the fly Topic ID: %"PRIu32,
+                log_err("DTPC Send Data Item: error adding on the fly Topic ID: %" PRIu32,
                         event->topic_id_);
                 *event->result_ = -2; // internal error
                 return;
@@ -357,7 +357,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
     DtpcProfileTable* proftab = DtpcProfileTable::instance();
     if (! proftab->find(event->profile_id_) ) {
         // on the fly topics not allowed
-        log_err("DTPC Send Data Item event: request rejected - no predefined Profile ID: %"PRIu32,
+        log_err("DTPC Send Data Item event: request rejected - no predefined Profile ID: %" PRIu32,
                 event->profile_id_);
         *event->result_ = -1;
         return;
@@ -366,7 +366,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
 
     // Create/add to Payload Aggregator - key is dest_eid plus profile ID
     char work[256];
-    snprintf(work, sizeof(work)-1, "%s~%"PRIu32, event->dest_eid_.c_str(), event->profile_id_);
+    snprintf(work, sizeof(work)-1, "%s~%" PRIu32, event->dest_eid_.c_str(), event->profile_id_);
     work[255] = 0;
     std::string key(work);
     
@@ -383,7 +383,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
 
     ASSERT(NULL != payload_agg);
 
-    log_debug("DTPC Send: Success - Dest: %s Profile: %"PRIu32" Topic: %"PRIu32" Length: %zu",
+    log_debug("DTPC Send: Success - Dest: %s Profile: %" PRIu32 " Topic: %" PRIu32 " Length: %zu",
               event->dest_eid_.c_str(), event->profile_id_, event->topic_id_, event->data_item_->size());
 
 
@@ -398,7 +398,7 @@ DtpcDaemon::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
 void 
 DtpcDaemon::handle_dtpc_payload_aggregation_timer_expired(DtpcPayloadAggregationTimerExpiredEvent* event)
 {
-    //log_debug("DTPC Aggregation Expired event received for key: %s SeqCtr: %"PRIu64,
+    //log_debug("DTPC Aggregation Expired event received for key: %s SeqCtr: %" PRIu64,
     //         event->key_.c_str(), event->seq_ctr_);
 
     DtpcPayloadAggregator* payload_agg = NULL;
@@ -424,7 +424,7 @@ DtpcDaemon::handle_dtpc_transmitted_event(DtpcPduTransmittedEvent* event)
     DtpcProfile* profile = DtpcProfileTable::instance()->get(pdu->profile_id());
     if (NULL == profile) {
         log_err("handle_dtpc_transmitted_event did not find Profile ID: "
-                "%"PRIu32" - aborting payload", pdu->profile_id());
+                "%" PRIu32 " - aborting payload", pdu->profile_id());
         ASSERT(NULL != profile);
     }
     struct timeval retran_time = profile->calc_retransmit_time();
@@ -439,8 +439,12 @@ DtpcDaemon::handle_dtpc_transmitted_event(DtpcPduTransmittedEvent* event)
     }
 
     // start a retransmit timer
-    pdu->set_retransmit_timer(new DtpcRetransmitTimer(pdu->key()), retran_time.tv_sec);
-    pdu->retransmit_timer()->schedule_at(&retran_time);
+    SPtr_DtpcRetransmitTimer timer = std::make_shared<DtpcRetransmitTimer>(pdu->key());
+    timer->set_sptr(timer);
+    pdu->set_retransmit_timer(timer, retran_time.tv_sec);
+
+    oasys::SPtr_Timer otimer = timer;
+    timer->schedule_at(&retran_time, otimer);
 }
 
 //----------------------------------------------------------------------
@@ -460,7 +464,7 @@ DtpcDaemon::handle_dtpc_delete_request(DtpcPduDeleteRequest* event)
                      "for PDU %s", pdu->key().c_str());
         }
 
-        pdu->set_retransmit_timer(NULL, 0);
+        pdu->clear_retransmit_timer();
     }
 
     DtpcProtocolDataUnitIterator itr = unacked_pdu_list_.find(pdu->key());
@@ -493,11 +497,11 @@ void DtpcDaemon::handle_dtpc_retransmit_timer_expired(DtpcRetransmitTimerExpired
         pdu = itr->second;
 
         // clear the reference to the timer
-        pdu->set_retransmit_timer(NULL, 0);
+        pdu->clear_retransmit_timer();
 
         // Create/add to Payload Aggregator - key is remote (destination) eid plus profile ID
         char work[256];
-        snprintf(work, sizeof(work)-1, "%s~%"PRIu32, pdu->remote_eid().c_str(), pdu->profile_id());
+        snprintf(work, sizeof(work)-1, "%s~%" PRIu32, pdu->remote_eid().c_str(), pdu->profile_id());
         work[255] = 0;
         std::string key(work);
     
@@ -562,7 +566,7 @@ DtpcDaemon::handle_dtpc_ack_received_event(DtpcAckReceivedEvent* event)
                         "for PDU %s", pdu->key().c_str());
             }
 
-            pdu->set_retransmit_timer(NULL, 0);
+            pdu->clear_retransmit_timer();
         }
         unacked_pdu_list_.erase(itr);
 
@@ -597,7 +601,7 @@ DtpcDaemon::handle_dtpc_data_received_event(DtpcDataReceivedEvent* event)
 
     ASSERT(NULL != collector);
 
-    log_debug("DTPC Recv : Success - Source: %s Profile: %"PRIu32" Length: %zu",
+    log_debug("DTPC Recv : Success - Source: %s Profile: %" PRIu32 " Length: %zu",
               pdu->remote_eid().c_str(), pdu->profile_id(), pdu->size());
 
     collector->pdu_received(pdu, event->rcvd_bref_);
@@ -629,7 +633,7 @@ DtpcDaemon::handle_dtpc_deliver_pdu_event(DtpcDeliverPduTimerExpiredEvent* event
 void 
 DtpcDaemon::handle_dtpc_topic_expiration_check(DtpcTopicExpirationCheckEvent* event)
 {
-    log_debug("DTPC Topic Expiration Check event received for Topic ID: %"PRIu32,
+    log_debug("DTPC Topic Expiration Check event received for Topic ID: %" PRIu32,
               event->topic_id_);
 
     // verify that the topic exists - if not then add or abort per configuration
@@ -646,13 +650,13 @@ DtpcDaemon::handle_dtpc_topic_expiration_check(DtpcTopicExpirationCheckEvent* ev
 void 
 DtpcDaemon::handle_dtpc_elision_func_response(DtpcElisionFuncResponse* event)
 {
-    log_debug("DTPC elision function response received for Topic ID: %"PRIu32,
+    log_debug("DTPC elision function response received for Topic ID: %" PRIu32,
               event->topic_id_);
 
     // verify that the topic exists - if not then add or abort per configuration
     DtpcTopicTable* toptab = DtpcTopicTable::instance();
     if (! toptab->find(event->topic_id_) ) {
-        log_err("DTPC elision function response: Topic ID not found: %"PRIu32,
+        log_err("DTPC elision function response: Topic ID not found: %" PRIu32,
                 event->topic_id_);
         return;
     }
@@ -661,14 +665,14 @@ DtpcDaemon::handle_dtpc_elision_func_response(DtpcElisionFuncResponse* event)
     DtpcProfileTable* proftab = DtpcProfileTable::instance();
     if (! proftab->find(event->profile_id_) ) {
         // on the fly topics not allowed
-        log_err("DTPC elision function response: Profile ID not found: %"PRIu32,
+        log_err("DTPC elision function response: Profile ID not found: %" PRIu32,
                 event->profile_id_);
         return;
     }
 
     // Create/add to Payload Aggregator - key is dest_eid plus profile ID
     char work[256];
-    snprintf(work, sizeof(work)-1, "%s~%"PRIu32, event->dest_eid_.c_str(), event->profile_id_);
+    snprintf(work, sizeof(work)-1, "%s~%" PRIu32, event->dest_eid_.c_str(), event->profile_id_);
     work[255] = 0;
     std::string key(work);
     
@@ -684,7 +688,7 @@ DtpcDaemon::handle_dtpc_elision_func_response(DtpcElisionFuncResponse* event)
 
     ASSERT(NULL != payload_agg);
 
-    log_debug("DTPC elision function response: Dest: %s Profile: %"PRIu32" Topic: %"PRIu32" ADIs: %zu",
+    log_debug("DTPC elision function response: Dest: %s Profile: %" PRIu32 " Topic: %" PRIu32 " ADIs: %zu",
               event->dest_eid_.c_str(), event->profile_id_, event->topic_id_, 
               event->data_item_list_->size());
 
@@ -736,13 +740,13 @@ DtpcDaemon::load_profiles()
     while (iter->next() == 0) {
         profile = profile_store->get(iter->cur_val());
         if (profile == NULL) {
-            log_err("error loading profile %"PRIu32" from data store",
+            log_err("error loading profile %" PRIu32 " from data store",
                     iter->cur_val());
             continue;
          }
 
         profile->set_reloaded_from_ds();
-        log_debug("Read profile %"PRIu32" from data store", iter->cur_val());
+        log_debug("Read profile %" PRIu32 " from data store", iter->cur_val());
         DtpcProfileTable::instance()->add_reloaded_profile(profile);
     }
 
@@ -766,13 +770,13 @@ DtpcDaemon::load_topics()
     while (iter->next() == 0) {
         topic = topic_store->get(iter->cur_val());
         if (topic == NULL) {
-            log_err("error loading topic %"PRIu32" from data store",
+            log_err("error loading topic %" PRIu32 " from data store",
                     iter->cur_val());
             continue;
          }
 
         topic->set_reloaded_from_ds();
-        log_debug("Read topic %"PRIu32" from data store", iter->cur_val());
+        log_debug("Read topic %" PRIu32 " from data store", iter->cur_val());
         DtpcTopicTable::instance()->add_reloaded_topic(topic);
     }
 
@@ -900,42 +904,12 @@ DtpcDaemon::run()
             bool ok = eventq_->try_pop(&event);
             ASSERT(ok);
             
-            oasys::Time now;
-            now.get_time();
-
-            
-            
-            if (now >= event->posted_time_) {
-                oasys::Time in_queue;
-                in_queue = now - event->posted_time_;
-                if (in_queue.sec_ > 2) {
-                    log_warn_p(LOOP_LOG, "event %s was in queue for %u.%u seconds",
-                               event->type_str(), in_queue.sec_, in_queue.usec_);
-                }
-            } else {
-                log_warn_p(LOOP_LOG, "time moved backwards: "
-                           "now %u.%u, event posted_time %u.%u",
-                           now.sec_, now.usec_,
-                           event->posted_time_.sec_, event->posted_time_.usec_);
-            }
-            
-            
-            log_debug_p(LOOP_LOG, "DtpcDaemon: handling event %s",
-                        event->type_str());
             // handle the event
             handle_event(event);
-
-            int elapsed = now.elapsed_ms();
-            if (elapsed > 2000) {
-                log_warn_p(LOOP_LOG, "event %s took %u ms to process",
-                           event->type_str(), elapsed);
-            }
 
             // record the last event time
             last_event_.get_time();
 
-            log_debug_p(LOOP_LOG, "DtpcDaemon: deleting event %s",
-                        event->type_str());
             // clean up the event
             delete event;
             

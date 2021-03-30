@@ -18,27 +18,25 @@
 #ifndef _BUNDLE_DAEMON_ACS_H_
 #define _BUNDLE_DAEMON_ACS_H_
 
-#ifdef ACS_ENABLED
-
 
 #include <list>
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/IdleTclExit.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/IdleTclExit.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "AggregateCustodySignal.h"
-#include "BundleDaemon.h"
 #include "BundleEvent.h"
 #include "BundleEventHandler.h"
 #include "BundleProtocol.h"
 #include "BundleActions.h"
 #include "BundleStatusReport.h"
+#include "CustodyList.h"
 #include "naming/EndpointID.h"
 
 namespace dtn {
@@ -55,8 +53,7 @@ class RegistrationTable;
  * Class that handles the basic event / action mechanism for 
  * Aggregate Custody Signal events. 
  */
-class BundleDaemonACS : public oasys::Singleton<BundleDaemonACS, false>,
-                        public BundleEventHandler,
+class BundleDaemonACS : public BundleEventHandler,
                         public oasys::Thread
 {
 public:
@@ -71,18 +68,6 @@ public:
     virtual ~BundleDaemonACS();
 
     /**
-     * Virtual initialization function, possibly overridden in the 
-     * simulator at sometime in the future to  install the modified 
-     * event queue (with no notifier) and the SimBundleActions class.
-     */
-    virtual void do_init();
-    
-    /**
-     * Boot time initializer.
-     */
-    static void init();
-    
-    /**
      * Return the number of events currently waiting for processing.
      * This is overridden in the simulator since it doesn't use a
      * MsgQueue.
@@ -92,26 +77,6 @@ public:
     	return eventq_->size();
     }
 
-    /**
-     * Queues the event at the tail of the queue for processing by the
-     * daemon thread.
-     */
-    static void post(BundleEvent* event);
- 
-    /**
-     * Queues the event at the head of the queue for processing by the
-     * daemon thread.
-     */
-    static void post_at_head(BundleEvent* event);
-    
-    /**
-     * Post the given event and wait for it to be processed by the
-     * daemon thread or for the given timeout to elapse.
-     */
-    static bool post_and_wait(BundleEvent* event,
-                              oasys::Notifier* notifier,
-                              int timeout = -1, bool at_back = true);
-    
    /**
      * Virtual post_event function, overridden by the Node class in
      * the simulator to use a modified event queue.
@@ -189,6 +154,7 @@ public:
      * Perform ACS related processing for accepting custody of a bundle
      */
     void accept_custody(Bundle* bundle);
+    void bibe_accept_custody(Bundle* bundle);
 
     /**
      * Perform ACS related processing for generating a custody signal
@@ -201,6 +167,7 @@ public:
      * Remove a bundle from the custody id list 
      */
     void erase_from_custodyid_list(Bundle* bundle);
+    void bibe_erase_from_custodyid_list(Bundle* bundle);
 
     /**
      * Apply route acs_set command to set ACS values for a route
@@ -234,10 +201,14 @@ public:
      */
     bool acs_enabled_for_endpoint(const EndpointID& ep);
 
+    /**
+     * Add BP7 BIBE Custody Transfer entry
+     */
+    void add_bibe_bundle_to_acs(int32_t bp_version, const EndpointID& custody_eid, 
+                                uint64_t transmission_id, bool success, uint8_t reason);
+
 protected:
     friend class BundleActions;
-
-    typedef BundleListIntMap       custodyid_list_t;
 
     typedef enum {
         AE_OP_NOOP = 0,
@@ -298,6 +269,7 @@ protected:
      * Generate an Aggregate Custody Signal bundle 
      */
     void generate_acs(PendingAcs* pacs, bool update_datastore=true);
+    void bibe_generate_acs(PendingAcs* pacs, bool update_datastore=true);
 
     /**
      * Create a new ACS Entry and insert it into the map
@@ -305,9 +277,6 @@ protected:
     void add_acs_entry(AcsEntryMap* aemap, uint64_t left_edge, uint64_t fill_len,
                                uint64_t diff_to_prev_right_edge, int sdnv_len);
 
-    /// The BundleDaemon instance
-    BundleDaemon* daemon_;
- 
     /// The event queue
     oasys::MsgQueue<BundleEvent*>* eventq_;
 
@@ -321,7 +290,7 @@ protected:
         u_int32_t acs_generated_;
         u_int32_t acs_reloaded_;
         u_int32_t acs_invalid_;
-        u_int32_t events_processed_;
+        u_int64_t events_processed_;
     };
 
     /// Stats instance
@@ -334,7 +303,7 @@ protected:
     oasys::Time last_event_;
 
     /// The list of all bundles that we have custody of
-    custodyid_list_t* custodyid_list_;
+    CustodyList custody_list_;
     
     /// Map of pending ACS's
     PendingAcsMap* pending_acs_map_;
@@ -362,6 +331,5 @@ protected:
 
 } // namespace dtn
 
-#endif // ACS_ENABLED
 
 #endif /* _BUNDLE_DAEMON_H_ */

@@ -18,11 +18,9 @@
 #ifndef _EHS_BUNDLEREF_H_
 #define _EHS_BUNDLEREF_H_
 
-#include <oasys/util/Ref.h>
+#include <third_party/oasys/util/Ref.h>
 
 #include "EhsBundle.h"
-
-#ifdef EHSROUTER_ENABLED
 
 namespace dtn {
 
@@ -46,7 +44,5 @@ typedef std::pair<uint64_t, EhsBundleRef> EhsBundlePair;
 typedef EhsBundleMap::iterator EhsBundleIterator;
 
 } // namespace dtn
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_BUNDLEREF_H_ */

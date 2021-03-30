@@ -36,9 +36,10 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "ContactManager.h"
+#include "ContactPlanner.h"
 #include "Contact.h"
 #include "Link.h"
 #include "bundling/BundleDaemon.h"
@@ -56,6 +57,9 @@ ContactManager::ContactManager()
 {
     links_ = new LinkSet();
     previous_links_ = new LinkSet();
+
+    ContactPlanner::instance()->start();
+    ContactPlanner::instance()->set_manager_handle(this);
 }
 
 //----------------------------------------------------------------------
@@ -157,14 +161,14 @@ ContactManager::del_link(const LinkRef& link, bool wait,
     // Cancel the link's availability timer (if one exists).
     AvailabilityTimerMap::iterator iter = availability_timers_.find(link);
     if (iter != availability_timers_.end()) {
-        LinkAvailabilityTimer* timer = iter->second;
+        oasys::SPtr_Timer timer = iter->second;
         availability_timers_.erase(link);
 
         // Attempt to cancel the timer, relying on the timer system to clean
         // up the timer state once it bubbles to the top of the timer queue.
         // If the timer is in the process of firing (i.e., race condition),
         // the timer should clean itself up in the timeout handler.
-        if (!timer->cancel()) {
+        if (!oasys::SharedTimerSystem::instance()->cancel(timer)) {
             log_warn("ContactManager::del_link: "
                      "failed to cancel availability timer -- race condition");
         }
@@ -417,7 +421,6 @@ ContactManager::LinkAvailabilityTimer::timeout(const struct timeval& now)
 {
     (void)now;
     cm_->reopen_link(link_);
-    delete this;
 }
 
 //----------------------------------------------------------------------
@@ -512,14 +515,14 @@ ContactManager::handle_link_available(LinkAvailableEvent* event)
         return; // no timer for this link
     }
 
-    LinkAvailabilityTimer* timer = iter->second;
+    oasys::SPtr_Timer timer = iter->second;
     availability_timers_.erase(link);
 
     // try to cancel the timer and rely on the timer system to clean
     // it up once it bubbles to the top of the queue... if there's a
     // race and the timer is in the process of firing, it should clean
     // itself up in the timeout handler.
-    if (!timer->cancel()) {
+    if (!oasys::SharedTimerSystem::instance()->cancel(timer)) {
         log_warn("ContactManager::handle_link_available: "
                  "can't cancel availability timer: race condition");
     }
@@ -569,7 +572,12 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
                   event->reason_to_str(event->reason_));
         return;
     }
-    
+
+    if (shutting_down_) {
+        return;
+    }
+
+
     // adjust the retry interval in the link to handle backoff in case
     // it continuously fails to open, then schedule the timer. note
     // that if this is the first time the link is opened, the
@@ -586,13 +594,12 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
         link->retry_interval_ = link->params().max_retry_interval_;
     }
 
-    LinkAvailabilityTimer* timer = new LinkAvailabilityTimer(this, link);
+    SPtr_LinkAvailabilityTimer timer = std::make_shared<LinkAvailabilityTimer>(this, link);
 
     AvailabilityTimerMap::value_type val(link, timer);
     if (availability_timers_.insert(val).second == false) {
         log_err("ContactManager::handle_link_unavailable: "
                 "error inserting timer for link %s into table!", link->name());
-        delete timer;
         return;
     }
 
@@ -603,7 +610,9 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
 
     log_debug("link %s unavailable (%s): scheduling retry timer in %d seconds",
               link->name(), event->reason_to_str(event->reason_), timeout);
-    timer->schedule_in(timeout * 1000);
+
+    oasys::SPtr_Timer base_sptr = timer;
+    oasys::SharedTimerSystem::instance()->schedule_in(timeout * 1000, base_sptr);
 }
 
 //----------------------------------------------------------------------

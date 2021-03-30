@@ -19,12 +19,11 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef ACS_ENABLED
 
 #include "PendingAcsStore.h"
 #include "bundling/AggregateCustodySignal.h"
 
-#include <oasys/storage/DurableStore.h>
+#include <third_party/oasys/storage/DurableStore.h>
 
 namespace oasys {
     template<> dtn::PendingAcsStore* oasys::Singleton<dtn::PendingAcsStore, false>::instance_ = NULL;
@@ -55,4 +54,3 @@ PendingAcsStore::init(const oasys::StorageConfig& cfg,
 
 } // namespace dtn
 
-#endif // ACS_ENABLED

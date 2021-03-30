@@ -17,8 +17,8 @@
 #ifndef _SCHEME_TABLE_H_
 #define _SCHEME_TABLE_H_
 
-#include <oasys/util/Singleton.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/util/Singleton.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 namespace dtn {
 

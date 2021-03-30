@@ -20,26 +20,24 @@
 # Source and object rules
 #
 
-### NOTE: ehsrouter/router.cc & .h are links to servlib/router/router.cc & .h
 ### NOTE: ehsrouter/SDNV.cc & .h are links to servlib/bundling/SDNV.cc & .h
-EHSROUTER_SRCS := 			   \
-	EhsBundle.cc			   \
-	EhsBundleTree.cc           \
-	EhsDtnNode.cc			   \
-	EhsEventHandler.cc		   \
-	EhsExternalRouter.cc       \
-	EhsExternalRouterImpl.cc   \
-	EhsLink.cc			       \
-	EhsRouter.cc			   \
-	EhsSrcDstKeys.cc           \
-	EhsSrcDstWildBoolMap.cc    \
-	router-custom.cc		   \
-	router-wrap.cc			   \
-	SDNV.cc				       \
+EHSROUTER_SRCS :=			\
+	EhsBundle.cc			\
+	EhsBundleTree.cc		\
+	EhsDtnNode.cc			\
+	EhsEventHandler.cc		\
+	EhsExternalRouter.cc		\
+	EhsExternalRouterImpl.cc	\
+	EhsLink.cc			\
+	EhsRouter.cc			\
+	EhsSrcDstKeys.cc		\
+	EhsSrcDstWildBoolMap.cc		\
+
+#SDNV.cc				\
 
 EHSROUTER_OBJS := $(EHSROUTER_SRCS:.cc=.o)
 EHSROUTER_OBJS := $(EHSROUTER_OBJS:.c=.o)
-EHSROUTER_OBJS := $(EHSROUTER_OBJS) ../dtn-version.o
+EHSROUTER_OBJS := $(EHSROUTER_OBJS) ../dtn-version.o ../servlib/bundling/CborUtil.o ../servlib/routing/ExternalRouterIF.o ../servlib/routing/ExternalRouterClientIF.o ../servlib/bundling/SDNV.o
 
 TESTEHSROUTER_SRCS :=		\
 	test_ehsrouter.cc	\
@@ -47,7 +45,9 @@ TESTEHSROUTER_SRCS :=		\
 
 TESTEHSROUTER_OBJS := $(TESTEHSROUTER_SRCS:.cc=.o)
 TESTEHSROUTER_OBJS := $(TESTEHSROUTER_OBJS:.c=.o)
-TESTEHSROUTER_OBJS := $(TESTEHSROUTER_OBJS) 
+TESTEHSROUTER_OBJS := $(TESTEHSROUTER_OBJS) $(EHSROUTER_OBJS)
+
+##../servlib/bundling/CborUtil.o ../servlib/routing/ExternalRouterIF.o ../servlib/routing/ExternalRouterClientIF.o ../servlib/bundling/SDNV.o
 
 BINFILES := test_ehsrouter
 
@@ -64,10 +64,10 @@ ifeq ($(EHSROUTER_MAKEFILE_INCLUDE),)
 # Default target is to build the library
 #
 LIBFILES := libehsrouter.a
-all: symlinks $(LIBFILES) $(BINFILES)
+all: $(LIBFILES) $(BINFILES)
 
 
-ehsrouter: symlinks libehsrouter.a $(BINFILES)
+ehsrouter: libehsrouter.a $(BINFILES)
 
 libehsrouter.a: $(EHSROUTER_OBJS)
 	rm -f $@
@@ -75,20 +75,10 @@ libehsrouter.a: $(EHSROUTER_OBJS)
 	$(RANLIB) $@ || true
 
 
-test_ehsrouter: symlinks $(TESTEHSROUTER_OBJS) $(LIBFILES)
+test_ehsrouter: $(TESTEHSROUTER_OBJS) $(LIBFILES)
 	$(CXX) $(CXXFLAGS) $(TESTEHSROUTER_OBJS) $(LIBFILES) \
 		-o $@ $(LDFLAGS) $(OASYS_LDFLAGS) $(EXTLIB_LDFLAGS) $(LIBS)
 
-symlinks: SDNV.cc SDNV.h ln_router.h
-
-SDNV.cc:
-	ln -s ../servlib/bundling/SDNV.cc SDNV.cc
-
-SDNV.h:
-	ln -s ../servlib/bundling/SDNV.h SDNV.h
-
-ln_router.h:
-	ln -s ../servlib/routing/router.h ln_router.h
 
 #
 # Make sure SRCDIR is set (.. by default)

@@ -17,10 +17,10 @@
 #ifndef _DTN_VERSION_H_
 #define _DTN_VERSION_H_
 
-#define DTN_VERSION_MAJOR	0
-#define DTN_VERSION_MINOR	1
-#define DTN_VERSION_PATCH	2020-03-18
-#define DTN_VERSION_STRING	"0.1.2020-03-18"
+#define DTN_VERSION_MAJOR	1
+#define DTN_VERSION_MINOR	0
+#define DTN_VERSION_PATCH	2021-03-26
+#define DTN_VERSION_STRING	"1.0.2021-03-26"
 
 extern const char* dtn_version;
 

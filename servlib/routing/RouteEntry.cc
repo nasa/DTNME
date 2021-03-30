@@ -18,8 +18,8 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 #include "BundleRouter.h"
 #include "RouteEntry.h"
 #include "naming/EndpointIDOpt.h"

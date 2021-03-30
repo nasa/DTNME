@@ -20,10 +20,10 @@
 
 #include <map>
 
-#include "oasys/debug/Log.h"
-#include <oasys/serialize/Serialize.h>
-#include "oasys/util/ScratchBuffer.h"
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "bundling/BundleRef.h"
 #include "naming/EndpointID.h"
@@ -196,7 +196,7 @@ private:
     DtpcPduSeqCtrMap pdu_map_;
 
     /// Timer to trigger delivery of a PDU
-    DtpcDeliverPduTimer* timer_;
+    SPtr_DtpcDeliverPduTimer timer_;
 
     /// buffer in which to construct the ACK bundle payload
     DtpcPayloadBuffer buf_;

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -39,7 +39,7 @@
 #include "APIRegistration.h"
 #include "RegistrationTable.h"
 #include "bundling/BundleEvent.h"
-#include "bundling/BundleDaemonStorage.h"
+#include "bundling/BundleDaemon.h"
 
 namespace dtn {
 
@@ -52,16 +52,22 @@ RegistrationTable::RegistrationTable()
 //----------------------------------------------------------------------
 RegistrationTable::~RegistrationTable()
 {
-    while (! reglist_.empty()) {
-        delete reglist_.front();
-        reglist_.pop_front();
-    }
+    oasys::ScopeLock l(&lock_, __func__); 
+//dzdebug    while (! reglist_.empty()) {
+//dzdebug        delete reglist_.front();
+//dzdebug        reglist_.pop_front();
+//dzdebug    }
+
+
+    reglist_.clear();
 }
 
 //----------------------------------------------------------------------
 bool
 RegistrationTable::find(u_int32_t regid, RegistrationList::iterator* iter)
 {
+    oasys::ScopeLock l(&lock_, __func__); 
+
     Registration* reg;
 
     for (*iter = reglist_.begin(); *iter != reglist_.end(); ++(*iter)) {
@@ -79,7 +85,7 @@ RegistrationTable::find(u_int32_t regid, RegistrationList::iterator* iter)
 Registration*
 RegistrationTable::get(u_int32_t regid) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     RegistrationList::iterator iter;
 
@@ -112,6 +118,8 @@ RegistrationTable::get(const EndpointIDPattern& eid) const
 Registration*
 RegistrationTable::get(const EndpointIDPattern& eid, u_int64_t reg_token) const
 {
+    oasys::ScopeLock l(&lock_, __func__); 
+
     Registration* reg;
     RegistrationList::const_iterator iter;
     
@@ -136,7 +144,7 @@ RegistrationTable::get(const EndpointIDPattern& eid, u_int64_t reg_token) const
 bool
 RegistrationTable::add(Registration* reg, bool add_to_store)
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     // put it in the list
     reglist_.push_back(reg);
@@ -159,7 +167,7 @@ RegistrationTable::add(Registration* reg, bool add_to_store)
     log_info("adding registration %d/%s", reg->regid(),
              reg->endpoint().c_str());
 
-    BundleDaemonStorage::instance()->registration_add_update(api_reg);
+    BundleDaemon::instance()->registration_add_update_in_storage(api_reg);
     
     return true;
 }
@@ -177,7 +185,7 @@ RegistrationTable::del(Registration* reg)
 
     RegistrationList::iterator iter;
 
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
     
     if (! find(regid, &iter)) {
         log_err("error removing registration %d: no matching registration",
@@ -209,7 +217,7 @@ RegistrationTable::update(Registration* reg) const
         return false;
     }
     
-    BundleDaemonStorage::instance()->registration_add_update(api_reg);
+    BundleDaemon::instance()->registration_add_update_in_storage(api_reg);
 
     return true;
 }
@@ -219,7 +227,7 @@ int
 RegistrationTable::get_matching(const EndpointID& demux,
                                 RegistrationList* reg_list) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     int count = 0;
     
@@ -247,7 +255,7 @@ RegistrationTable::get_matching(const EndpointID& demux,
 void
 RegistrationTable::dump(oasys::StringBuffer* buf) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     RegistrationList::const_iterator i;
     for (i = reglist_.begin(); i != reglist_.end(); ++i)

@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "LoggingRegistration.h"
 #include "Registration.h"

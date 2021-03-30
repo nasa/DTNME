@@ -18,12 +18,10 @@
 #ifndef _EHS_SRC_DST_WILD_BOOL_MAP_H_
 #define _EHS_SRC_DST_WILD_BOOL_MAP_H_
 
-#ifdef EHSROUTER_ENABLED
-
 #include <map>
 
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "EhsSrcDstKeys.h"
 
@@ -122,7 +120,5 @@ protected:
 
 } // namespace dtn
 
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_SRC_DST_WILD_BOOL_MAP_H_ */

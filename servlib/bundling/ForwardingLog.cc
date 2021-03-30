@@ -18,9 +18,9 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/serialize/Serialize.h>
 #include "ForwardingLog.h"
 #include "conv_layers/ConvergenceLayer.h"
 #include "reg/Registration.h"
@@ -205,7 +205,7 @@ ForwardingLog::dump(oasys::StringBuffer* buf) const
     {
         const ForwardingInfo* info = &(*iter);
         
-        buf->appendf("\t%s -> %s [%s] %s at %u.%u "
+        buf->appendf("\t%s -> %s [%s] %s at %" PRIu64 ".%" PRIu64 " "
                      "[custody min %d pct %d max %d]\n",
                      ForwardingInfo::state_to_str(info->state()),
                      info->link_name().c_str(),
@@ -231,9 +231,11 @@ ForwardingLog::add_entry(const LinkRef& link,
     log_.push_back(ForwardingInfo(state, action, link->name_str(), 0xffffffff,
                                   link->remote_eid(), custody_timer));
 
-    link->set_used_in_fwdlog();
-
     if (BundleDaemon::params_.persistent_fwd_logs_) {
+        if (!link->used_in_fwdlog()) {
+            link->set_used_in_fwdlog();
+        }
+
         BundleDaemon* daemon = BundleDaemon::instance();
         daemon->actions()->store_update(bundle_);
     }

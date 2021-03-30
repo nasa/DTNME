@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,13 +36,14 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/Time.h>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "Bundle.h"
 #include "BundleDaemon.h"
 #include "BundleList.h"
+#include "BundleProtocolVersion7.h"
 #include "ExpirationTimer.h"
 
 #include "bundling/BundleDaemonStorage.h"
@@ -55,61 +56,66 @@ namespace dtn {
 void
 Bundle::init(bundleid_t id)
 {
-    bundleid_		    = id;
-    is_admin_		    = false;
-    do_not_fragment_	    = false;
-    in_datastore_           = false;
-    custody_requested_	    = false;
-    local_custody_          = false;
-    singleton_dest_         = true;
-    priority_		    = COS_NORMAL;
-    receive_rcpt_	    = false;
-    custody_rcpt_	    = false;
-    forward_rcpt_	    = false;
-    delivery_rcpt_	    = false;
-    deletion_rcpt_	    = false;
-    app_acked_rcpt_	    = false;
-    orig_length_	    = 0;
-    expiration_		    = 0;
-    owner_                  = "";
-    fragmented_incoming_    = false;
-    session_flags_          = 0;
-    freed_                  = false;
-    payload_space_reserved_ = false;
-    queued_for_datastore_   = false;
-    in_storage_queue_       = false;
-    deleting_               = false;
-    manually_deleting_      = false;
-#ifdef BSP_ENABLED
-    security_config_ = BundleSecurityConfig(Ciphersuite::config);
-    payload_bek_ = NULL;
-    payload_bek_len_ = 0;
-    payload_bek_set_ = false;
-    payload_encrypted_ = false;
-    memset(payload_salt_, 0, 4);
-    memset(payload_iv_, 0, 8);
-    memset(payload_tag_, 0, 16);
-#endif
-    
+    // set the received time as quickly as possible
+    received_time_.get_time();
+
+    bundleid_                   = id;
+    primary_block_crc_type_     = 2; 
+    highest_rcvd_block_number_  = 1;  // every bundle must have a Primary (0) and Payload (1) Block
+    is_admin_                   = false;
+    do_not_fragment_            = false;
+    refcount_                   = 0;
+    in_datastore_               = false;
+    custody_requested_          = false;
+    local_custody_              = false;
+    bibe_custody_               = false;
+    singleton_dest_             = true;
+    priority_                   = COS_NORMAL;
+    receive_rcpt_               = false;
+    custody_rcpt_               = false;
+    forward_rcpt_               = false;
+    delivery_rcpt_              = false;
+    deletion_rcpt_              = false;
+    app_acked_rcpt_             = false;
+    orig_length_                = 0;
+    expiration_millis_          = 0;
+    owner_                      = "";
+    fragmented_incoming_        = false;
+    freed_                      = false;
+    payload_space_reserved_     = false;
+    queued_for_datastore_       = false;
+    in_storage_queue_           = false;
+    deleting_                   = false;
+    manually_deleting_          = false;
+    hop_count_                  = 0;
+    hop_limit_                  = 0;
+    prev_bundle_age_millis_            = 0;
+    has_bundle_age_block_       = false;
+    req_time_in_status_rpt_     = false;
+    frag_created_from_bundleid_ = 0;
+
 
     // as per the spec, the creation timestamp should be calculated as
     // seconds since 1/1/2000, and since the bundle id should be
     // monotonically increasing, it's safe to use that for the seqno
 
-    // XXX/ modify this depending on whether a flag is set to use AEB or not.
-    // XXX/ of course, we could just zero this out with our age block processor
-    mutable_creation_ts()->seconds_ = BundleTimestamp::get_current_time();
-    mutable_creation_ts()->seqno_   = bundleid_;
+    if ((bp_version_ == BundleProtocol::BP_VERSION_7) && 
+        (BundleProtocol::params_.use_bundle_age_block_)) {
 
-    age_                = 0; // [AEB]
-    time_aeb_           = oasys::Time::now(); // [AEB]
+        // creating new bundle sourced locally
+        set_creation_ts(0, bundleid_);
 
-#ifdef ACS_ENABLED
+        // new bundle so previous age is zero and also sets the has_age_block flag
+        set_prev_bundle_age_millis(0);
+    } else {
+        set_creation_ts(BundleTimestamp::get_current_time(), bundleid_);
+    }
+
     // Agregate Custody parameters
     custodyid_          = 0;
+    custody_dest_       = "bpv6"; // default to BPv6 compatibility for custody ID assignment
     cteb_valid_         = false;
     cteb_custodyid_     = 0;
-#endif // ACS_ENABLED
 
 #ifdef ECOS_ENABLED
     ecos_enabled_ = false;
@@ -129,21 +135,23 @@ Bundle::init(bundleid_t id)
     // timestamp to 0. 
     extended_id_ = creation_ts();
 
+    expiration_timer_ = nullptr;
     //log_debug_p("/dtn/bundle", "Bundle::init bundle id %" PRIbid, id);
+
+    recv_blocks_ = std::make_shared<BlockInfoVec>();
+    api_blocks_ = std::make_shared<BlockInfoVec>();
 }
 
 //----------------------------------------------------------------------
-Bundle::Bundle(BundlePayload::location_t location)
+Bundle::Bundle(int32_t bp_version, BundlePayload::location_t location)
     : Logger("Bundle", "/dtn/bundle/bundle"),
       payload_(&lock_), fwdlog_(&lock_, this), xmit_blocks_(&lock_),
       recv_metadata_("recv_metadata")
 {
     bundleid_t id = GlobalStore::instance()->next_bundleid();
+    bp_version_ = bp_version;
     init(id);
     payload_.init(id, location);
-    refcount_	      = 0;
-    expiration_timer_ = NULL;
-    freed_	      = false;
 }
 
 //----------------------------------------------------------------------
@@ -156,27 +164,20 @@ Bundle::Bundle(const oasys::Builder&)
     // value and make sure the expiration timer is NULL, since the
     // fields are set and the payload initialized when loading from
     // the database
+    bp_version_ = BundleProtocol::BP_VERSION_UNKNOWN;
     init(0xffffffff);
-    refcount_	      = 0;
-    expiration_timer_ = NULL;
-    freed_	      = false;
 }
 
 //----------------------------------------------------------------------
 Bundle::~Bundle()
 {
     //log_debug_p("/dtn/bundle/free", "destroying bundle id %" PRIbid, bundleid_);
-    
+
     ASSERT(mappings_.size() == 0);
-#ifdef BSP_ENABLED
-    if(payload_bek_ != NULL) {
-        free(payload_bek_);
-    }
-#endif
     bundleid_ = 0xdeadf00d;
 
     if (!BundleDaemon::shutting_down()) {
-        ASSERTF(expiration_timer_ == NULL,
+        ASSERTF(expiration_timer_ == nullptr,
                 "bundle deleted with pending expiration timer");
     }
 
@@ -191,7 +192,7 @@ Bundle::format(char* buf, size_t sz) const
                         bundleid_, source().c_str(), dest_.c_str(),
                         payload_.length());
     } else if (is_fragment()) {
-        return snprintf(buf, sz, "bundle id %" PRIbid " [%s -> %s %zu byte payload, fragment @%u/%u]",
+        return snprintf(buf, sz, "bundle id %" PRIbid " [%s -> %s %zu byte payload, fragment @%zu/%zu]",
                         bundleid_, source().c_str(), dest_.c_str(),
                         payload_.length(), frag_offset(), orig_length_);
     } else {
@@ -208,19 +209,21 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
 
 #define bool_to_str(x)   ((x) ? "true" : "false")
 
-    u_int32_t cur_time_sec = BundleTimestamp::get_current_time();
-
     buf->appendf("bundle id %" PRIbid ":\n", bundleid_);
+    buf->appendf("  Protocol Version: %" PRIi32 "\n", bp_version_);
     buf->appendf("         Global ID: %s\n", gbofid_str().c_str());
     buf->appendf("            source: %s\n", source().c_str());
     buf->appendf("              dest: %s\n", dest_.c_str());
     buf->appendf("         custodian: %s\n", custodian_.c_str());
     buf->appendf("           replyto: %s\n", replyto_.c_str());
     buf->appendf("           prevhop: %s\n", prevhop_.c_str());
+    buf->appendf("         hop count: %" PRIu64 "\n", hop_count_);
+    buf->appendf("         hop limit: %" PRIu64 "\n", hop_limit_);
     buf->appendf("    payload_length: %zu\n", payload_.length());
     buf->appendf("          priority: %d\n", priority_);
     buf->appendf(" custody_requested: %s\n", bool_to_str(custody_requested_));
     buf->appendf("     local_custody: %s\n", bool_to_str(local_custody_));
+    buf->appendf("      bibe_custody: %s\n", bool_to_str(bibe_custody_));
     buf->appendf("    singleton_dest: %s\n", bool_to_str(singleton_dest_));
     buf->appendf("      receive_rcpt: %s\n", bool_to_str(receive_rcpt_));
     buf->appendf("      custody_rcpt: %s\n", bool_to_str(custody_rcpt_));
@@ -231,33 +234,38 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
     buf->appendf("       creation_ts: %" PRIu64 ".%" PRIu64 "\n",
                  creation_ts().seconds_, creation_ts().seqno_);
 
-    if (cur_time_sec > (creation_ts().seconds_ + expiration_)) {
-        buf->appendf("        expiration: %" PRIu64 " (expired)\n", expiration_);
+    if (time_to_expiration_secs() < 0) {
+        buf->appendf("        expiration: %" PRIu64 " secs (expired)\n", expiration_secs());
     } else {
-//        buf->appendf("        expiration: %" PRIu64 " (%" PRIu64 " left)\n", expiration_,
-//                     creation_ts().seconds_ + expiration_ - cur_time_sec);
-
-        buf->appendf("        expiration: %" PRIu64 " (%" PRIi64 " left)\n", expiration_,
-                     time_to_expiration());
+        buf->appendf("        expiration: %" PRIu64 " secs (%" PRIi64 " left)\n", expiration_secs(),
+                     time_to_expiration_secs());
     }
+
+    buf->appendf("  bundle age block: %s\n", bool_to_str(has_bundle_age_block_));
+    buf->appendf("      received age: %" PRIu64 " (secs)\n", prev_bundle_age_secs());
+
+
+
+    const char *fmtstr="%Y-%m-%d %H:%M:%S";
+    const time_t rcv_time = (const time_t) received_time_.sec_;
+    struct tm tmval_buf;
+    struct tm *tmval;
+    tmval = gmtime_r(&rcv_time, &tmval_buf);
+    char rcv_date[64];
+    strftime(rcv_date, 64, fmtstr, tmval);
+
+    buf->appendf("     received time: %s GMT\n", rcv_date);
+
 
     buf->appendf("       is_fragment: %s\n", bool_to_str(is_fragment()));
     buf->appendf("          is_admin: %s\n", bool_to_str(is_admin_));
     buf->appendf("   do_not_fragment: %s\n", bool_to_str(do_not_fragment_));
-    buf->appendf("       orig_length: %d\n", orig_length_);
-    buf->appendf("       frag_offset: %d\n", frag_offset());
-    buf->appendf("       sequence_id: %s\n", sequence_id_.to_str().c_str());
-    buf->appendf("      obsoletes_id: %s\n", obsoletes_id_.to_str().c_str());
-    buf->appendf("       session_eid: %s\n", session_eid_.c_str());
-    buf->appendf("     session_flags: 0x%x\n", session_flags_);
-    buf->appendf("               age: %" PRIu64 "\n", age_);
-    //buf->appendf("          time_aeb: %llu\n", time_aeb_);
+    buf->appendf("       orig_length: %zu\n", orig_length_);
+    buf->appendf("       frag_offset: %zu\n", frag_offset());
 
-#ifdef ACS_ENABLED
     buf->appendf("    cteb was valid: %s\n", bool_to_str(cteb_valid()));
     buf->appendf("   cteb custody id: %" PRIu64 "\n", cteb_custodyid());
     buf->appendf("  local custody id: %" PRIu64 "\n", custodyid());
-#endif // ACS_ENABLED
 
 #ifdef ECOS_ENABLED
     if (ecos_enabled()) {
@@ -283,40 +291,54 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
         buf->appendf("\t%s\n", bmap->list()->name().c_str());
     }
 
-    buf->append("\nrecv blocks:");
-    for (BlockInfoVec::iterator iter = recv_blocks_.begin();
-         iter != recv_blocks_.end();
-         ++iter)
-    {
-        buf->appendf("\n type: 0x%02x ", iter->type());
-        BlockProcessor *owner = BundleProtocol::find_processor(iter->type());
-        if (iter->type()!=owner->block_type()){
-        	iter->set_owner(owner);
-        }
-        if (iter->data_offset() == 0)
-            buf->append("(runt)");
-        else {
-            if (!iter->complete())
-                buf->append("(incomplete) ");
-            buf->appendf("data length: %d", iter->full_length());
-            buf->appendf(" -%d- ", owner->block_type());
-            //dzdebug iter->owner()->format(buf, &(*iter));
-            owner->format(buf, &(*iter));
-        }
-    }
-    if (api_blocks_.size() > 0) {
-        buf->append("\napi_blocks:");
-        for (BlockInfoVec::iterator iter = api_blocks_.begin();
-             iter != api_blocks_.end();
+    if (recv_blocks_->size() > 0) {
+        buf->append("\nrecv blocks:");
+        for (BlockInfoVec::iterator iter = recv_blocks_->begin();
+             iter != recv_blocks_->end();
              ++iter)
         {
-            buf->appendf("\n type: 0x%02x data length: %d",
-                         iter->type(), iter->full_length());
+            SPtr_BlockInfo blkptr = *iter;
+
+            buf->appendf("\n type: 0x%02x ", blkptr->type());
+            BlockProcessor *owner;
+            if (bp_version() == BundleProtocol::BP_VERSION_7) {
+                owner = BundleProtocolVersion7::find_processor(blkptr->type());
+            } else {
+                owner = BundleProtocolVersion6::find_processor(blkptr->type());
+            }
+
+            if (blkptr->type()!=owner->block_type()){
+                blkptr->set_owner(owner);
+            }
+            if (blkptr->data_offset() == 0)
+                buf->append("(runt)");
+            else {
+                if (!blkptr->complete())
+                    buf->append("(incomplete) ");
+                buf->appendf("data length: %" PRIu64, blkptr->full_length());
+                buf->appendf(" -%d- ", owner->block_type());
+                owner->format(buf, blkptr.get());
+            }
+        }
+    } else {
+        buf->append("\nno recv_blocks");
+    }
+
+    if (api_blocks_->size() > 0) {
+        buf->append("\napi_blocks:");
+        for (BlockInfoVec::iterator iter = api_blocks_->begin();
+             iter != api_blocks_->end();
+             ++iter)
+        {
+            SPtr_BlockInfo blkptr = *iter;
+
+            buf->appendf("\n type: 0x%02x data length: %" PRIu64,
+                         blkptr->type(), blkptr->full_length());
             buf->append(" -- ");
-            iter->owner()->format(buf, &(*iter));
+            blkptr->owner()->format(buf, blkptr.get());
        }
     } else {
-    	buf->append("\nno api_blocks");
+        buf->append("\nno api_blocks");
     }
     buf->append("\n");
 }
@@ -325,19 +347,30 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
 void
 Bundle::serialize(oasys::SerializeAction* a)
 {
-    a->process("bundleid", &bundleid_);
+    EndpointID src_id(source());
+    uint64_t creation_ts_secs = creation_ts().seconds_;
+    uint64_t creation_ts_seqno = creation_ts().seqno_;
     bool is_frag = is_fragment();
+    uint64_t frag_offset = gbofid_.frag_offset();
+
+    a->process("bundleid", &bundleid_);
+    a->process("bp_version", &bp_version_);
+    a->process("primary_crc_type", &primary_block_crc_type_);
+    a->process("highest_rcvd_block_num", &highest_rcvd_block_number_);
     a->process("is_fragment", &is_frag);
     a->process("is_admin", &is_admin_);
     a->process("do_not_fragment", &do_not_fragment_);
-    a->process("source", mutable_source());
+    a->process("source",  &src_id);
     a->process("dest", &dest_);
     a->process("custodian", &custodian_);
     a->process("replyto", &replyto_);
     a->process("prevhop", &prevhop_);    
+    a->process("hop_count", &hop_count_);
+    a->process("hop_limit", &hop_limit_);
     a->process("priority", &priority_);
     a->process("custody_requested", &custody_requested_);
     a->process("local_custody", &local_custody_);
+    a->process("bibe_custody", &bibe_custody_);
     a->process("singleton_dest", &singleton_dest_);
     a->process("custody_rcpt", &custody_rcpt_);
     a->process("receive_rcpt", &receive_rcpt_);
@@ -345,47 +378,31 @@ Bundle::serialize(oasys::SerializeAction* a)
     a->process("delivery_rcpt", &delivery_rcpt_);
     a->process("deletion_rcpt", &deletion_rcpt_);
     a->process("app_acked_rcpt", &app_acked_rcpt_);
-    a->process("creation_ts_seconds", &mutable_creation_ts()->seconds_);
-    a->process("creation_ts_seqno", &mutable_creation_ts()->seqno_);
-    a->process("expiration", &expiration_);
+    a->process("req_time_in_status_rpt", &req_time_in_status_rpt_);
+    a->process("creation_ts_seconds", &creation_ts_secs);
+    a->process("creation_ts_seqno", &creation_ts_seqno);
+    a->process("expiration", &expiration_millis_);
     a->process("payload", &payload_);
     a->process("orig_length", &orig_length_);
-    u_int32_t frag_off = frag_offset();
-    a->process("frag_offset", &frag_off);
+    a->process("frag_offset", &frag_offset);
     a->process("owner", &owner_);
-    a->process("session_eid", &session_eid_);    
-    a->process("session_flags", &session_flags_);    
     a->process("extended_id_seconds", &extended_id_.seconds_);
     a->process("extended_id_seqno", &extended_id_.seqno_);
-    a->process("recv_blocks", &recv_blocks_);
-    a->process("api_blocks", &api_blocks_);
+    a->process("recv_blocks", recv_blocks_.get());
+    a->process("api_blocks", api_blocks_.get());
 
-    a->process("age", &age_); // [AEB]
-#ifdef BSP_ENABLED
-    a->process("security_config", &security_config_);
-    a->process("payload_bek_len", &payload_bek_len_);
-    if(a->action_code() == oasys::Serialize::UNMARSHAL) {
-        if(payload_bek_!= NULL) {
-            free(payload_bek_);
-        }
-        payload_bek_ = (u_char *)malloc(payload_bek_len_);
-    }
-    a->process("payload_bek", payload_bek_, payload_bek_len_);
-    a->process("payload_salt", payload_salt_, 4);
-    a->process("payload_iv", payload_iv_, 8);
-    a->process("payload_tag", payload_tag_, 16);
-    a->process("payload_bek_set", &payload_bek_set_);
-    a->process("payload_encrypted", &payload_encrypted_);
-#endif
-    //a->process("time_aeb", &time_aeb_); // [AEB]
+    a->process("has_bundle_age_block", &has_bundle_age_block_);
+    a->process("prev_bundle_age", &prev_bundle_age_millis_);
+    a->process("received_time_secs", &received_time_.sec_);
+    a->process("received_time_usecs", &received_time_.usec_);
+
 
     // a->process("metadata", &recv_metadata_); // XXX/kscott
 
-#ifdef ACS_ENABLED
     a->process("custodyid", &custodyid_);
+    a->process("custody_dest", &custody_dest_);
     a->process("cteb_valid", &cteb_valid_);
     a->process("cteb_custodyid", &cteb_custodyid_);
-#endif // ACS_ENABLED
 
 
 #ifdef ECOS_ENABLED
@@ -405,8 +422,9 @@ Bundle::serialize(oasys::SerializeAction* a)
     if (a->action_code() == oasys::Serialize::UNMARSHAL) {
         in_datastore_ = true;
         payload_.init_from_store(bundleid_);
-        set_is_fragment(is_frag);
-        set_frag_offset(frag_off);
+        set_source(src_id);
+        set_creation_ts(creation_ts_secs, creation_ts_seqno);
+        set_fragment(is_frag, frag_offset, payload_.length());
     }
 
     // Call consume() on each of the blocks?
@@ -414,29 +432,55 @@ Bundle::serialize(oasys::SerializeAction* a)
     
 //----------------------------------------------------------------------
 void
+Bundle::set_highest_rcvd_block_number(uint64_t block_num)
+{
+    if (block_num > highest_rcvd_block_number_) {
+        highest_rcvd_block_number_ = block_num;
+    }
+}
+
+//----------------------------------------------------------------------
+void
 Bundle::copy_metadata(Bundle* new_bundle) const
 {
-    new_bundle->is_admin_ 		= is_admin_;
-    new_bundle->set_is_fragment(is_fragment());
-    new_bundle->do_not_fragment_ 	= do_not_fragment_;
-    new_bundle->mutable_source()->assign(source());
-    new_bundle->dest_ 			= dest_;
-    new_bundle->custodian_		= custodian_;
-    new_bundle->replyto_ 		= replyto_;
-    new_bundle->priority_ 		= priority_;
-    new_bundle->custody_requested_	= custody_requested_;
-    new_bundle->local_custody_		= false;
-    new_bundle->singleton_dest_		= singleton_dest_;
-    new_bundle->custody_rcpt_ 		= custody_rcpt_;
-    new_bundle->receive_rcpt_ 		= receive_rcpt_;
-    new_bundle->forward_rcpt_ 		= forward_rcpt_;
-    new_bundle->delivery_rcpt_ 		= delivery_rcpt_;
-    new_bundle->deletion_rcpt_	 	= deletion_rcpt_;
-    new_bundle->app_acked_rcpt_	 	= app_acked_rcpt_;
+    new_bundle->bp_version_             = bp_version_;
+    new_bundle->is_admin_               = is_admin_;
+    new_bundle->set_is_fragment(gbofid_.is_fragment());
+    new_bundle->do_not_fragment_        = do_not_fragment_;
+    new_bundle->set_source(source());
+    new_bundle->dest_                   = dest_;
+    new_bundle->custodian_              = custodian_;
+    new_bundle->replyto_                = replyto_;
+    new_bundle->priority_               = priority_;
+    new_bundle->custody_requested_      = custody_requested_;
+    new_bundle->local_custody_          = false;
+    new_bundle->bibe_custody_           = false;
+    new_bundle->singleton_dest_         = singleton_dest_;
+    new_bundle->custody_rcpt_           = custody_rcpt_;
+    new_bundle->receive_rcpt_           = receive_rcpt_;
+    new_bundle->forward_rcpt_           = forward_rcpt_;
+    new_bundle->delivery_rcpt_          = delivery_rcpt_;
+    new_bundle->deletion_rcpt_          = deletion_rcpt_;
+    new_bundle->app_acked_rcpt_         = app_acked_rcpt_;
     new_bundle->set_creation_ts(creation_ts());
-    new_bundle->expiration_ 		= expiration_;
-    new_bundle->age_	   	 	= age_; // [AEB]
-    new_bundle->time_aeb_       = time_aeb_; // [AEB]
+    new_bundle->expiration_millis_      = expiration_millis_;
+
+    new_bundle->prev_bundle_age_millis_ = prev_bundle_age_millis_;
+    new_bundle->has_bundle_age_block_   = has_bundle_age_block_;
+    new_bundle->received_time_          = received_time_;
+
+    new_bundle->mutable_prevhop()->assign(prevhop());
+    new_bundle->primary_block_crc_type_ = primary_block_crc_type_;
+    new_bundle->highest_rcvd_block_number_ = highest_rcvd_block_number_;
+    new_bundle->hop_limit_              = hop_limit_;
+    new_bundle->hop_count_              = hop_count_;
+
+#ifdef ECOS_ENABLED
+    new_bundle->ecos_enabled_           = ecos_enabled_;
+    new_bundle->ecos_flags_             = ecos_flags_;
+    new_bundle->ecos_ordinal_           = ecos_ordinal_;
+    new_bundle->ecos_flowlabel_         = ecos_flowlabel_;
+#endif
 }
 
 //----------------------------------------------------------------------
@@ -448,7 +492,6 @@ Bundle::add_ref(const char* what1, const char* what2)
    
     char refstr[32];
     snprintf(refstr, sizeof(refstr), "Bundle::add_ref: %" PRIbid, bundleid_);
-    //oasys::ScopeLock l(&lock_, "Bundle::add_ref");
     oasys::ScopeLock l(&lock_, refstr);
 
     ASSERTF(freed_ == false, "Bundle::add_ref on bundle %" PRIbid " (%p)"
@@ -489,7 +532,7 @@ Bundle::del_ref(const char* what1, const char* what2)
     //            mappings_.size(), what1, what2);
 #if 0
     log_debug_p("/dtn/bundle/refs2",
-    		    "queued on %zu lists:\n", mappings_.size());
+                "queued on %zu lists:\n", mappings_.size());
     for (BundleMappings::iterator i = mappings_.begin();
          i != mappings_.end(); ++i) {
         SPBMapping bmap ( *i );
@@ -508,7 +551,7 @@ Bundle::del_ref(const char* what1, const char* what2)
 
         // One final check to see if delete from database is needed
         if (queued_for_datastore_) {
-            BundleDaemonStorage::instance()->bundle_delete(this);
+            BundleDaemon::instance()->bundle_delete_from_storage(this);
             queued_for_datastore_ = false; // prevent BundleDaemon from posting delete also
         }
 
@@ -531,64 +574,70 @@ Bundle::del_ref(const char* what1, const char* what2)
                 "Bundle %" PRIbid " (%p) refcount is zero but bundle wasn't properly freed",
                 bundleid_, this);
     } else if (refcount_ < 0) {
-        //log_debug_p("/dtn/bundle",
-        //            "bundle id %" PRIbid " (%p): refcount_(%d) < 0!",
-        //             bundleid_, this, refcount_);
+        log_always_p("/dtn/bundle",
+                    "bundle id %" PRIbid " (%p): refcount_(%d) < 0!",
+                     bundleid_, this, refcount_);
    }
     
     return 0;
 }
 
-/*
+
 //----------------------------------------------------------------------
-int
-Bundle::add_ref_storage(const char* what1, const char* what2)
+uint64_t
+Bundle::current_bundle_age_secs() const
 {
-    (void)what1;
-    (void)what2;
-   
-    oasys::ScopeLock l(&lock_, "Bundle::add_ref_storage");
-
-    ASSERT(refcount_storage_ >= 0);
-    int ret = ++refcount_storage_;
-    log_debug_p("/dtn/bundle/refstorag",
-                "bundle id %" PRIbid " (%p): refcount_storage %d -> %d (%zu mappings) add %s %s",
-                bundleid_, this, refcount_storage_ - 1, refcount_storage_,
-                mappings_.size(), what1, what2);
-
-    return ret;
+    uint64_t cur_age_secs = 0;
+    if (has_bundle_age_block_)
+    {
+        cur_age_secs = current_bundle_age_millis() / 1000;
+    }
+    else
+    {
+        cur_age_secs = BundleTimestamp::get_current_time();
+        cur_age_secs -= creation_ts().seconds_;
+    }
+    return cur_age_secs;
 }
 
 //----------------------------------------------------------------------
-int
-Bundle::del_ref_storage(const char* what1, const char* what2)
+uint64_t
+Bundle::current_bundle_age_millis() const
 {
-    (void)what1;
-    (void)what2;
-    
-    oasys::ScopeLock l(&lock_, "Bundle::del_ref_storage");
-
-    int ret = --refcount_storage_;
-    log_debug_p("/dtn/bundle/refstorag",
-                "bundle id %" PRIbid " (%p): freed_(%d) refcount_storage %d -> %d (%zu mappings) del %s:%s",
-                bundleid_, this, freed_, refcount_storage_ + 1, refcount_storage_,
-                mappings_.size(), what1, what2);
-
-    return ret;
+    uint64_t cur_age_millis = 0;
+    if (has_bundle_age_block_)
+    {
+        cur_age_millis = prev_bundle_age_millis_ + received_time_.elapsed_ms();
+    }
+    else
+    {
+        cur_age_millis = BundleTimestamp::get_current_time();
+        cur_age_millis -= creation_ts().seconds_;
+        cur_age_millis *= 1000;
+    }
+    return cur_age_millis;
 }
-*/
 
 //----------------------------------------------------------------------
 int64_t
-Bundle::time_to_expiration()
+Bundle::time_to_expiration_secs()
 {
-    int64_t result = -1;
-
-    u_int32_t cur_time_sec = BundleTimestamp::get_current_time();
-    if (cur_time_sec < (creation_ts().seconds_ + expiration_)) {
-        result = creation_ts().seconds_ + expiration_ - cur_time_sec;
+    int64_t result = time_to_expiration_millis();
+    if (result > 0) {
+        result /= 1000;
     }
+    return result;
+}
 
+//----------------------------------------------------------------------
+int64_t
+Bundle::time_to_expiration_millis()
+{
+    int64_t result = expiration_millis() - current_bundle_age_millis();
+    if (result < 0)
+    {
+        result = -1;
+    }
     return result;
 }
 
@@ -644,6 +693,36 @@ Bundle::validate(oasys::StringBuffer* errbuf)
 
     return true;
     
+}
+
+//----------------------------------------------------------------------
+SPtr_ExpirationTimer
+Bundle::expiration_timer()
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    return expiration_timer_;
+}
+
+
+
+//----------------------------------------------------------------------
+void
+Bundle::set_expiration_timer(SPtr_ExpirationTimer& e)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    expiration_timer_ = e;
+}
+
+
+//----------------------------------------------------------------------
+void
+Bundle::clear_expiration_timer()
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    expiration_timer_ = nullptr;
 }
 
 } // namespace dtn

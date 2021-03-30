@@ -15,12 +15,10 @@
 #ifndef _TEST_EHSROUTER_H_
 #define _TEST_EHSROUTER_H_
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Mutex.h>
-#include <oasys/util/App.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Mutex.h>
+#include <third_party/oasys/util/App.h>
+#include <third_party/oasys/util/Singleton.h>
 
 
 namespace dtn {
@@ -95,7 +93,5 @@ protected:
 
 } // namespace dpp
 
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
 
 #endif /* _TEST_EHSROUTER_H_ */

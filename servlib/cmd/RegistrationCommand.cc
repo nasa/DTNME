@@ -19,9 +19,9 @@
 #endif
 
 #include <climits>
-#include <oasys/serialize/TclListSerialize.h>
-#include <oasys/thread/Notifier.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/serialize/TclListSerialize.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "RegistrationCommand.h"
 #include "CompletionNotifier.h"
@@ -41,6 +41,11 @@ RegistrationCommand::RegistrationCommand()
     add_to_help("del <reg id>", "delete a registration");
     add_to_help("list", "list all of the registrations");
     add_to_help("dump_tcl <reg id>", "dump a tcl representation of the reg");
+
+    bind_var(new oasys::BoolOpt("suppress_duplicates",
+                                &BundleDaemon::params_.dzdebug_reg_delivery_cache_enabled_,
+                                "Suppress delivery of duplicate bundles to Registrations (default is true)"));
+                                
 }
 
 int

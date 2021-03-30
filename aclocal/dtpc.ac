@@ -3,10 +3,10 @@ dnl Autoconf support for Delay Tolerant Payload Conditioning (DTPC)
 dnl
 
 AC_DEFUN(AC_CONFIG_DTPC, [
-    ac_dtpc='no'
+    ac_dtpc='yes'
     AC_ARG_WITH(dtpc,
-        AC_HELP_STRING([--with-dtpc],
-                [enable DTPC - Delay Tolerant Payload Conditioning support]),
+        AC_HELP_STRING([--without-dtpc],
+                [disable DTPC - Delay Tolerant Payload Conditioning support]),
         ac_dtpc=$withval)
     dnl
     dnl First make sure we even want it

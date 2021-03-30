@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -42,7 +42,6 @@
 /**
  * The basic handle for communication with the dtn router.
  */
-//dzdebug typedef int* dtn_handle_t;
 typedef void* dtn_handle_t;
 
 

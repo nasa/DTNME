@@ -17,7 +17,7 @@
 #ifndef _BUNDLEREF_H_
 #define _BUNDLEREF_H_
 
-#include <oasys/util/Ref.h>
+#include <third_party/oasys/util/Ref.h>
 
 namespace dtn {
 

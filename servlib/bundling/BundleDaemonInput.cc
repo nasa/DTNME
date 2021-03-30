@@ -19,12 +19,13 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/io/IO.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/io/IO.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "Bundle.h"
 #include "BundleActions.h"
 #include "BundleEvent.h"
+#include "BundleDaemon.h"
 #include "BundleDaemonInput.h"
 #include "SDNV.h"
 
@@ -37,88 +38,34 @@
 #include "routing/BundleRouter.h"
 #include "storage/BundleStore.h"
 
-#ifdef S10_ENABLED
-#    include "bundling/S10Logger.h"
-#endif
-
-#ifdef BSP_ENABLED
-#  include "security/Ciphersuite.h"
-#  include "security/SPD.h"
-#  include "security/KeyDB.h"
-#endif
-
-#ifdef ACS_ENABLED
-#  include "BundleDaemonACS.h"
-#endif // ACS_ENABLED
-
 
 // enable or disable debug level logging in this file
 #undef BDINPUT_LOG_DEBUG_ENABLED
 //#define BDINPUT_LOG_DEBUG_ENABLED 1
 
 
-namespace oasys {
-    template <> dtn::BundleDaemonInput* oasys::Singleton<dtn::BundleDaemonInput, false>::instance_ = NULL;
-}
+//dzdebug namespace oasys {
+//dzdebug    template <> dtn::BundleDaemonInput* oasys::Singleton<dtn::BundleDaemonInput, false>::instance_ = NULL;
+//dzdebug}
 
 namespace dtn {
 
-BundleDaemonInput::Params::Params()
-    :  not_currently_used_(false)
-{}
-
-BundleDaemonInput::Params BundleDaemonInput::params_;
-
 //----------------------------------------------------------------------
-void
-BundleDaemonInput::init()
-{       
-    if (instance_ != NULL) 
-    {
-        PANIC("BundleDaemonInput already initialized");
-    }
-
-    instance_ = new BundleDaemonInput();
-    instance_->do_init();
-}
-    
-//----------------------------------------------------------------------
-BundleDaemonInput::BundleDaemonInput()
+BundleDaemonInput::BundleDaemonInput(BundleDaemon* parent)
     : BundleEventHandler("BundleDaemonInput", "/dtn/bundle/daemon/input"),
-      Thread("BundleDaemonInput", CREATE_JOINABLE)
+      Thread("BundleDaemonInput")
 {
-    daemon_ = NULL;
-    actions_ = NULL;
-    eventq_ = NULL;
-    all_bundles_     = NULL;
-    pending_bundles_ = NULL;
-    custody_bundles_ = NULL;
-    contactmgr_ = NULL;
-    fragmentmgr_ = NULL;
-    reg_table_ = NULL;
-    delayed_start_millisecs_ = 0;
-    
-#ifdef BPQ_ENABLED
-    bpq_cache_ = NULL;
-#endif /* BPQ_ENABLED */
+    daemon_ = parent;
 
-    memset(&stats_, 0, sizeof(stats_));
+    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
+    eventq_->notify_when_empty();
+
 }
 
 //----------------------------------------------------------------------
 BundleDaemonInput::~BundleDaemonInput()
 {
-    delete actions_;
     delete eventq_;
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonInput::do_init()
-{
-    actions_ = new BundleActions();
-    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
-    eventq_->notify_when_empty();
 }
 
 //----------------------------------------------------------------------
@@ -127,42 +74,6 @@ BundleDaemonInput::start_delayed(u_int32_t millisecs)
 {
     delayed_start_millisecs_ = millisecs;
     start();
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonInput::post(BundleEvent* event)
-{
-    instance_->post_event(event);
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonInput::post_at_head(BundleEvent* event)
-{
-    instance_->post_event(event, false);
-}
-
-//----------------------------------------------------------------------
-bool
-BundleDaemonInput::post_and_wait(BundleEvent* event,
-                            oasys::Notifier* notifier,
-                            int timeout, bool at_back)
-{
-    /*
-     * Make sure that we're either already started up or are about to
-     * start. Otherwise the wait call below would block indefinitely.
-     */
-    ASSERT(! oasys::Thread::start_barrier_enabled());
-    ASSERT(event->processed_notifier_ == NULL);
-    event->processed_notifier_ = notifier;
-    if (at_back) {
-        post(event);
-    } else {
-        post_at_head(event);
-    }
-    return notifier->wait(NULL, timeout);
-
 }
 
 //----------------------------------------------------------------------
@@ -181,9 +92,10 @@ BundleDaemonInput::post_event(BundleEvent* event, bool at_back)
 void
 BundleDaemonInput::get_daemon_stats(oasys::StringBuffer* buf)
 {
-    buf->appendf("BundleDaemonInput  : %zu pending_events -- "
+    buf->appendf("BundleDaemonInput  : %zu pending_events (max: %zu) -- "
                  "%" PRIu64 " processed_events \n",
-                 event_queue_size(),
+    	         eventq_->size(),
+    	         eventq_->max_size(),
                  stats_.events_processed_);
 }
 
@@ -249,75 +161,47 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
     const BundleRef& bundleref = event->bundleref_;
     Bundle* bundle = bundleref.object();
 
+    ++stats_.received_bundles_;
+
+    if (bundle->is_bpv7()) {
+        ++stats_.bpv7_bundles_;
+    } else {
+        ++stats_.bpv6_bundles_;
+    }
+
     // update statistics and store an appropriate event descriptor
     const char* source_str = "";
     switch (event->source_) {
     case EVENTSRC_PEER:
-        stats_.received_bundles_++;
-#ifdef S10_ENABLED
-        if (event->link_.object()) {
-            s10_bundle(S10_RX,bundle,event->link_.object()->nexthop(),0,0,NULL,"link");
-        } else {
-            s10_bundle(S10_RX,bundle,event->prevhop_.c_str(),0,0,NULL,"nolink");
-        }
-#endif
+        ++stats_.rcvd_from_peer_;
         break;
         
     case EVENTSRC_APP:
-        stats_.received_bundles_++;
+        ++stats_.rcvd_from_app_;
         source_str = " (from app)";
-#ifdef S10_ENABLED
-        if (event->registration_ != NULL) {
-            s10_bundle(S10_FROMAPP,bundle,event->registration_->endpoint().c_str(),0,0,NULL,NULL);
-        } else {
-            s10_bundle(S10_FROMAPP,bundle,"dunno",0,0,NULL,NULL);
-        }
-#endif
         break;
         
     case EVENTSRC_STORE:
+        ++stats_.rcvd_from_storage_;
         source_str = " (from data store)";
-#ifdef S10_ENABLED
-        s10_bundle(S10_FROMDB,bundle,NULL,0,0,NULL,NULL);
-#endif
         break;
         
     case EVENTSRC_ADMIN:
-        stats_.generated_bundles_++;
+        ++stats_.generated_bundles_;
         source_str = " (generated)";
         break;
         
     case EVENTSRC_FRAGMENTATION:
-        stats_.generated_bundles_++;
+        ++stats_.rcvd_from_frag_;
         source_str = " (from fragmentation)";
-#ifdef S10_ENABLED
-        s10_bundle(S10_OHCRAP,bundle,NULL,0,0,NULL,"__FILE__:__LINE__");
-        log_debug("S10_OHCRAP - event source: %s", source_str);
-#endif
         break;
 
     case EVENTSRC_ROUTER:
-        stats_.generated_bundles_++;
+        ++stats_.generated_bundles_;
         source_str = " (from router)";
-#ifdef S10_ENABLED
-        s10_bundle(S10_OHCRAP,bundle,NULL,0,0,NULL,"__FILE__:__LINE__");
-        log_debug("S10_OHCRAP - event source: %s", source_str);
-#endif
-        break;
-
-    case EVENTSRC_CACHE:
-        stats_.generated_bundles_++;
-        source_str = " (from cache)";
-#ifdef S10_ENABLED
-        s10_bundle(S10_FROMCACHE,bundle,NULL,0,0,NULL,"__FILE__:__LINE__");
-#endif
         break;
 
     default:
-#ifdef S10_ENABLED
-        s10_bundle(S10_OHCRAP,bundle,NULL,0,0,NULL,"__FILE__:__LINE__");
-        log_debug("S10_OHCRAP - unknown event source: %d", event->source_);
-#endif
         NOTREACHED;
     }
 
@@ -335,17 +219,14 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         log_info("BUNDLE_RECEIVED%s *%p prevhop %s (%" PRIu64 " bytes recvd)",
                  source_str, bundle, event->prevhop_.c_str(), event->bytes_received_);
     }
-    
+
+
+    bool ok_to_route = true;
+
+
     // XXX/kscott Logging bundle reception to forwarding log moved to below.
 
-    // log a warning if the bundle doesn't have any expiration time or
-    // has a creation time that's in the future. in either case, we
-    // proceed as normal
-    if (bundle->expiration() == 0) {
-        log_warn("bundle id %" PRIbid " arrived with zero expiration time",
-                 bundle->bundleid());
-    }
-
+    // log a warning if the bundle has a creation time that's in the future
     u_int32_t now = BundleTimestamp::get_current_time();
     if ((bundle->creation_ts().seconds_ > now) &&
         (bundle->creation_ts().seconds_ - now > 30000))
@@ -355,14 +236,6 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
                  bundle->bundleid(), bundle->creation_ts().seconds_, now);
     }
    
-    // log a warning if the bundle's creation timestamp is 0, indicating 
-    // that an AEB should exist 
-    if (bundle->creation_ts().seconds_ == 0) {
-        log_info_p("/dtn/bundle/protocol", "creation time is 0, AEB should exist");
-        log_warn_p("dtn/bundle/extblock/aeb", "AEB: bundle id %" PRIbid " arrived with creation time of 0", 
-                 bundle->bundleid());
-    }
-
     /*
      * If a previous hop block wasn't included, but we know the remote
      * endpoint id of the link where the bundle arrived, assign the
@@ -391,7 +264,7 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
      * Check if the bundle isn't complete. If so, do reactive
      * fragmentation.
      */
-    if (event->source_ == EVENTSRC_PEER) {
+    if (BundleDaemon::params_.reactive_frag_enabled_ && (event->source_ == EVENTSRC_PEER)) {
         ASSERT(event->bytes_received_ != 0);
         fragmentmgr_->try_to_convert_to_fragment(bundle);
     }
@@ -436,6 +309,7 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
             accept_bundle = router_->accept_bundle(bundle, &reason);
             deletion_reason = static_cast<BundleProtocol::status_report_reason_t>(reason);
         }
+
         
         /*
          * Delete a bundle if a validation error was encountered or
@@ -445,7 +319,6 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         if (!accept_bundle) {
             ++stats_.rejected_bundles_;
             daemon_->delete_bundle(bundleref, deletion_reason);
-            event->daemon_only_ = true;
             return;
         }
     }
@@ -463,11 +336,7 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
 #endif
 
 
-#ifdef S10_ENABLED
-        s10_bundle(S10_DUP,bundle,NULL,0,0,NULL,"__FILE__:__LINE__");
-#endif
-
-        stats_.duplicate_bundles_++;
+        ++stats_.duplicate_bundles_;
         
         if (bundle->custody_requested() && duplicate->local_custody())
         {
@@ -481,7 +350,13 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
             // won't be forwarded to routers) and return, which should
             // eventually remove all references on the bundle and then it
             // will be deleted
-            event->daemon_only_ = true;
+
+            //XXX/dz TODO - inform ExternalRouter of duplicate being deleted
+
+            --stats_.rcvd_from_peer_;
+
+            status_report_reason_t deletion_reason = BundleProtocol::REASON_NO_ADDTL_INFO;
+            daemon_->delete_bundle(bundleref, deletion_reason);
             return;
         }
 
@@ -497,38 +372,16 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         // suppress this bundle. It may not be strictly required to do so,
         // in which case we can remove the following block.
         if (bundle->custody_requested() && duplicate->local_custody()) {
-            event->daemon_only_ = true;
+            //XXX/dz TODO - inform ExternalRouter of duplicate being deleted
+
+            --stats_.rcvd_from_peer_;
+
+            status_report_reason_t deletion_reason = BundleProtocol::REASON_NO_ADDTL_INFO;
+            daemon_->delete_bundle(bundleref, deletion_reason);
             return;
         }
 
     }
-
-#ifdef BPQ_ENABLED
-    /*
-     * If the BPQ cache has been enabled and the bundle event is coming from
-     * one of these sources. Try to handle the a BPQ extension block. This
-     * will bounce back out if there is no extension block present.
-     */
-    if ( bpq_cache()->cache_enabled_ ) {
-        // try to handle a BPQ block
-        if ( event->source_ == EVENTSRC_APP   ||
-             event->source_ == EVENTSRC_PEER  ||
-             event->source_ == EVENTSRC_STORE ||
-             event->source_ == EVENTSRC_FRAGMENTATION) {
-
-            handle_bpq_block(bundle, event);
-        }
-    }
-
-    /*
-     * If the bundle contains a BPQ query that was successfully answered
-     * a response has already been sent and the query need not be forwarded
-     * so return from this function
-     */
-    if ( event->daemon_only_ ) {
-        return;
-    }
-#endif /* BPQ_ENABLED */
 
     /*
      * Add the bundle to the master pending queue and the data store
@@ -541,21 +394,27 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
      *
      * add_to_pending writes the bundle to the durable store
      */
-    bool ok_to_route =
-        add_to_pending(bundle, (event->source_ != EVENTSRC_STORE));
+    add_to_pending(bundle, (event->source_ != EVENTSRC_STORE));
 
     event->duplicate_ = duplicate;
 
+
+    // moved BD processing to here - just expiration timer        
+    int64_t expiration_time = bundle->time_to_expiration_millis();
+    if (expiration_time <= 0) {
+        // bundle has already expired
+        ok_to_route = false;
+        expiration_time = 1000; // expire the bnudle in 1 second;
+
+
+        //XXX/dz TODO - how to inform ExternalRouter of receipt of expired bundle
+    }
+
+    SPtr_ExpirationTimer exp_sptr = std::make_shared<ExpirationTimer>(bundle);
+    bundle->set_expiration_timer(exp_sptr);
+    exp_sptr->start(expiration_time, exp_sptr);
+
     if (ok_to_route) {
-
-        bool ok_to_route = resume_add_to_pending(bundle, true);
-
-        if (!ok_to_route) {
-            event->daemon_only_ = true;
-            return;
-        }
-
-
         // log the reception in the bundle's forwarding log
         if (event->source_ == EVENTSRC_PEER && event->link_ != NULL)
         {
@@ -582,21 +441,23 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
             // reloading from the data base and it was already in custody
             custody_bundles_->push_back(bundle);
 
-#ifdef ACS_ENABLED
             // if bundle was originally accepted with ACS enabled
             // then add it to the ACS custody id list
             if (bundle->custodyid() > 0) {
-                BundleDaemonACS::instance()->accept_custody(bundle);
+                BundleDaemon::instance()->acs_accept_custody(bundle);
             }
-#endif // ACS_ENABLED
-
         } 
+        else if (bundle->custody_requested() && bundle->bibe_custody()) {
+            // always accept custody of a BP6 BIBE bundle
+            ASSERT(bundle->is_bpv6());
+            BundleDaemon::instance()->accept_custody(bundle);
+        }
 
             //XXX/dz - External router should make decision on accepting custody
             //         and send back a request to do so. If not then it is
             //         possible to accept custody here and then have the router
             //         decide to delete the bundle rather than keep it and if
-            //         that happens the bundle is lost because a CS was alraedy
+            //         that happens the bundle is lost because a CS was already
             //         sent to the previous custodian where it will be deleted also.
         else if (bundle->custody_requested() 
                    && BundleDaemon::params_.accept_custody_
@@ -614,8 +475,6 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
          * can assume the bundle it duplicates has already been delivered or
          * added to the fragment manager if required, so do not do so again.
          * We can bounce out now.
-         * XXX/jmmikkel If the extension blocks differ and we care to
-         * do something with them, we can't bounce out quite yet.
          */
         if (event->duplicate_ != NULL) {
             return;
@@ -634,17 +493,18 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
          * unless it's generated by the router or is a bundle fragment.
          * Delivery of bundle fragments is deferred until after re-assembly.
          */
-        if ( event->source_==EVENTSRC_STORE ) {
+        bool is_local_delivery = false;
+        if ( event->source_ == EVENTSRC_STORE ) {
             BundleDaemon::instance()->generate_delivery_events(bundle);
         } else {
-            bool is_local =
-                check_local_delivery(bundle,
-                                     (event->source_ != EVENTSRC_ROUTER) &&
-                                     (bundle->is_fragment() == false));
+            is_local_delivery =
+                check_local_delivery(bundle, false);
+                                     //dzdebug (event->source_ != EVENTSRC_ROUTER) &&
+                                     //dzdebug (bundle->is_fragment() == false));
             /*
              * Re-assemble bundle fragments that are destined to the local node.
              */
-            if (event->source_ != EVENTSRC_FRAGMENTATION && bundle->is_fragment() && is_local) {
+            if (event->source_ != EVENTSRC_FRAGMENTATION && bundle->is_fragment() && is_local_delivery) {
 #ifdef BDINPUT_LOG_DEBUG_ENABLED
                 log_debug("deferring delivery of bundle *%p "
                           "since bundle is a fragment", bundle);
@@ -654,6 +514,30 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
 
         }
 
+
+        // dzdebug
+        // XXX/dz - add configurable paramater to disable enforcing hop limit?
+        if (!is_local_delivery) {
+            if (bundle->hop_limit() != 0) {
+                if (bundle->hop_count() >= bundle->hop_limit()) {
+                    // hop count limit reached so bundle cannot be forwarded
+                    // delete the bundle...
+                    ++stats_.hops_exceeded_;
+                    status_report_reason_t deletion_reason = BundleProtocol::REASON_HOP_LIMIT_EXCEEDED;
+                    daemon_->delete_bundle(bundleref, deletion_reason);
+                    event->daemon_only_ = true;
+
+
+//XXX/dz - how to accont for this in EHSRouter???
+
+                    return;
+                }
+            }
+        }
+
+
+
+
         event->duplicate_ = duplicate;
         if (event->processed_notifier_) {
             event->processed_notifier_->notify();
@@ -661,31 +545,38 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         }
 
         /*
-         * Finally, bounce out so the router(s) can do something further
+         * Inform the router so it can do something further
          * with the bundle in response to the event before we check to 
          * see if it needs to be delivered locally.
          */
+        router_->handle_event(event);
+
+
+        // now deliver the bundle
+        if (is_local_delivery && !bundle->is_fragment() && (event->source_ != EVENTSRC_ROUTER)) {
+            check_local_delivery(bundle, true);
+        }
+
         /*
          * Generate an event for the Output thread to pass it to the router(s)
          * for additional processing before we check to see if it needs to
          * be delivered locally.
          */
         BundleReceivedEvent* ev = 
-            new BundleReceivedEvent_OutputProcessor(bundle,
-                                                    (event_source_t)event->source_,
-                                                    event->registration_);
-        ev->bytes_received_ = event->bytes_received_;
-        ev->prevhop_ = event->prevhop_;
-        ev->registration_ = event->registration_;
-        ev->link_ = event->link_.object();
-        ev->duplicate_ = duplicate;
+            new BundleReceivedEvent_MainProcessor(bundle,
+                                                 (event_source_t)event->source_);
 
         BundleDaemon::post(ev);
 
     } else {
-        event->daemon_only_ = true;
-        return;
+        /*
+         * Inform the router so it can do something further
+         * with the bundle in response to the event before we check to 
+         * see if it needs to be delivered locally.
+         */
+        router_->handle_event(event);
     }
+
 }
     
 //----------------------------------------------------------------------
@@ -723,7 +614,7 @@ BundleDaemonInput::handle_bundle_inject(BundleInjectRequest* event)
     Bundle* bundle = new Bundle(BundleDaemon::params_.injected_bundles_in_memory_ ? 
                                 BundlePayload::MEMORY : BundlePayload::DISK);
     
-    bundle->mutable_source()->assign(src);
+    bundle->set_source(src);
     bundle->mutable_dest()->assign(dest);
     
     if (! bundle->mutable_replyto()->assign(event->replyto_))
@@ -738,9 +629,9 @@ BundleDaemonInput::handle_bundle_inject(BundleInjectRequest* event)
     // bundle expiration on remote dtn nodes
     // defaults to 5 minutes
     if(event->expiration_ == 0)
-        bundle->set_expiration(300);
+        bundle->set_expiration_secs(300);
     else
-        bundle->set_expiration(event->expiration_);
+        bundle->set_expiration_secs(event->expiration_);
     
     // set the payload (by hard linking, then removing original)
     bundle->mutable_payload()->
@@ -778,6 +669,7 @@ BundleDaemonInput::handle_bundle_inject(BundleInjectRequest* event)
         BundleDaemon::post(new BundleInjectedEvent(bundle, event->request_id_));
     
     ++stats_.injected_bundles_;
+    ++stats_.received_bundles_;
 }
 
 //----------------------------------------------------------------------
@@ -794,8 +686,9 @@ BundleDaemonInput::handle_reassembly_completed(ReassemblyCompletedEvent* event)
     }
 
     // post a new event for the newly reassembled bundle
-    post_at_head(new BundleReceivedEvent(event->bundle_.object(),
-                                         EVENTSRC_FRAGMENTATION));
+    post_event(new BundleReceivedEvent(event->bundle_.object(),
+                                             EVENTSRC_FRAGMENTATION), 
+               false);
 }
 
 
@@ -804,20 +697,7 @@ BundleDaemonInput::handle_reassembly_completed(ReassemblyCompletedEvent* event)
 void
 BundleDaemonInput::event_handlers_completed(BundleEvent* event)
 {
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-    log_debug("event handlers completed for (%p) %s", event, event->type_str());
-#endif
-    
-    /**
-     * Once bundle reception, transmission or delivery has been
-     * processed by the router, check to see if it's still needed,
-     * otherwise we delete it.
-     */
-
-    if (event->type_ == BUNDLE_RECEIVED) {
-        daemon_->try_to_delete(((BundleReceivedEvent*)event)->bundleref_);
-    }
-
+    (void) event;
 }
 
 //----------------------------------------------------------------------
@@ -829,17 +709,6 @@ BundleDaemonInput::add_to_pending(Bundle* bundle, bool add_to_store)
     // case we need to control access with a lock
 
     return daemon_->add_to_pending(bundle, add_to_store);
-}
-
-//----------------------------------------------------------------------
-bool
-BundleDaemonInput::resume_add_to_pending(Bundle* bundle, bool add_to_store)
-{
-    // This is only called by the input thread but keeping updating
-    // the pending and dupefinder lists in the BundleDaemon in
-    // case we need to control access with a lock
-
-    return daemon_->resume_add_to_pending(bundle, add_to_store);
 }
 
 //----------------------------------------------------------------------
@@ -861,124 +730,6 @@ BundleDaemonInput::find_duplicate(Bundle* bundle)
 }
 
 //----------------------------------------------------------------------
-#ifdef BPQ_ENABLED
-bool
-BundleDaemonInput::handle_bpq_block(Bundle* bundle, BundleReceivedEvent* event)
-{
-    const BlockInfo* block = NULL;
-    bool local_bundle = true;
-
-    switch (event->source_) {
-        case EVENTSRC_PEER:
-            if (bundle->recv_blocks().has_block(BundleProtocol::QUERY_EXTENSION_BLOCK)) {
-                block = bundle->recv_blocks().
-                                find_block(BundleProtocol::QUERY_EXTENSION_BLOCK);
-                local_bundle = false;
-            } else {
-                return false;
-            }
-            break;
-
-        case EVENTSRC_APP:
-            if (bundle->api_blocks()->has_block(BundleProtocol::QUERY_EXTENSION_BLOCK)) {
-                block = bundle->api_blocks()->
-                                find_block(BundleProtocol::QUERY_EXTENSION_BLOCK);
-                local_bundle = true;
-            } else {
-                return false;
-            }
-            break;
-
-        case EVENTSRC_STORE:
-        case EVENTSRC_FRAGMENTATION:
-            if (bundle->recv_blocks().has_block(BundleProtocol::QUERY_EXTENSION_BLOCK)) {
-                block = bundle->recv_blocks().
-                                find_block(BundleProtocol::QUERY_EXTENSION_BLOCK);
-                local_bundle = false;
-            }
-            else if (bundle->api_blocks()->has_block(BundleProtocol::QUERY_EXTENSION_BLOCK)) {
-                block = bundle->api_blocks()->
-                                find_block(BundleProtocol::QUERY_EXTENSION_BLOCK);
-                local_bundle = true;
-            } else {
-                return false;
-            }
-            break;
-
-        default:
-            log_err_p("/dtn/daemon/input/bpq", "Handle BPQ Block failed for unknown event source: %s",
-                    source_to_str((event_source_t)event->source_));
-            NOTREACHED;
-            return false;
-        }
-
-    /**
-     * At this point the BPQ Block has been found in the bundle
-     */
-    ASSERT ( block != NULL );
-    BPQBlock* bpq_block = dynamic_cast<BPQBlock *>(block->locals());
-
-    log_info_p("/dtn/daemon/input/bpq", "handle_bpq_block: Kind: %d Query: %s",
-        (int)  bpq_block->kind(),
-        (char*)bpq_block->query_val());
-
-    if (bpq_block->kind() == BPQBlock::KIND_QUERY) {
-        if (bpq_cache()->answer_query(bundle, bpq_block)) {
-            log_info_p("/dtn/daemon/input/bpq", "Query: %s answered completely",
-                    (char*)bpq_block->query_val());
-            event->daemon_only_ = true;
-        }
-
-    } else if (bpq_block->kind() == BPQBlock::KIND_RESPONSE ||
-               bpq_block->kind() == BPQBlock::KIND_PUBLISH) {
-        // don't accept local responses for KIND_RESPONSE
-        // This was originally because of a bug in the APIServer that
-        // didn't send api_blocks in local receives.  Now need to think
-        // if this results in circularity because cache is being searched
-        // Leave the special case for the time being.
-        if (!local_bundle || bpq_block->kind() == BPQBlock::KIND_PUBLISH) {
-            if (bpq_cache()->add_response_bundle(bundle, bpq_block) &&
-                event->source_ != EVENTSRC_STORE) {
-
-                actions_->store_add(bundle);
-
-                /*
-                 * Send a reception receipt if requested within the primary
-                 * block and this is a locally generated bundle - special case
-                 * as reception reports are not normally generated for bundles
-                 * from local apps but this tells the app that the bundle has
-                 * been cached.
-                 */
-                if (local_bundle && bundle->receive_rcpt()) {
-                     daemon_->generate_status_report(bundle, 
-                                         BundleStatusReport::STATUS_RECEIVED,
-                                         BundleProtocol::REASON_NO_ADDTL_INFO);
-                }
-            }
-        }
-
-    } else if (bpq_block->kind() == BPQBlock::KIND_RESPONSE_DO_NOT_CACHE_FRAG) {
-        // don't accept local responses
-        if (!local_bundle && !bundle->is_fragment() ) {
-            if (bpq_cache()->add_response_bundle(bundle, bpq_block) &&
-                    event->source_ != EVENTSRC_STORE) {
-
-                actions_->store_add(bundle);
-            }
-        }
-
-    } else {
-        log_err_p("/dtn/daemon/input/bpq", "ERROR - BPQ Block: invalid kind %d",
-            bpq_block->kind());
-        NOTREACHED;
-        return false;
-    }
-
-    return true;
-}
-#endif /* BPQ_ENABLED */
-
-//----------------------------------------------------------------------
 void
 BundleDaemonInput::handle_event(BundleEvent* event)
 {
@@ -997,7 +748,7 @@ BundleDaemonInput::handle_event(BundleEvent* event, bool closeTransaction)
         event_handlers_completed(event);
     }
 
-    stats_.events_processed_++;
+    ++stats_.events_processed_;
 
     if (event->processed_notifier_) {
         event->processed_notifier_->notify();
@@ -1026,19 +777,10 @@ BundleDaemonInput::run()
 
     BundleEvent* event;
 
-    daemon_ = BundleDaemon::instance();
-    all_bundles_ = daemon_->all_bundles();
-    pending_bundles_ = daemon_->pending_bundles();
     custody_bundles_ = daemon_->custody_bundles();
 
-#ifdef BPQ_ENABLED
-    bpq_cache_ = daemon_->bpq_cache();
-#endif /* BPQ_ENABLED */
-
-    contactmgr_ = daemon_->contactmgr();
     fragmentmgr_ = daemon_->fragmentmgr();
     router_ = daemon_->router();
-    reg_table_ = daemon_->reg_table();
 
     last_event_.get_time();
     
@@ -1053,15 +795,11 @@ BundleDaemonInput::run()
     while (1) {
         if (should_stop()) {
             if (0 == eventq_->size()) {
+                log_always("BDInput - should stop is true  - exiting main loop");
                 break;
             }
+            log_always("BDInput - should stop is true but processing eventq of size: %zu", eventq_->size());
         }
-
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-        log_debug_p(LOOP_LOG, 
-                    "BundleDaemonInput: checking eventq_->size() > 0, its size is %zu", 
-                    eventq_->size());
-#endif
 
         if (eventq_->size() > 0) {
             bool ok = eventq_->try_pop(&event);
@@ -1074,21 +812,17 @@ BundleDaemonInput::run()
                 oasys::Time in_queue;
                 in_queue = now - event->posted_time_;
                 if (in_queue.sec_ > 2) {
-                    log_warn_p(LOOP_LOG, "event %s was in queue for %u.%u seconds",
+                    log_warn_p(LOOP_LOG, "event %s was in queue for %" PRIu64 ".%" PRIu64 " seconds",
                                event->type_str(), in_queue.sec_, in_queue.usec_);
                 }
             } else {
                 log_warn_p(LOOP_LOG, "time moved backwards: "
-                           "now %u.%u, event posted_time %u.%u",
+                           "now %" PRIu64 ".%" PRIu64 ", event posted_time %" PRIu64 ".%" PRIu64 "",
                            now.sec_, now.usec_,
                            event->posted_time_.sec_, event->posted_time_.usec_);
             }
             
             
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "BundleDaemonInput: handling event %s",
-                        event->type_str());
-#endif
             // handle the event
             handle_event(event);
 
@@ -1100,11 +834,6 @@ BundleDaemonInput::run()
 
             // record the last event time
             last_event_.get_time();
-
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "BundleDaemonInput: deleting event %s",
-                        event->type_str());
-#endif
             // clean up the event
             delete event;
             
@@ -1113,19 +842,9 @@ BundleDaemonInput::run()
         
         pollfds[0].revents = 0;
 
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-        log_debug_p(LOOP_LOG, "BundleDaemonInput: poll_multiple waiting for %d ms", 
-                    timeout);
-#endif
         int cc = oasys::IO::poll_multiple(pollfds, 1, timeout);
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-        log_debug_p(LOOP_LOG, "poll returned %d", cc);
-#endif
 
         if (cc == oasys::IOTIMEOUT) {
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "poll timeout");
-#endif
             continue;
 
         } else if (cc <= 0) {
@@ -1135,11 +854,6 @@ BundleDaemonInput::run()
 
         // if the event poll fired, we just go back to the top of the
         // loop to drain the queue
-        if (event_poll->revents != 0) {
-#ifdef BDINPUT_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "poll returned new event to handle");
-#endif
-        }
     }
 }
 

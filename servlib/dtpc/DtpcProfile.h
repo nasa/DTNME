@@ -20,9 +20,9 @@
 
 #include <map>
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "naming/EndpointID.h"
 

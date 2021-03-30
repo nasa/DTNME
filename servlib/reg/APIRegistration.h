@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -76,7 +76,6 @@ public:
     int format(char *buf, size_t sz) const;
     void deliver_bundle(Bundle* bundle);
     void delete_bundle(Bundle* bundle);
-    void session_notify(Bundle* bundle);
     void set_active_callback(bool a);
 
     /*
@@ -84,6 +83,11 @@ public:
      * secondary list (unacked or acked)
      */
     BundleRef deliver_front();
+
+    /*
+     * APIServer to inform registration that the bundle was successfully delivered
+     */
+    void bundle_delivery_succeeded(BundleRef& bref);
 
     /**
      * Record delivery attempts to the appropriate history list
@@ -111,18 +115,7 @@ public:
      */
     BlockingBundleList* bundle_list() { return bundle_list_; }
 
-    /**
-     * Accessor for notification of session subscribers /
-     * unsubscribers (currently just the subscription bundles).
-     */
-    BlockingBundleList* session_notify_list() { return session_notify_list_; }
-    
     u_int64_t reg_token() { return reg_token_; }
-
-#ifdef DTPC_ENABLED
-    u_int32_t dtpc_topic_id()            {return dtpc_topic_id_; }
-    void set_dtpc_topic_id(u_int32_t t)  { dtpc_topic_id_ = t; }
-#endif
 
 protected:
     /// App-supplied token identifying the registration
@@ -130,9 +123,6 @@ protected:
 
     /// Queue of bundles for the registration
     BlockingBundleList* bundle_list_;
-
-    /// Queue of subscription notification bundles
-    BlockingBundleList* session_notify_list_;
 
     /// Queue of delivered bundles that haven't yet been acked
     BundleList* unacked_bundle_list_;

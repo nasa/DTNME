@@ -19,8 +19,6 @@
 #define _EHS_SRC_DST_KEYS_H_
 
 
-#ifdef EHSROUTER_ENABLED
-
 #include <map>
 
 
@@ -166,7 +164,5 @@ public:
 
 } // namespace dtn
 
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_SRC_DST_KEYS_H_ */

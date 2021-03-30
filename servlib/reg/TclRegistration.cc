@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,14 +37,15 @@
 #endif
 
 #include <climits>
-#include <oasys/serialize/TclListSerialize.h>
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/serialize/TclListSerialize.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 #include "TclRegistration.h"
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleList.h"
 #include "bundling/BundleStatusReport.h"
+#include "bundling/BP6_BundleStatusReport.h"
 #include "bundling/CustodySignal.h"
 #include "storage/GlobalStore.h"
 
@@ -229,20 +230,20 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
     // Admin Type:
     addElement(Tcl_NewStringObj("admin_type", -1));
-    BundleProtocol::admin_record_type_t admin_type;
-    if (!BundleProtocol::get_admin_type(b.object(), &admin_type)) {
+    BundleProtocolVersion6::admin_record_type_t admin_type;
+    if (!BundleProtocolVersion6::get_admin_type(b.object(), &admin_type)) {
         goto done;
     }
 
     // Now for each type of admin bundle, first append the string to
     // define that type, then all the relevant fields of the type
     switch (admin_type) {
-    case BundleProtocol::ADMIN_STATUS_REPORT:
+    case BundleProtocolVersion6::ADMIN_STATUS_REPORT:
     {
         addElement(Tcl_NewStringObj("Status Report", -1));
 
-        BundleStatusReport::data_t sr;
-        if (!BundleStatusReport::parse_status_report(&sr, payload_data,
+        BP6_BundleStatusReport::data_t sr;
+        if (!BP6_BundleStatusReport::parse_status_report(&sr, payload_data,
                                                      payload_len)) {
             *result =
                 Tcl_NewStringObj("Admin Bundle Status Report parsing failed", -1);
@@ -250,7 +251,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         }
 
         // Fragment fields
-        if (sr.admin_flags_ & BundleProtocol::ADMIN_IS_FRAGMENT) {
+        if (sr.admin_flags_ & BundleProtocolVersion6::ADMIN_IS_FRAGMENT) {
             addElement(Tcl_NewStringObj("orig_frag_offset", -1));
             addElement(Tcl_NewLongObj(sr.orig_frag_offset_));
             addElement(Tcl_NewStringObj("orig_frag_length", -1));
@@ -259,7 +260,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
         // Status fields with timestamps:
 #define APPEND_TIMESTAMP(_flag, _what, _field)                          \
-        if (sr.status_flags_ & BundleStatusReport::_flag) {             \
+        if (sr.status_flags_ & BP6_BundleStatusReport::_flag) {             \
             addElement(Tcl_NewStringObj(_what, -1));                    \
             sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64,                               \
                     sr._field.seconds_, sr._field.seqno_);              \
@@ -282,7 +283,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         
         // Reason Code:
         addElement(Tcl_NewStringObj("sr_reason", -1));
-        addElement(Tcl_NewStringObj(BundleStatusReport::reason_to_str(sr.reason_code_), -1));
+        addElement(Tcl_NewStringObj(BP6_BundleStatusReport::reason_to_str(sr.reason_code_), -1));
         
         // Bundle creation timestamp
         addElement(Tcl_NewStringObj("orig_creation_ts", -1));
@@ -300,7 +301,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
     //-------------------------------------------
 
-    case BundleProtocol::ADMIN_CUSTODY_SIGNAL:
+    case BundleProtocolVersion6::ADMIN_CUSTODY_SIGNAL:
     {
         addElement(Tcl_NewStringObj("Custody Signal", -1));
 
@@ -313,7 +314,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         }
 
         // Fragment fields
-        if (cs.admin_flags_ & BundleProtocol::ADMIN_IS_FRAGMENT) {
+        if (cs.admin_flags_ & BundleProtocolVersion6::ADMIN_IS_FRAGMENT) {
             addElement(Tcl_NewStringObj("orig_frag_offset", -1));
             addElement(Tcl_NewLongObj(cs.orig_frag_offset_));
             addElement(Tcl_NewStringObj("orig_frag_length", -1));

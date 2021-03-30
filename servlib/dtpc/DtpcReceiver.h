@@ -22,10 +22,10 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "reg/APIRegistration.h"
 

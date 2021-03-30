@@ -17,7 +17,7 @@
 #ifndef _EXPIRATION_TIMER_H_
 #define _EXPIRATION_TIMER_H_
 
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Timer.h>
 #include "BundleRef.h"
 
 namespace dtn {
@@ -29,18 +29,27 @@ namespace dtn {
  * and is cancelled when the daemon removes it from the pending list.
  *
  */
-class ExpirationTimer : public oasys::Timer {
+class ExpirationTimer;
+typedef std::shared_ptr<ExpirationTimer> SPtr_ExpirationTimer;
+
+class ExpirationTimer : public oasys::SharedTimer {
 public:
     ExpirationTimer(Bundle* bundle);
 
-    virtual ~ExpirationTimer() {} 
+    ~ExpirationTimer();
 
-    /// The reference to the bundle, which is public since 
-    BundleRef bundleref_;
-    
+    void start(int64_t expiration_ms, SPtr_ExpirationTimer& sptr);
+
+    bool cancel();
+
+    void timeout(const struct timeval& now) override;
+
 protected:
-    void timeout(const struct timeval& now);
+    BundleRef bref_;
 
+    oasys::SPtr_Timer sptr_;
+
+    oasys::SpinLock lock_;
 };
 
 } // namespace dtn

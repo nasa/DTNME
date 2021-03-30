@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -39,8 +39,8 @@
 #include "BundleActions.h"
 #include "Bundle.h"
 #include "BundleDaemon.h"
-#include "BundleDaemonStorage.h"
 #include "conv_layers/ConvergenceLayer.h"
+#include "contacts/ContactManager.h"
 #include "contacts/Link.h"
 #include "storage/BundleStore.h"
 #include "FragmentManager.h"
@@ -52,7 +52,7 @@ namespace dtn {
 void
 BundleActions::open_link(const LinkRef& link)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     if (link->isdeleted()) {
         log_debug("BundleActions::open_link: "
                   "cannot open deleted link %s", link->name());
@@ -61,7 +61,7 @@ BundleActions::open_link(const LinkRef& link)
 
     oasys::ScopeLock l(link->lock(), "BundleActions::open_link");
 
-    if (link->isopen() || link->contact() != NULL) {
+    if (link->isopen() || link->contact() != nullptr) {
         log_err("not opening link %s since already open", link->name());
         return;
     }
@@ -80,7 +80,7 @@ BundleActions::open_link(const LinkRef& link)
 void
 BundleActions::close_link(const LinkRef& link)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
 
     if (! link->isopen() && ! link->isopening()) {
         log_err("not closing link %s since not open", link->name());
@@ -90,7 +90,7 @@ BundleActions::close_link(const LinkRef& link)
     log_debug("BundleActions::close_link: closing link %s", link->name());
 
     link->close();
-    ASSERT(link->contact() == NULL);
+    ASSERT(link->contact() == nullptr);
 }
 
 //----------------------------------------------------------------------
@@ -99,47 +99,57 @@ BundleActions::queue_bundle(Bundle* bundle, const LinkRef& link,
                             ForwardingInfo::action_t action,
                             const CustodyTimerSpec& custody_timer)
 {
-    size_t total_len=0;
-  
+    ASSERT(link != nullptr);
+    // check for link deleted before getting the bundle lock to avoid a deadly embrace
+    bool link_deleted = link->isdeleted();
+
+    size_t total_len = 0;
+
     BundleRef bref(bundle, "BundleActions::queue_bundle");
-    
-    ASSERT(link != NULL);
-    if (link->isdeleted()) {
+
+    if (link_deleted) {
         log_warn("BundleActions::queue_bundle: "
                  "failed to send bundle *%p on link %s",
                  bundle, link->name());
-        BundleProtocol::delete_blocks(bundle, link);  //dzdebug
+        BundleProtocol::delete_blocks(bundle, link);
         return false;
     }
-    
-    //log_debug("trying to find xmit blocks for bundle id:%" PRIbid " on link %s",
-    //          bundle->bundleid(), link->name());
 
-    if (bundle->xmit_blocks()->find_blocks(link) != NULL) {
-        // check to see if the bundle is queued or inflight
-        if (!link->queue()->contains(bundle)) {
-            if (link->inflight()->contains(bundle)) {
-                log_crit("BundleActions::queue_bundle: "
-                         "ignoring attempt to queue bundle %"  PRIbid " on link %s"
-                         " while it is already in flight",
-                         bundle->bundleid(), link->name());
-                return false;
-            } else {
-                log_crit("BundleActions::queue_bundle: "
-                        "found xmit blocks but bundle %" PRIbid " not queued on link %s"
-                        " - deleting old xmit blocks and continuing",
-                         bundle->bundleid(), link->name());
-                BundleProtocol::delete_blocks(bundle, link);  //dzdebug
-            }
-        } else {
-            log_err("BundleActions::queue_bundle: "
-//                    "link not ready to handle bundle (block vector already exists), "
-                    "bundle %" PRIbid " already queued on link %s" 
-                    "dropping send request",
+
+    // check for BP version redirection (typically for BIBE)
+    if (bundle->is_bpv6()) {
+        if ( ! link->params().bp6_redirect_.empty() && (link->name() != link->params().bp6_redirect_)) {
+            return redirect_queued_bundle(bundle, link, link->params().bp6_redirect_, action, custody_timer);
+        }
+    } else if (bundle->is_bpv7()) {
+        if ( ! link->params().bp7_redirect_.empty() && (link->name() != link->params().bp7_redirect_)) {
+            return redirect_queued_bundle(bundle, link, link->params().bp7_redirect_, action, custody_timer);
+        }
+    }
+
+
+    // check to see if the bundle is queued or inflight
+    if (!link->queue()->contains(bundle)) {
+        if (link->inflight()->contains(bundle)) {
+            log_debug("BundleActions::queue_bundle: "
+                     "ignoring attempt to queue bundle %"  PRIbid " on link %s"
+                     " while it is already in flight",
                      bundle->bundleid(), link->name());
             return false;
+        } else {
+            BundleProtocol::delete_blocks(bundle, link);  //just in case
         }
-    } 
+    } else {
+        log_debug("BundleActions::queue_bundle: "
+                "bundle %" PRIbid " already queued on link %s" 
+                " dropping send request",
+                 bundle->bundleid(), link->name());
+        return false;
+    }
+
+    // XXX/dz don't hold bundle lock while calling contains() above - deadlock can happen
+
+    oasys::ScopeLock scoplok(bundle->lock(), __func__);
 
     // XXX/demmer this should be moved somewhere in the router
     // interface so it can select options for the outgoing bundle
@@ -149,11 +159,9 @@ BundleActions::queue_bundle(Bundle* bundle, const LinkRef& link,
     // checks and subsequent block selection to remain inside the BPA,
     // with the DP pushing (firewall-like) policies and keys down via
     // a PF_KEY-like interface.
-    //log_debug("trying to create xmit blocks for bundle id:%" PRIbid " on link %s",
-    //          bundle->bundleid(), link->name());
-    BlockInfoVec* blocks = BundleProtocol::prepare_blocks(bundle, link);
-    if(blocks == NULL) {
-        log_err("BundleActions::queue_bundle: prepare_blocks returned NULL on bundle %" PRIbid, bundle->bundleid());
+    SPtr_BlockInfoVec blocks = BundleProtocol::prepare_blocks(bundle, link);
+    if(blocks == nullptr) {
+        log_err("BundleActions::queue_bundle: prepare_blocks returned nullptr on bundle %" PRIbid, bundle->bundleid());
         return false;
     }
     total_len = BundleProtocol::generate_blocks(bundle, blocks, link);
@@ -161,7 +169,6 @@ BundleActions::queue_bundle(Bundle* bundle, const LinkRef& link,
         log_err("BundleActions::queue_bundle: generate_blocks returned 0 on bundle %" PRIbid, bundle->bundleid());
         return false;
     }
-    //log_debug("BundleActions::queue_bundle: total_len=%zu", total_len);
     //log_debug("queue bundle *%p on %s link %s (%s) (total len %zu)",
     //          bundle, link->type_str(), link->name(), link->nexthop(),
     //          total_len);
@@ -183,30 +190,30 @@ BundleActions::queue_bundle(Bundle* bundle, const LinkRef& link,
         }
     }
 
-#ifdef LTP_ENABLED
+    scoplok.unlock();
 
-	// XXXSF: The MTU check makes no sense for LTP where MTU relates to 
-	// segment size and not bundle size. However, the UDP CL does need 
-	// this and perhaps others, so I shouldn't move it just yet. But
-	// properly speaking I think this should be a CL specific check to
-	// make or not make -- Stephen Farrell
-	if(strcmp(link->clayer()->name(), "ltp")) {
-#endif
     if ((link->params().mtu_ != 0) && (total_len > link->params().mtu_)) {
-        log_err("queue bundle *%p on %s link %s (%s): length %zu > mtu %u",
+        log_warn("queue bundle *%p on %s link %s (%s): length %zu > mtu %zu",
                 bundle, link->type_str(), link->name(), link->nexthop(),
                 total_len, link->params().mtu_);
-        FragmentState *fs = BundleDaemon::instance()->fragmentmgr()->proactively_fragment(bundle, link, link->params().mtu_);
-        log_debug("BundleActions::queue_bundle: bundle->payload().length()=%zu", bundle->payload().length());
+
+        FragmentManager *fmgr = BundleDaemon::instance()->fragmentmgr();
+        FragmentState *fs = fmgr->proactively_fragment(bundle, link, link->params().mtu_);
+
         if(fs != 0) {
-            //BundleDaemon::instance()->delete_bundle(bref, BundleProtocol::REASON_NO_ADDTL_INFO);
-            log_debug("BundleActions::queue_bundle forcing fragmentation because TestParameters (the twiddle command) says we should");
             oasys::ScopeLock l(fs->fragment_list().lock(), "BundleActions::queue_bundle");
             for(BundleList::iterator it=fs->fragment_list().begin();it!= fs->fragment_list().end();it++) {
-                BundleDaemon::post_at_head(
-                                new BundleReceivedEvent(*it, EVENTSRC_FRAGMENTATION));
-                
+
+                // if a new fragment turns out to be too big then it can be fragmented again
+                // before this loop complete resulting in multiple events being generated
+                // for a fragment causing it to be deleted as a duplicate 
+                // - that is why the created_from param was added and checked
+                if ((*it)->frag_created_from_bundleid() == bundle->bundleid()) {
+                    BundleDaemon::post(
+                                    new BundleReceivedEvent(*it, EVENTSRC_FRAGMENTATION));
+                }
             }
+
             //if(fs->check_completed(true)) {
             //    for(BundleList::iterator it=fs->fragment_list().begin();it!= fs->fragment_list().end();it++) {
             //        fs->erase_fragment(*it);
@@ -217,57 +224,48 @@ BundleActions::queue_bundle(Bundle* bundle, const LinkRef& link,
             bundle->fwdlog()->add_entry(link, action, ForwardingInfo::SUPPRESSED);
             BundleDaemon::post_at_head(
                   new BundleDeleteRequest(bundle, BundleProtocol::REASON_NO_ADDTL_INFO));
-            //BundleDaemon::instance()->delete_bundle(bref, BundleProtocol::REASON_NO_ADDTL_INFO);
             return true;
 
         }
  
         return false;
     }
-#ifdef LTP_ENABLED
-	}
-#endif
 
-    // Make sure that the bundle isn't unexpectedly already on the
-    // queue or in flight on the link
-    if (bundle->is_queued_on(link->queue()))
-    {
-        log_err("queue bundle *%p on link *%p: already queued on link",
-                bundle, link.object());
-        return false;
-    }
-
-    if (bundle->is_queued_on(link->inflight()))
-    {
-        log_err("queue bundle *%p on link *%p: already in flight on link",
-                bundle, link.object());
-        return false;
-    }
-
-    //log_debug("adding QUEUED forward log entry for %s link %s "
-    //          "with nexthop %s and remote eid %s to *%p    dzdebug> action: %d",
-    //          link->type_str(), link->name(),
-    //          link->nexthop(), link->remote_eid().c_str(), bundle, (int)action);
-    
     bundle->fwdlog()->add_entry(link, action, ForwardingInfo::QUEUED,
                                 custody_timer);
-    // XXX/dz - this was just done in the add_entry!
-    //BundleDaemon *daemon = BundleDaemon::instance();
-    //daemon->actions()->store_update(bundle);
 
     //log_debug("adding *%p to link %s's queue (length %u)",
     //          bundle, link->name(), link->bundles_queued());
 
-    if (! link->add_to_queue(bref, total_len)) {
+    if (! link->add_to_queue(bref)) {
         log_warn("error adding bundle *%p to link *%p queue",
                  bundle, link.object());
     }
     
-    // finally, kick the convergence layer
-//dzdebug 2020-03-12    link->clayer()->bundle_queued(link, bref);
-    
     return true;
 }
+
+//----------------------------------------------------------------------
+bool
+BundleActions::redirect_queued_bundle(Bundle* bundle, const LinkRef& link,
+                            std::string& redirect_cla,
+                            ForwardingInfo::action_t action,
+                            const CustodyTimerSpec& custody_timer)
+{
+    // look up the link for the redirection
+    LinkRef redir_link = BundleDaemon::instance()->contactmgr()->find_link(redirect_cla.c_str());
+    if (redir_link == NULL) {
+        log_err("Link *%p redirects bundles of BP version %d to unknown link name: %s",
+                link.object(), bundle->bp_version(), redirect_cla.c_str());
+        return false;
+    } 
+
+    bundle->fwdlog()->add_entry(link, action, ForwardingInfo::REDIRECTED,
+                                custody_timer);
+
+    return queue_bundle(bundle, redir_link, action, custody_timer);
+}
+
 
 //----------------------------------------------------------------------
 void
@@ -275,7 +273,7 @@ BundleActions::cancel_bundle(Bundle* bundle, const LinkRef& link)
 {
     BundleRef bref(bundle, "BundleActions::cancel_bundle");
     
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     if (link->isdeleted()) {
         log_debug("BundleActions::cancel_bundle: "
                   "cannot cancel bundle on deleted link %s", link->name());
@@ -294,17 +292,15 @@ BundleActions::cancel_bundle(Bundle* bundle, const LinkRef& link)
     // transmission, in which case it's responsible for posting the
     // send cancelled event.
     
-    BlockInfoVec* blocks = bundle->xmit_blocks()->find_blocks(link);
-    if (blocks == NULL) {
-        log_warn("BundleActions::cancel_bundle: "
-                 "cancel *%p but no blocks queued or inflight on *%p",
-                 bundle, link.object());
-        return; 
-    }
+//dzdebug    BlockInfoVec* blocks = bundle->xmit_blocks()->find_blocks(link);
+//dzdebug    if (blocks == nullptr) {
+//dzdebug        log_warn("BundleActions::cancel_bundle: "
+//dzdebug                 "cancel *%p but no blocks queued or inflight on *%p",
+//dzdebug                 bundle, link.object());
+//dzdebug        return; 
+//dzdebug    }
         
-    size_t total_len = BundleProtocol::total_length(blocks);
-        
-    if (link->del_from_queue(bref, total_len)) {
+    if (link->del_from_queue(bref)) {
         BundleDaemon::post(new BundleSendCancelledEvent(bundle, link));
             
     } else if (link->inflight()->contains(bundle)) {
@@ -349,21 +345,21 @@ BundleActions::delete_bundle(Bundle* bundle,
 void
 BundleActions::store_add(Bundle* bundle)
 {
-    BundleDaemonStorage::instance()->bundle_add_update(bundle);
+    BundleDaemon::instance()->bundle_add_update_in_storage(bundle);
 }
 
 //----------------------------------------------------------------------
 void
 BundleActions::store_update(Bundle* bundle)
 {
-    BundleDaemonStorage::instance()->bundle_add_update(bundle);
+    BundleDaemon::instance()->bundle_add_update_in_storage(bundle);
 }
 
 //----------------------------------------------------------------------
 void
 BundleActions::store_del(Bundle* bundle)
 {
-    BundleDaemonStorage::instance()->bundle_delete(bundle);
+    BundleDaemon::instance()->bundle_delete_from_storage(bundle);
 }
 
 } // namespace dtn

@@ -212,14 +212,18 @@ public:
      * listen on and use for transmissions
      * > Default: 224.0.0.2
      */
-    virtual bool configure_mc_address(std::string& val);
+    virtual bool configure_remote_address(std::string& val);
+    // depricated - always using TCP
+    virtual bool configure_mc_address(std::string& val) { return configure_remote_address(val); }
 
    /**
      * Configure the Port that the EHS External Router will
      * listen on and use for transmissions
      * > Default: 8001
      */
-    virtual bool configure_mc_port(std::string& val);
+    virtual bool configure_remote_port(std::string& val);
+    // depricated - always using TCP
+    virtual bool configure_mc_port(std::string& val) { return configure_remote_port(val); }
 
     /**
      * Configure the Network Interface that the EHS External Router will
@@ -233,6 +237,8 @@ public:
      * Configure the path to the XML definition file used for messages 
      * between the DTNME server and the EHS External Router.
      * > Default: /etc/router.xsd
+     *
+     *       === DEPRECATED ===
      */
     virtual bool configure_schema_file(std::string& val);
 
@@ -519,6 +525,8 @@ public:
      *     Nodes: 1 (AOS) Bundles Rcv: 0 Xmt: 0 Dlv: 0 Rjct: 0 Pend: 0 Cust: 0
      */
     virtual const char* update_statistics();
+    virtual const char* update_statistics2();
+    virtual const char* update_statistics3();
     virtual int num_dtn_nodes();  // Should just be 1 for the forseeable future
 
     virtual void set_link_statistics(bool enabled);
@@ -540,8 +548,8 @@ public:
     /**
      * Get max bytes sent/received over the external router interface in a second
      */
-    uint64_t max_bytes_sent();
-    uint64_t max_bytes_recv();
+    virtual uint64_t max_bytes_sent();
+    virtual uint64_t max_bytes_recv();
 
 protected:
     EhsExternalRouterImpl* ehs_ext_router_;
@@ -550,6 +558,5 @@ protected:
 
 } // namespace dtn
 
-//#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
 
 #endif //_EHS_EXTERNAL_ROUTER_H_

@@ -17,8 +17,8 @@
 #ifndef _LOGGING_REGISTRATION_H_
 #define _LOGGING_REGISTRATION_H_
 
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
 
 #include "Registration.h"
 

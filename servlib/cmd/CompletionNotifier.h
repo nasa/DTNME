@@ -17,8 +17,8 @@
 #ifndef _COMPLETIONNOTIFIER_H_
 #define _COMPLETIONNOTIFIER_H_
 
-#include <oasys/thread/Notifier.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 

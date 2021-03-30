@@ -19,7 +19,7 @@
 #define _RECVRAW_CONVERGENCE_LAYER_H_
 
 #include "ConvergenceLayer.h"
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/thread/Thread.h>
 
 namespace dtn {
 

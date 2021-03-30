@@ -18,8 +18,8 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "CLConnection.h"
 #include "bundling/BundleDaemon.h"
@@ -46,7 +46,8 @@ CLConnection::CLConnection(const char*       classname,
       active_connector_expects_keepalive_(true),
       num_pollfds_(0),
       poll_timeout_(-1),
-      contact_broken_(false)
+      contact_broken_(false),
+      admin_msg_list_("/clconn/msgq")
 {
     sendbuf_.reserve(params_->sendbuf_len_);
     recvbuf_.reserve(params_->recvbuf_len_);
@@ -59,14 +60,15 @@ CLConnection::~CLConnection()
 
 //----------------------------------------------------------------------
 void
+CLConnection::force_shutdown()
+{
+    break_contact(ContactEvent::USER);
+}
+
+//----------------------------------------------------------------------
+void
 CLConnection::run()
 {
-    char threadname[16] = "ClaConnection";
-    pthread_setname_np(pthread_self(), threadname);
-   
-
-   
-
     struct pollfd* cmdqueue_poll;
 
     initialize_pollfds();
@@ -115,6 +117,7 @@ CLConnection::run()
             // out and there's still more to go, we'll call poll() with a
             // zero timeout so we can read any data there is to
             // consume, then return to send another chunk.
+
             bool more_to_send = send_pending_data();
             timeout = more_to_send ? 0 : poll_timeout_;
         }
@@ -135,7 +138,7 @@ CLConnection::run()
 
             // if next_write is non-zero, then there's more to send.
             if (next_write.sec_ != 0) {
-                timeout = std::min((u_int32_t)poll_timeout_,
+                timeout = std::min((u_int64_t)poll_timeout_,
                                    (next_write - now).in_milliseconds());
             } else {
                 timeout = poll_timeout_;
@@ -162,9 +165,6 @@ CLConnection::run()
             pollfds_[i].revents = 0;
         }
 
-        //log_debug("calling poll on %d fds with timeout %d",
-        //          num_pollfds_ + 1, timeout);
-                                                 
         int cc = oasys::IO::poll_multiple(pollfds_, num_pollfds_ + 1,
                                           timeout, NULL, logpath_);
                                           
@@ -352,9 +352,9 @@ CLConnection::find_contact(const EndpointID& peer_eid)
     // dz - don't override the params for an incoming opportunistic link
     if (!new_link)
     {
-    LinkParams* lparams = dynamic_cast<LinkParams*>(link->cl_info());
-    ASSERT(lparams != NULL);
-    params_ = lparams;
+        LinkParams* lparams = dynamic_cast<LinkParams*>(link->cl_info());
+        ASSERT(lparams != NULL);
+        params_ = lparams;
     }
     else
     {
@@ -368,5 +368,13 @@ CLConnection::find_contact(const EndpointID& peer_eid)
     return true;
 }
 
+
+//----------------------------------------------------------------------
+void
+CLConnection::get_cla_stats(oasys::StringBuffer& buf)
+{
+    buf.appendf("incoming: %zu recv_buf: %zu send_buf: %zu ack_list: %zu",
+                incoming_.size(),  recvbuf_.fullbytes(), sendbuf_.fullbytes(), ack_list_.size());
+}
 
 } // namespace dtn

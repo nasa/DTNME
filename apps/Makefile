@@ -23,33 +23,21 @@ BUILDDIR := ..
 SRCDIR := ..
 endif
 
-SINGLE_SOURCE_APPS := 			\
-	dtncat/dtncat			\
-	dtncp/dtncp			\
-	dtncpd/dtncpd			\
-	dtnping/dtnping			\
-	dtnping/dtntraceroute		\
-	dtnping/dtnreporter		\
-	dtnperf/dtnperf-server		\
-	dtnpublish/dtnpublish		\
-	dtnrecv/dtnrecv			\
-	dtnpeek/dtnpeek			\
-	dtnecho/dtnecho			\
-	dtnquery/dtnquery   		\
-	dtnrespond/dtnrespond  		\
-	dtnsink/dtnsink			\
-	num2sdnv/num2sdnv		\
-	dtpc_apps/dtpc_send		\
-	dtpc_apps/dtpc_recv		\
+SINGLE_SOURCE_APPS := 						\
+        ping_me/ping_me                 	\
+        recv_me/recv_me                 	\
+        report_me/report_me                	\
+        trace_me/trace_me               	\
+        sink_me/sink_me                 	\
+        echo_me/echo_me                 	\
+        sdnv_convert_me/sdnv_convert_me 	\
+        dtpc_send_me/dtpc_send_me			\
+        dtpc_recv_me/dtpc_recv_me			\
 
-OTHER_APPS :=				\
-	dtnmoteproxy/dtnmoteproxy	\
-	dtntest/dtntest			\
-	dtntunnel/dtntunnel		\
-	dtnperf/dtnperf-client		\
-	dtnsend/dtnsend			\
-	dtnsource/dtnsource		\
-	num2sdnv/sdnv2num		\
+OTHER_APPS :=			    	        	\
+        send_me/send_me         			\
+        source_me/source_me                	\
+        tunnel_me/tunnel_me             	\
 
 APPS := $(SINGLE_SOURCE_APPS) $(OTHER_APPS)
 
@@ -75,65 +63,27 @@ LDFLAGS += -L../applib -lrt
 BINFILES += $(APPS)
 
 #
-# For dtnmoteproxy, don't worry about cast alignment
+# Rules for send_me
 #
-dtnmoteproxy/dtnmoteproxy.o: dtnmoteproxy/dtnmoteproxy.c
-	@rm -f $@; mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) -Wno-cast-align $(CFLAGS) -c $< -o $@
-
-dtnmoteproxy/serialsource.o: dtnmoteproxy/serialsource.c
-	@rm -f $@; mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) -Wno-cast-align $(CFLAGS) -c $< -o $@
-
-dtnmoteproxy/dtnmoteproxy: dtnmoteproxy/dtnmoteproxy.o \
-			   dtnmoteproxy/serialsource.o
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(DTN_LIBS)
-
-#
-# Rules for dtntest
-#
-dtntest/dtntest: dtntest/dtntest.o  $(DTN_LIBS_STATIC)
-	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS) $(DTN_LIBS++)
-#
-# Rules for dtnsend
-#
-dtnsend/dtnsend: dtnsend/dtnsend.o  $(DTN_LIBS_STATIC)
+send_me/send_me: send_me/send_me.o  $(DTN_LIBS_STATIC)
 	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS) $(DTN_LIBS++)
 
-#
-# Rules for dtnsource
-#
-dtnsource/dtnsource: dtnsource/dtnsource.o  $(DTN_LIBS_STATIC)
-	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS) $(DTN_LIBS++)
-
-#
-# num2sdnv and sdnv2num are the same app
-#
-num2sdnv/sdnv2num: num2sdnv/num2sdnv
-	cp $< $@
 
 #
 # Rules for dtntunnel
 #
-dtntunnel/dtntunnel: dtntunnel/DTNTunnel.o \
-		     dtntunnel/TCPTunnel.o \
-		     dtntunnel/UDPTunnel.o \
+tunnel_me/tunnel_me: tunnel_me/Tunnel_Me.o \
+		     tunnel_me/TCPTunnel.o \
+		     tunnel_me/UDPTunnel.o \
 		     $(DTN_LIBS_STATIC)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS) $(DTN_LIBS++)
 
-
 #
-# Rules for dtnperf-client
+# Rules for source_me
 #
-dtnperf/dtnperf-client: dtnperf/utils.o \
-			dtnperf/bundle_tools.o \
-			dtnperf/dtnperf-client.o \
-		    $(DTN_LIBS_STATIC)
+source_me/source_me: source_me/source_me.o  $(DTN_LIBS_STATIC)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS) $(DTN_LIBS++)
 
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS) $(DTN_LIBS++)
-
-
-#
 # Default rule for all single source apps
 #
 $(SINGLE_SOURCE_APPS): %: %.o $(DTN_LIBS_STATIC)

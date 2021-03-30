@@ -27,6 +27,9 @@ namespace dtn {
 class PingRegistration : public Registration {
 public:
     PingRegistration(const EndpointID& eid);
+
+    ~PingRegistration() {}
+
     void deliver_bundle(Bundle* bundle);
 };
 

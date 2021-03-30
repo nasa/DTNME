@@ -17,9 +17,9 @@
 #ifndef _CUSTODYTIMER_H_
 #define _CUSTODYTIMER_H_
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/Time.h>
 #include "bundling/BundleRef.h"
 #include "contacts/Link.h"
 
@@ -102,27 +102,48 @@ public:
  * is up to the router to initiate a retransmission on one or more
  * links.
  */
-class CustodyTimer : public oasys::Timer, public oasys::Logger {
+class CustodyTimer;
+typedef std::shared_ptr<CustodyTimer> SPtr_CustodyTimer;
+
+class CustodyTimer : public oasys::SharedTimer, public oasys::Logger {
 public:
     /** Constructor */
-    CustodyTimer(const oasys::Time& xmit_time,
-                 const CustodyTimerSpec& spec,
-                 Bundle* bundle, const LinkRef& link);
+    CustodyTimer(Bundle* bundle, const LinkRef& link);
+
+    /** Destructor */
+    virtual ~CustodyTimer() {}
+
+    // schedule the timer
+    virtual void start(const oasys::Time& xmit_time,
+                       const CustodyTimerSpec& spec,
+                       SPtr_CustodyTimer& sptr);
 
     /** Virtual timeout function */
-    void timeout(const struct timeval& now);
+    virtual void timeout(const struct timeval& now) override;
+
+    // clears the BundleRef and cancels the timer
+    virtual void cancel();
+
+    virtual LinkRef& linkref() { return lref_; }
+protected:
 
     ///< The bundle for whom the the timer refers
-    BundleRef bundle_;
+    BundleRef bref_;
 
     ///< The link that it was transmitted on
-    LinkRef link_;
+    LinkRef lref_;
+
+    ///< internal reference to this timer prevents untimely deletion
+    oasys::SPtr_Timer sptr_;
+
+    ///< lock to serialize access
+    oasys::SpinLock lock_;
 };
 
 /**
  * Class for a vector of custody timers.
  */
-class CustodyTimerVec : public std::vector<CustodyTimer*> {};
+class CustodyTimerVec : public std::vector<SPtr_CustodyTimer> {};
 
 } // namespace dtn
 

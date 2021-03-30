@@ -20,10 +20,6 @@
 #endif
 
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include "EhsEventHandler.h"
 
 namespace dtn {
@@ -39,8 +35,8 @@ EhsEventHandler::dispatch_event(EhsEvent* e)
     
     switch(e->type_) {
 
-    case EHS_BPA_RECEIVED:
-        handle_bpa_received((EhsBpaReceivedEvent*)e);
+    case EHS_CBOR_RECEIVED:
+        handle_cbor_received((EhsCborReceivedEvent*)e);
         break;
 
     case EHS_FREE_BUNDLE_REQ:
@@ -67,12 +63,13 @@ EhsEventHandler::dispatch_event(EhsEvent* e)
         handle_bundle_transmitted_event((EhsBundleTransmittedEvent*) e);
         break;
 
+
     default:
         PANIC("unimplemented event type %d", e->type_);
     }
 }
 
-void EhsEventHandler::handle_bpa_received(EhsBpaReceivedEvent*) { }
+void EhsEventHandler::handle_cbor_received(EhsCborReceivedEvent*) { }
 
 void EhsEventHandler::handle_free_bundle_req(EhsFreeBundleReq*) { }
 
@@ -86,9 +83,6 @@ void EhsEventHandler::handle_reconfigure_link_req(EhsReconfigureLinkReq*) { }
 
 void EhsEventHandler::handle_bundle_transmitted_event(EhsBundleTransmittedEvent*) { }
 
+
 } // namespace dtn
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#endif // EHSROUTER_ENABLED
 

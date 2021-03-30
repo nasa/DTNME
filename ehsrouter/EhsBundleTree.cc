@@ -19,10 +19,6 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include "EhsLink.h"
 #include "EhsBundleTree.h"
 
@@ -861,17 +857,39 @@ EhsBundleMapWithStats::bundle_stats(oasys::StringBuffer* buf,
 
 //----------------------------------------------------------------------
 void
-EhsBundleMapWithStats::get_bundle_stats(uint64_t* received, uint64_t* transmitted, uint64_t* transmit_failed,
-                                        uint64_t* delivered, uint64_t* rejected,
-                                        uint64_t* pending, uint64_t* custody)
+EhsBundleMapWithStats::get_bundle_stats(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                        uint64_t& delivered, uint64_t& rejected,
+                                        uint64_t& pending, uint64_t& custody)
 {
-    *received = total_received_;
-    *transmitted = total_transmitted_;
-    *transmit_failed = total_transmit_failed_;
-    *delivered = total_delivered_;
-    *rejected = total_rejected_;
-    *pending = list_.size();
-    *custody = total_custody_;
+    received = total_received_;
+    transmitted = total_transmitted_;
+    transmit_failed = total_transmit_failed_;
+    delivered = total_delivered_;
+    rejected = total_rejected_;
+    pending = list_.size();
+    custody = total_custody_;
+}
+
+//----------------------------------------------------------------------
+void
+EhsBundleMapWithStats::get_bundle_stats2(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                         uint64_t& delivered, uint64_t& rejected,
+                                         uint64_t& pending, uint64_t& custody, uint64_t& expired)
+{
+    received = total_received_;
+    transmitted = total_transmitted_;
+    transmit_failed = total_transmit_failed_;
+    delivered = total_delivered_;
+    rejected = total_rejected_;
+    pending = list_.size();
+    custody = total_custody_;
+    expired = total_expired_;
+}
+
+uint64_t 
+EhsBundleMapWithStats::get_bundles_pending()
+{
+    return list_.size();
 }
 
 //----------------------------------------------------------------------
@@ -1673,6 +1691,7 @@ EhsBundlePriorityTree::insert_queue(EhsBundlePriorityQueue* queue)
             delete blist;
             src_dst_iter->second = queue;
             blist = queue;
+            inc_stats(blist);
         } else {
             pkey = build_key(blist);
 
@@ -2065,7 +2084,4 @@ EhsBundleList::dump(oasys::StringBuffer* buf)
 
 } // namespace dtn
 
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#endif // EHSROUTER_ENABLED
 

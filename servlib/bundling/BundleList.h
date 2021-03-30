@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -40,9 +40,9 @@
 #endif
 
 #include <list>
-#include <oasys/compat/inttypes.h>
-#include <oasys/thread/Notifier.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "BundleListBase.h"
 #include "BundleRef.h"
@@ -263,9 +263,7 @@ public:
      * @return a reference to the bundle or a reference to NULL if the
      * list is empty.
      */
-#ifdef ACS_ENABLED
     BundleRef find_custodyid(bundleid_t custody_id) const;
-#endif // ACS_ENABLED
 
     /**
      * Search the list for a bundle with the given source eid and
@@ -362,6 +360,9 @@ private:
     
     /// num bundles currently in the list
     u_int64_t list_size_;
+
+    /// flag indicating list is being deleted
+    bool deleting_ = false;
 
 protected:
 };

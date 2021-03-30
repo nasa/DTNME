@@ -17,7 +17,7 @@
 #ifndef _DTNSTORAGECONFIG_H_
 #define _DTNSTORAGECONFIG_H_
 
-#include <oasys/storage/StorageConfig.h>
+#include <third_party/oasys/storage/StorageConfig.h>
 
 namespace dtn {
 

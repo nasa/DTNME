@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,10 +35,10 @@
 #ifndef _GLOBAL_STORE_H_
 #define _GLOBAL_STORE_H_
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/debug/Log.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 // forward decl
 namespace oasys {
@@ -194,10 +194,21 @@ protected:
  */
 class GlobalStoreDBUpdateThread : public oasys::Thread {
 public:
+    virtual ~GlobalStoreDBUpdateThread();
+
     static void init();
     static GlobalStoreDBUpdateThread* instance()
     {
         return instance_;
+    }
+    static void reset()
+    {
+        if (instance_ != nullptr) {
+            delete instance_;
+            instance_ = nullptr;
+
+
+        }
     }
 
 private:

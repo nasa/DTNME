@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,9 +36,9 @@
 #define _BUNDLE_PAYLOAD_H_
 
 #include <string>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/io/FileIOClient.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/io/FileIOClient.h>
 
 namespace dtn {
 
@@ -83,6 +83,12 @@ public:
      * Sync the payload file to disk (if location = DISK)
      */
     void sync_payload();
+  
+    /**
+     * Close and remove the file descriptor from the cache
+     * (after finished reading the payload to minimize number of open files)
+     */
+    void release_from_fd_cache();
 
     /**
      * Set the payload length in preparation for filling in with data.
@@ -213,6 +219,9 @@ protected:
     std::string dir_path_;      ///< directory path of the payload file
 
     bundleid_t bundleid_;
+
+
+    static oasys::SpinLock dir_lock_;	///< coordinate attempts to create/remove directories
 };
 
 } // namespace dtn

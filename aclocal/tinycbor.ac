@@ -1,0 +1,13 @@
+dnl
+dnl Autoconf support for tinycbor
+dnl
+dnl
+
+AC_DEFUN(AC_CONFIG_TINYCBOR, [
+    dnl
+    dnl tinycbor is delivered with the DTNME source code so just need to 
+    dnl add the appropriate flags with no real configuring required
+    dnl
+    EXTLIB_CFLAGS="$EXTLIB_CFLAGS -I../third_party/tinycbor/src"
+    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -L../third_party/tinycbor/lib -Wl,-Bstatic -ltinycbor -Wl,-Bdynamic"
+])

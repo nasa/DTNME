@@ -19,13 +19,9 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <inttypes.h>
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 
 #include "EhsBundle.h"
@@ -38,21 +34,12 @@ namespace dtn {
 
 
 //----------------------------------------------------------------------
-EhsBundle::EhsBundle(EhsDtnNode* parent, rtrmessage::bundle_report::bundle::type& xbundle)
+EhsBundle::EhsBundle(EhsDtnNode* parent, ExternalRouterIF::extrtr_bundle_ptr_t& bundleptr)
     : parent_(parent)
 {
     init();
-    process_bundle_report(xbundle);
+    process_bundle_report(bundleptr);
 }
-
-//----------------------------------------------------------------------
-EhsBundle::EhsBundle(EhsDtnNode* parent, rtrmessage::bundle_received_event& event)
-    : parent_(parent)
-{
-    init();
-    process_bundle_received_event(event);
-}
-
 
 //----------------------------------------------------------------------
 void
@@ -62,14 +49,14 @@ EhsBundle::init()
     custodyid_ = 0;
     source_ = "dtn:none";
     dest_ = "dtn:none";
-    custodian_ = "dtn:none";
-    replyto_ = "dtn:none";
+//    custodian_ = "dtn:none";
+//    replyto_ = "dtn:none";
     prev_hop_ = "dtn:none";
     length_ = 0;
     location_ = "";
     payload_file_ = "";
-    is_fragment_ = false;
-    is_admin_ = false;
+//    is_fragment_ = false;
+//    is_admin_ = false;
     do_not_fragment_ = false;
     priority_ = COS_BULK;
     ecos_flags_ = 0;
@@ -105,49 +92,29 @@ EhsBundle::init()
 
 //----------------------------------------------------------------------
 void
-EhsBundle::process_bundle_report(rtrmessage::bundle_report::bundle::type& xbundle)
+EhsBundle::process_bundle_report(ExternalRouterIF::extrtr_bundle_ptr_t& bundleptr)
 {
-    bundleid_ = xbundle.bundleid();
-    custodyid_ = xbundle.custodyid();
-    source_ = xbundle.source().uri();
-    dest_ = xbundle.dest().uri();
-    custodian_ = xbundle.custodian().uri();
-    replyto_ = xbundle.replyto().uri();
-    prev_hop_ = xbundle.prevhop().uri();
-    length_ = xbundle.length();
-    location_ = xbundle.location();
-    if (NULL != xbundle.payload_file()) {
-        payload_file_ = xbundle.payload_file().get();
-    } else {
-        payload_file_ = "";
-    }
-    is_fragment_ = xbundle.is_fragment();
-    is_admin_ = xbundle.is_admin();
-    do_not_fragment_ = xbundle.do_not_fragment();
-    priority_ = xbundle.priority();
+    bundleid_ = bundleptr->bundleid_;
+    gbofid_str_ = bundleptr->gbofid_str_;
+    bp_version_ = bundleptr->bp_version_;
+    custodyid_ = bundleptr->custodyid_;
+    source_ = bundleptr->source_;
+    dest_ = bundleptr->dest_;
+//    custodian_ = bundleptr->custodian_;
+//    replyto_ = bundleptr->replyto_;
+    prev_hop_ = bundleptr->prev_hop_;
+    length_ = bundleptr->length_;
+//    is_fragment_ = bundleptr->is_fragment_;
+//    is_admin_ = bundleptr->is_admin_;
+    priority_ = bundleptr->priority_;
 
-    ecos_flags_ = xbundle.ecos_flags();
-    ecos_ordinal_ = xbundle.ecos_ordinal();
-    if (xbundle.ecos_flowlabel().present()) {
-        ecos_flowlabel_ = xbundle.ecos_flowlabel().get();
-    }
+    ecos_flags_ = bundleptr->ecos_flags_;
+    ecos_ordinal_ = bundleptr->ecos_ordinal_;
+    ecos_flowlabel_ = bundleptr->ecos_flowlabel_;
 
-    custody_requested_ = xbundle.custody_requested();
-    local_custody_ = xbundle.local_custody();
-    singleton_dest_ = xbundle.singleton_dest();
-    custody_rcpt_ = xbundle.custody_rcpt();
-    receive_rcpt_ = xbundle.receive_rcpt();
-    forward_rcpt_ = xbundle.forward_rcpt();
-    delivery_rcpt_ = xbundle.delivery_rcpt();
-    deletion_rcpt_ = xbundle.deletion_rcpt();
-    app_acked_rcpt_ = xbundle.app_acked_rcpt();
-    creation_ts_seconds_ = xbundle.creation_ts_seconds();
-    creation_ts_seqno_ = xbundle.creation_ts_seqno();
-    expiration_ = xbundle.expiration();
-    orig_length_ = xbundle.orig_length();
-    frag_offset_ = xbundle.frag_offset();
-    frag_length_ = is_fragment_ ? length_ : 0;
-    owner_ = xbundle.owner();
+    custody_requested_ = bundleptr->custody_requested_;
+    local_custody_ = bundleptr->local_custody_;
+    singleton_dest_ = bundleptr->singleton_dest_;
 
     local_id_ = bundleid_;
 
@@ -155,63 +122,8 @@ EhsBundle::process_bundle_report(rtrmessage::bundle_report::bundle::type& xbundl
         char* end;
         ipn_source_node_ = strtoull(source_.c_str()+4, &end, 10);
         is_ipn_source_ = true;
-    } else {
-        ipn_source_node_ = 0;
-        is_ipn_source_ = false;
-    }
-
-    if (0 == strncmp("ipn:", dest_.c_str(), 4)) {
-        char* end;
-        ipn_dest_node_ = strtoull(dest_.c_str()+4, &end, 10);
-        is_ipn_dest_ = true;
-    } else {
-        ipn_dest_node_ = 0;
-        is_ipn_dest_ = false;
-    }
-
-
-    if (log_enabled(oasys::LOG_DEBUG, "/ehs/bundle")) {
-        oasys::StaticStringBuffer<1024> buf;
-        buf.appendf("Created new bundle: \n");
-        format_verbose(&buf);
-        log_msg(oasys::LOG_DEBUG, buf.c_str());
-    }
-}
-
-//----------------------------------------------------------------------
-void
-EhsBundle::process_bundle_received_event(rtrmessage::bundle_received_event& event)
-{
-//dz debug
-//    rtrmessage::gbofIdType& gbofid = event.gbof_id();
-//    source_ = gbofid.source().uri();
-//    creation_ts_seconds_ = gbofid.creation_ts();
-//    creation_ts_seqno_ = creation_ts_seconds_ & 0x0ffffffff;
-//    creation_ts_seconds_ >>= 32;
-//    is_fragment_ = gbofid.is_fragment();
-//    frag_offset_ = gbofid.frag_offset();
-//    frag_length_ = gbofid.frag_length();
-   
-    source_ = event.source();
-    dest_ = event.dest();
-
-    custodian_ = event.custodian();
-    local_custody_ = parent_->is_local_node(custodian_);
-
-    replyto_ = event.replyto();
-    prev_hop_ = event.prevhop();
-
-    expiration_ = event.expiration();
-    length_ = event.bytes_received();
-
-    bundleid_ = event.local_id();
-    local_id_ = event.local_id();
-    gbofid_str__ = event.gbofid_str();
-
-    custodyid_ = event.custodyid();
-    custody_requested_ = event.custody_transfer_requested();
-
-    if (0 == strncmp("ipn:", source_.c_str(), 4)) {
+    } else if (0 == strncmp("imc:", source_.c_str(), 4)) {
+        // treating IMC like an IPN scheme for now  - 2021-03-24
         char* end;
         ipn_source_node_ = strtoull(source_.c_str()+4, &end, 10);
         is_ipn_source_ = true;
@@ -220,8 +132,12 @@ EhsBundle::process_bundle_received_event(rtrmessage::bundle_received_event& even
         is_ipn_source_ = false;
     }
 
-
     if (0 == strncmp("ipn:", dest_.c_str(), 4)) {
+        char* end;
+        ipn_dest_node_ = strtoull(dest_.c_str()+4, &end, 10);
+        is_ipn_dest_ = true;
+    } else if (0 == strncmp("imc:", dest_.c_str(), 4)) {
+        // treating IMC like an IPN scheme for now  - 2021-03-24
         char* end;
         ipn_dest_node_ = strtoull(dest_.c_str()+4, &end, 10);
         is_ipn_dest_ = true;
@@ -230,15 +146,6 @@ EhsBundle::process_bundle_received_event(rtrmessage::bundle_received_event& even
         is_ipn_dest_ = false;
     }
 
-    received_from_link_id_ = event.link_id();
-
-    priority_ = event.priority();
-
-    ecos_flags_ = event.ecos_flags();
-    ecos_ordinal_ = event.ecos_ordinal();
-    if (event.ecos_flowlabel().present()) {
-        ecos_flowlabel_ = event.ecos_flowlabel().get();
-    }
 
     if (log_enabled(oasys::LOG_DEBUG, "/ehs/bundle")) {
         oasys::StaticStringBuffer<1024> buf;
@@ -250,17 +157,10 @@ EhsBundle::process_bundle_received_event(rtrmessage::bundle_received_event& even
 
 //----------------------------------------------------------------------
 void
-EhsBundle::process_bundle_custody_accepted_event(rtrmessage::bundle_custody_accepted_event& event)
+EhsBundle::process_bundle_custody_accepted_event(uint64_t custody_id)
 {
-    bundleid_ = event.local_id();
-    local_id_ = event.local_id();
-
-    custodyid_ = event.custodyid();
-
-    custodian_ = event.custodian_str();
-    local_custody_ = parent_->is_local_node(custodian_);
-
-
+    custodyid_ = custody_id;
+    local_custody_ = true;
 }
 
 //----------------------------------------------------------------------
@@ -309,15 +209,13 @@ EhsBundle::release_custody()
 int
 EhsBundle::add_ref(const char* what1, const char* what2)
 {
+    (void) what1;
+    (void) what2;
+
     oasys::ScopeLock l(&lock_, "add_ref");
 
     ASSERT(refcount_ >= 0);
     int ret = ++refcount_;
-    log_msg(oasys::LOG_DEBUG, 
-            "bundle id %" PRIbid " refcount %d -> %d add %s %s",
-            bundleid_, refcount_ - 1, refcount_,
-            what1, what2);
-
     return ret;
 }
 
@@ -325,14 +223,12 @@ EhsBundle::add_ref(const char* what1, const char* what2)
 int
 EhsBundle::del_ref(const char* what1, const char* what2)
 {
+    (void) what1;
+    (void) what2;
+
     oasys::ScopeLock l(&lock_, "del_ref");
 
     int ret = --refcount_;
-    log_msg(oasys::LOG_DEBUG, 
-            "bundle id %" PRIbid " refcount %d -> %d  del %s %s",
-            bundleid_, refcount_ + 1, refcount_,
-                what1, what2);
-
     if (0 == refcount_) {
         if (!exiting_) {
             parent_->post_event(new EhsFreeBundleReq(this));
@@ -341,7 +237,6 @@ EhsBundle::del_ref(const char* what1, const char* what2)
             delete this;
         }
     }
-    
     return ret;
 }
 
@@ -385,11 +280,12 @@ EhsBundle::format_verbose(oasys::StringBuffer* buf)
     u_int32_t cur_time_sec = get_current_time();
 
     buf->appendf("bundle id %" PRIu64 ":\n", bundleid_);
+    buf->appendf("            GBoFID: %s\n", gbofid_str_.c_str());
     buf->appendf("            source: %s\n", source_.c_str());
     buf->appendf("              dest: %s\n", dest_.c_str());
-    buf->appendf("         custodian: %s\n", custodian_.c_str());
+//    buf->appendf("         custodian: %s\n", custodian_.c_str());
     buf->appendf(" local custodiy id: %" PRIu64 "\n", custodyid_);
-    buf->appendf("           replyto: %s\n", replyto_.c_str());
+//    buf->appendf("           replyto: %s\n", replyto_.c_str());
     buf->appendf("      previous hop: %s\n", prev_hop_.c_str());
     buf->appendf("    payload_length: %zu\n", length_);
     buf->appendf("  payload_location: %s\n", location_.c_str());
@@ -408,8 +304,8 @@ EhsBundle::format_verbose(oasys::StringBuffer* buf)
                  creation_ts_seconds_, creation_ts_seqno_);
     buf->appendf("        expiration: %" PRIu64 " (%" PRIu64 " left)\n", expiration_,
                  creation_ts_seconds_ + expiration_ - cur_time_sec);
-    buf->appendf("       is_fragment: %s\n", bool_to_str(is_fragment_));
-    buf->appendf("          is_admin: %s\n", bool_to_str(is_admin_));
+//    buf->appendf("       is_fragment: %s\n", bool_to_str(is_fragment_));
+//    buf->appendf("          is_admin: %s\n", bool_to_str(is_admin_));
     buf->appendf("   do_not_fragment: %s\n", bool_to_str(do_not_fragment_));
     buf->appendf("       orig_length: %d\n", orig_length_);
     buf->appendf("       frag_offset: %d\n", frag_offset_);
@@ -491,8 +387,4 @@ EhsBundle::log_msg(oasys::log_level_t level, const char*format, ...)
 
 
 } // namespace dtn
-
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
 

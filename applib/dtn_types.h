@@ -46,10 +46,11 @@ extern "C" {
  */
 #define DTN_MAX_ENDPOINT_ID 256 /* max endpoint_id size (bytes) */
 #define DTN_MAX_PATH_LEN PATH_MAX /* max path length */
-#define DTN_MAX_EXEC_LEN ARG_MAX /* length of string passed to exec() */
+//#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+#define DTN_MAX_EXEC_LEN 1050000 /* length of string passed to exec() */
 #define DTN_MAX_AUTHDATA 1024 /* length of auth/security data*/
 #define DTN_MAX_REGION_LEN 64 /* 64 chars "should" be long enough */
-#define DTN_MAX_BUNDLE_MEM 50000 /* biggest in-memory bundle is ~50K*/
+#define DTN_MAX_BUNDLE_MEM 1048576 /* biggest in-memory bundle is 1MB*/
 #define DTN_MAX_BLOCK_LEN 1024 /* length of block data (currently 1K) */
 #define DTN_MAX_BLOCKS 256 /* number of blocks in bundle */
 
@@ -402,6 +403,7 @@ struct dtn_bundle_spec_t {
 	u_int ecos_flags;
 	u_int ecos_ordinal;
 	u_int ecos_flow_label;
+	u_int bp_version;
 	struct {
 		u_int blocks_len;
 		dtn_extension_block_t *blocks_val;

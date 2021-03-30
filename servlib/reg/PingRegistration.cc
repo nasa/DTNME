@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,7 +36,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 #include "PingRegistration.h"
 #include "RegistrationTable.h"
@@ -59,11 +59,12 @@ PingRegistration::deliver_bundle(Bundle* bundle)
               payload_len, bundle->source().c_str());
     
     Bundle* reply = new Bundle();
-    reply->mutable_source()->assign(endpoint_);
+    reply->set_source(endpoint_);
+    reply->set_bp_version(bundle->bp_version());
     reply->mutable_dest()->assign(bundle->source());
     reply->mutable_replyto()->assign(EndpointID::NULL_EID());
     reply->mutable_custodian()->assign(EndpointID::NULL_EID());
-    reply->set_expiration(bundle->expiration());
+    reply->set_expiration_millis(bundle->expiration_millis());
 
     reply->mutable_payload()->set_length(payload_len);
     reply->mutable_payload()->write_data(bundle->payload(), 0, payload_len, 0);

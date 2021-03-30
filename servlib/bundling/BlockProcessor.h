@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,7 +35,7 @@
 #ifndef _BLOCKPROCESSOR_H_
 #define _BLOCKPROCESSOR_H_
 
-#include <oasys/compat/inttypes.h>
+#include <third_party/oasys/compat/inttypes.h>
 
 #include "BundleProtocol.h"
 #include "BlockInfo.h"
@@ -43,8 +43,6 @@
 
 namespace dtn {
 
-class BlockInfo;
-class BlockInfoVec;
 class Bundle;
 class Link;
 class OpaqueContext;
@@ -63,8 +61,8 @@ public:
      * Typedef for a process function pointer.
      */
     typedef void (process_func)(const Bundle*    bundle,
-                                const BlockInfo* caller_block,
-                                const BlockInfo* target_block,
+                                const SPtr_BlockInfo& caller_block,
+                                const SPtr_BlockInfo& target_block,
                                 const void*      buf,
                                 size_t           len,
                                 OpaqueContext*   r);
@@ -72,8 +70,8 @@ public:
      * Typedef for a mutate function pointer.
      */
     typedef bool (mutate_func)(const Bundle*    bundle,
-                               const BlockInfo* caller_block,
-                               BlockInfo*       target_block,
+                               const SPtr_BlockInfo& caller_block,
+                               SPtr_BlockInfo&       target_block,
                                void*            buf,
                                size_t           len,
                                OpaqueContext*   context);
@@ -85,7 +83,7 @@ public:
     
     /**
      * Constructor that takes the block typecode. Generally, typecodes
-     * should be defined in BundleProtocol::bundle_block_type_t, but
+     * should be defined in BundleProtocolVersion#::bundle_block_type_t, but
      * the field is defined as an int so that handlers for
      * non-specified blocks can be defined.
      */
@@ -98,6 +96,10 @@ public:
     
     /// @{ Accessors
     int block_type() { return block_type_; }
+    BundleProtocol::bp_versions_t bp_version() { return bp_version_t; }
+    bool is_bpv6() { return bp_version_t == BundleProtocol::BP_VERSION_6; }
+    bool is_bpv7() { return bp_version_t == BundleProtocol::BP_VERSION_7; }
+    void set_bp_version(BundleProtocol::bp_versions_t v) { bp_version_t = v; }
     /// @}
     
     /**
@@ -116,18 +118,18 @@ public:
      *
      * @return the amount of data consumed or -1 on error
      */
-    virtual int64_t consume(Bundle*    bundle,
-                        BlockInfo* block,
+    virtual ssize_t consume(Bundle*    bundle,
+                        SPtr_BlockInfo& block,
                         u_char*    buf,
-                        size_t     len);
+                        size_t     len)  = 0;
 
     /**
      * Perform any needed action in the case where a block/bundle
      * has been reloaded from store
      */
     virtual int reload_post_process(Bundle*       bundle,
-                                    BlockInfoVec* block_list,
-                                    BlockInfo*    block);
+                                    SPtr_BlockInfoVec& block_list,
+                                    SPtr_BlockInfo&    block)  = 0;
 
 
     /**
@@ -137,23 +139,11 @@ public:
      * @return true if the block passes validation
      */
     virtual bool validate(const Bundle*           bundle,
-                          BlockInfoVec*           block_list,
-                          BlockInfo*              block,
+                          SPtr_BlockInfoVec&      block_list,
+                          SPtr_BlockInfo&         block,
                           status_report_reason_t* reception_reason,
-                          status_report_reason_t* deletion_reason);
+                          status_report_reason_t* deletion_reason)  = 0;
 
-
-#ifdef BSP_ENABLED
-    /**
-     * Validate the security result for a BSP block. This is called 
-     * after all blocks in the bundle have been fully received.
-     *
-     * @return true if the block passes security result validation
-     */
-    virtual bool validate_security_result(const Bundle*           bundle,
-                                          const BlockInfoVec*     block_list,
-                                          BlockInfo*              block);
-#endif
 
     /**
      * First callback to generate blocks for the output pass. The
@@ -164,10 +154,10 @@ public:
      * appropriate owner_ pointer.
      */
     virtual int prepare(const Bundle*    bundle,
-                        BlockInfoVec*    xmit_blocks,
-                        const BlockInfo* source,
+                        SPtr_BlockInfoVec&    xmit_blocks,
+                        const SPtr_BlockInfo&  source,
                         const LinkRef&   link,
-                        list_owner_t     list);
+                        list_owner_t     list)  = 0;
     
     /**
      * Second callback for transmitting a bundle. This pass should
@@ -178,8 +168,8 @@ public:
      * their offsets to this block's preamble.
      */
     virtual int generate(const Bundle*  bundle,
-                         BlockInfoVec*  xmit_blocks,
-                         BlockInfo*     block,
+                         SPtr_BlockInfoVec&  xmit_blocks,
+                         SPtr_BlockInfo&     block,
                          const LinkRef& link,
                          bool           last) = 0;
     
@@ -196,9 +186,9 @@ public:
      * and encapsulation.
      */
     virtual int finalize(const Bundle*  bundle, 
-                         BlockInfoVec*  xmit_blocks, 
-                         BlockInfo*     block, 
-                         const LinkRef& link);
+                         SPtr_BlockInfoVec&  xmit_blocks, 
+                         SPtr_BlockInfo&     block, 
+                         const LinkRef& link)  = 0;
 
     /**
      * Accessor to virtualize read-only processing contents of the
@@ -217,11 +207,11 @@ public:
      */
     virtual void process(process_func*    func,
                          const Bundle*    bundle,
-                         const BlockInfo* caller_block,
-                         const BlockInfo* target_block,
+                         const SPtr_BlockInfo& caller_block,
+                         const SPtr_BlockInfo& target_block,
                          size_t           offset,            
                          size_t           len,
-                         OpaqueContext*   context);
+                         OpaqueContext*   context)  = 0;
     
     /**
      * Similar to process() but for potentially mutating processing
@@ -231,11 +221,11 @@ public:
      */
     virtual bool mutate(mutate_func*     func,
                         Bundle*          bundle,
-                        const BlockInfo* caller_block,
-                        BlockInfo*       target_block,
+                        const SPtr_BlockInfo& caller_block,
+                        SPtr_BlockInfo&       target_block,
                         size_t           offset,
                         size_t           len,
-                        OpaqueContext*   context);
+                        OpaqueContext*   context)  = 0;
 
     /**
      * Accessor to virtualize copying contents out from the block
@@ -250,10 +240,10 @@ public:
      * equal to the total length of the block.
      */
     virtual void produce(const Bundle*    bundle,
-                         const BlockInfo* block,
+                         const SPtr_BlockInfo& block,
                          u_char*          buf,
                          size_t           offset,
-                         size_t           len);
+                         size_t           len)  = 0;
 
     /**
      * General hook to set up a block with the given contents. Used
@@ -264,49 +254,58 @@ public:
      * to the block before calling this routine. The EIDs will be
      * incorporated in the dictionary in the block_list object.
      */
-    virtual void init_block(BlockInfo*    block,
-                            BlockInfoVec* block_list,
+    virtual void init_block(SPtr_BlockInfo&    block,
+                            SPtr_BlockInfoVec& block_list,
                             Bundle*		  bundle,
                             u_int8_t      type,
                             u_int8_t      flags,
                             const u_char* bp,
-                    size_t        len);
+                            size_t        len)  = 0;
     
     /**
      * Return a one-line representation of the block.
      */
-    virtual int format(oasys::StringBuffer* buf, BlockInfo *b = NULL);
+    virtual int format(oasys::StringBuffer* buf, BlockInfo *b = NULL)  = 0;
 
 protected:
-    friend class BundleProtocol;
     friend class BlockInfo;
     friend class Ciphersuite;
     
+    /// info name for messages
+    std::string log_path_;
+    std::string block_name_;
+
+    const char* log_path() const { return log_path_.c_str(); };
+    const char* block_name() const { return block_name_.c_str(); };
+
+
     /**
      * Consume a block preamble consisting of type, flags(SDNV),
      * EID-list (composite field of SDNVs) and length(SDNV).
      * This method does not apply to the primary block, but is
      * suitable for payload and all extensions.
      */
-    int consume_preamble(BlockInfoVec* recv_blocks,
-                         BlockInfo*    block,
+    virtual ssize_t consume_preamble(SPtr_BlockInfoVec& recv_blocks,
+                         SPtr_BlockInfo&    block,
                          u_char*       buf,
                          size_t        len,
-                         u_int64_t*    flagp = NULL);
+                         u_int64_t*    flagp = NULL)  = 0;
     
     /**
      * Generate the standard preamble for the given block type, flags,
      * EID-list and content length.
      */
-    void generate_preamble(BlockInfoVec* xmit_blocks,
-                           BlockInfo*    block,
+    virtual void generate_preamble(SPtr_BlockInfoVec& xmit_blocks,
+                           SPtr_BlockInfo&    block,
                            u_int8_t      type,
                            u_int64_t     flags,
-                           u_int64_t     data_length);
-    
+                           u_int64_t     data_length)  = 0;
+
 private:
     /// The block typecode for this handler
     int block_type_;
+
+    BundleProtocol::bp_versions_t bp_version_t;
 };
 
 } // namespace dtn

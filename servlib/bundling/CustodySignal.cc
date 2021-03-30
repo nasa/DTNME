@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,7 +36,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 #include "CustodySignal.h"
 #include "SDNV.h"
 
@@ -50,7 +50,7 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
                                      bool              succeeded,
                                      reason_t          reason)
 {
-    bundle->mutable_source()->assign(source_eid);
+    bundle->set_source(source_eid);
     if (orig_bundle->custodian().equals(EndpointID::NULL_EID())) {
         PANIC("create_custody_signal(*%p): "
               "custody signal cannot be generated to null eid",
@@ -63,7 +63,7 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
 
     // use the expiration time from the original bundle
     // XXX/demmer maybe something more clever??
-    bundle->set_expiration(orig_bundle->expiration());
+    bundle->set_expiration_secs(orig_bundle->expiration_secs());
 
     int sdnv_encoding_len = 0;
     int signal_len = 0;
@@ -99,10 +99,10 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
     BundleTimestamp now;
     now.seconds_ = BundleTimestamp::get_current_time();
     now.seqno_   = 0;
-    signal_len += BundleProtocol::ts_encoding_len(now);
+    signal_len += BundleProtocolVersion6::ts_encoding_len(now);
     
     // The bundle's creation timestamp:
-    signal_len += BundleProtocol::ts_encoding_len(orig_bundle->creation_ts());
+    signal_len += BundleProtocolVersion6::ts_encoding_len(orig_bundle->creation_ts());
 
     // the Source Endpoint ID length and value
     signal_len += SDNV::encoding_len(orig_bundle->source().length()) +
@@ -115,9 +115,9 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
     int len = signal_len;
     
     // Admin Payload Type and flags
-    *bp = (BundleProtocol::ADMIN_CUSTODY_SIGNAL << 4);
+    *bp = (BundleProtocolVersion6::ADMIN_CUSTODY_SIGNAL << 4);
     if (orig_bundle->is_fragment()) {
-        *bp |= BundleProtocol::ADMIN_IS_FRAGMENT;
+        *bp |= BundleProtocolVersion6::ADMIN_IS_FRAGMENT;
     }
     bp++;
     len--;
@@ -139,14 +139,14 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
         len -= sdnv_encoding_len;
     }
     
-    sdnv_encoding_len = BundleProtocol::set_timestamp(bp, len, now);
+    sdnv_encoding_len = BundleProtocolVersion6::set_timestamp(bp, len, now);
     ASSERT(sdnv_encoding_len > 0);
     bp  += sdnv_encoding_len;
     len -= sdnv_encoding_len;
 
     // Copy of bundle X's Creation Timestamp
     sdnv_encoding_len = 
-        BundleProtocol::set_timestamp(bp, len, orig_bundle->creation_ts());
+        BundleProtocolVersion6::set_timestamp(bp, len, orig_bundle->creation_ts());
     ASSERT(sdnv_encoding_len > 0);
     bp  += sdnv_encoding_len;
     len -= sdnv_encoding_len;
@@ -184,9 +184,9 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
     *data = ecos_ordinal;
  
     // add our ECOS as an API block
-    u_int16_t block_type = BundleProtocol::EXTENDED_CLASS_OF_SERVICE_BLOCK;
-    BlockProcessor* ecosbpr = BundleProtocol::find_processor(block_type);
-    BlockInfo* info = bundle->api_blocks()->append_block(ecosbpr);
+    u_int16_t block_type = BundleProtocolVersion6::EXTENDED_CLASS_OF_SERVICE_BLOCK;
+    BlockProcessor* ecosbpr = BundleProtocolVersion6::find_processor(block_type);
+    SPtr_BlockInfo info = bundle->api_blocks()->append_block(ecosbpr);
     ecosbpr->init_block(info, bundle->api_blocks(), NULL, block_type,
                         block_flags, scratch_ecos.buf(), len);
 #endif // ECOS_ENABLED
@@ -206,7 +206,7 @@ CustodySignal::parse_custody_signal(data_t* data,
     len--;
 
     // validate the admin type
-    if (data->admin_type_ != BundleProtocol::ADMIN_CUSTODY_SIGNAL) {
+    if (data->admin_type_ != BundleProtocolVersion6::ADMIN_CUSTODY_SIGNAL) {
         return false;
     }
 
@@ -218,7 +218,7 @@ CustodySignal::parse_custody_signal(data_t* data,
     len--;
     
     // Fragment SDNV Fields (offset & length), if present:
-    if (data->admin_flags_ & BundleProtocol::ADMIN_IS_FRAGMENT)
+    if (data->admin_flags_ & BundleProtocolVersion6::ADMIN_IS_FRAGMENT)
     {
         int sdnv_bytes = SDNV::decode(bp, len, &data->orig_frag_offset_);
         if (sdnv_bytes == -1) { return false; }
@@ -234,13 +234,13 @@ CustodySignal::parse_custody_signal(data_t* data,
     int ts_len;
 
     // The signal timestamp
-    ts_len = BundleProtocol::get_timestamp(&data->custody_signal_tv_, bp, len);
+    ts_len = BundleProtocolVersion6::get_timestamp(&data->custody_signal_tv_, bp, len);
     if (ts_len < 0) { return false; }
     bp  += ts_len;
     len -= ts_len;
 
     // Bundle Creation Timestamp
-    ts_len = BundleProtocol::get_timestamp(&data->orig_creation_tv_, bp, len);
+    ts_len = BundleProtocolVersion6::get_timestamp(&data->orig_creation_tv_, bp, len);
     if (ts_len < 0) { return false; }
     bp  += ts_len;
     len -= ts_len;

@@ -129,8 +129,6 @@ main(int argc, char** argv)
 
 #else // ! TEST_NON_DTN_APP_MODE
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) && defined(EHSROUTER_ENABLED)
-
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
@@ -140,11 +138,11 @@ main(int argc, char** argv)
 #include <sys/time.h>
 #include <time.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/io/FileUtils.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/Getopt.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/io/FileUtils.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/Getopt.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "EhsExternalRouter.h"
 #include "test_ehsrouter.h"
@@ -308,7 +306,7 @@ TestEhsExternalRouter::update_statistics()
 {
     if (ehs_ext_router_->started()) {
         if (!g_show_interval_stats) {
-            printf("\r%-100s", ehs_ext_router_->update_statistics());
+            printf("\r%-150s", ehs_ext_router_->update_statistics3());
         } else {
             int count = 0;
             EhsFwdLinkIntervalStats* stats = NULL;
@@ -833,11 +831,11 @@ TestEhsExternalRouter::bundle_stats_by_src_dst()
     ehs_ext_router_->bundle_stats_by_src_dst(&count, &stats);
 
     printf("\n\nBundle Stats by Source-Dest:\n");
-    printf("Source  Dest   Received Transmit Pending   Bytes   Custody   ExpRcv   ExpXmt  Deliverd Expired  TTLAbuse Rejected\n");
-    printf("------ ------  -------- -------- -------- -------- -------- -------- -------- -------- -------- -------- --------\n");
+    printf("Source  Dest    Received  Transmittd Pending   Bytes   Custody  ExpdtRcv ExpdtXmt Delivered  Expired  TTLAbuse Rejected\n");
+    printf("------ ------  ---------- ---------- -------- -------- -------- -------- -------- ---------- -------- -------- --------\n");
     for (int ix=0; ix<count; ++ix) {
-        printf("%6" PRIu64 " %6" PRIu64 "  %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8.8s %8" PRIu64
-               " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 "\n",
+        printf("%6" PRIu64 " %6" PRIu64 "  %10" PRIu64 " %10" PRIu64 " %8" PRIu64 " %8.8s %8" PRIu64
+               " %8" PRIu64 " %8" PRIu64 " %10" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 "\n",
                stats[ix].source_node_id_, stats[ix].dest_node_id_,
                stats[ix].total_received_, stats[ix].total_transmitted_, 
                stats[ix].total_pending_, fmt_bytes(stats[ix].total_bytes_).c_str(),
@@ -914,19 +912,6 @@ main(int argc, char** argv)
     return 0;
 }
 
-#else
-
-int
-main(int argc, char** argv)
-{
-    (void) argc;
-    (void) argv;
-    printf("EHS Router not built: \n");
-    printf("  1. Configure oasys with Xerces C 2.8.0 installed on the sytem or using the --with-xerces-c=<dir> option\n");
-    printf("  2. Configure DTNME with the  --with-ehsrouter   option and without the   --disable-edp   option\n");
-    return 0;
-}
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) && defined(EHSROUTER_ENABLED)
-
 #endif // TEST_NON_DTN_APP_MODE
+
+

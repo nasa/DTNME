@@ -18,9 +18,9 @@
 #define _ENDPOINT_ID_H_
 
 #include <string>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/serialize/SerializableVector.h>
-#include <oasys/util/URI.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/util/URI.h>
 
 struct dtn_endpoint_id_t;
 
@@ -162,6 +162,11 @@ public:
     }
 
     /**
+     * Clear the underlying URI components
+     */
+    void clear() { uri_.clear(); }
+
+    /**
      * Set the string from the API type dtn_endpoint_id_t
      *
      * @return true if the string is a valid id, false if not.
@@ -174,6 +179,12 @@ public:
      */
     bool subsume(const EndpointID& other) const
              { return uri_.subsume(other.uri_); }
+
+    /**
+     * @ return true if the given EndpointID is contained within
+     *   this EndpointID; otherwise false.
+     */
+    bool subsume_ipn(const EndpointID& other) const;
 
     /**
      * Append the specified service tag (in a scheme-specific manner)

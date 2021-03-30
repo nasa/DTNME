@@ -18,17 +18,20 @@
 #  include <dtn-config.h>
 #endif
 
+#include <memory>
+
 #include <sys/poll.h>
 #include <stdlib.h>
 
-#include <oasys/io/NetUtils.h>
-#include <oasys/util/OptParser.h>
-#include <oasys/util/HexDumpBuffer.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/HexDumpBuffer.h>
 
 #include "STCPConvergenceLayer.h"
 #include "IPConvergenceLayerUtils.h"
 #include "bundling/BundleDaemon.h"
 #include "contacts/ContactManager.h"
+#include "storage/BundleStore.h"
 
 namespace dtn {
 
@@ -46,7 +49,10 @@ STCPConvergenceLayer::STCPLinkParams::STCPLinkParams(bool init_defaults)
     // override StreamLinkParams values
     segment_ack_enabled_ = false;
     negative_ack_enabled_ = false;
+
+    // send keep alives periodically but don't break contact
     keepalive_interval_ = 15;
+    break_contact_on_keepalive_fault_ = false;  // send keep alive periodically but don't break
     //segment_length_(8192)
 
     // override ConnectionConvergenceLayer::LinkParams values
@@ -171,6 +177,66 @@ STCPConvergenceLayer::dump_link(const LinkRef& link, oasys::StringBuffer* buf)
     buf->appendf("local_addr: %s\n", intoa(params->local_addr_));
     buf->appendf("remote_addr: %s\n", intoa(params->remote_addr_));
     buf->appendf("remote_port: %u\n", params->remote_port_);
+}
+
+//----------------------------------------------------------------------
+void
+STCPConvergenceLayer::list_link_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("STCP Convergence Layer [%s] - valid Link options:\n\n", name());
+    buf.appendf("<nexthop> format for \"link add\" command is ip_address:port or hostname:port\n\n");
+    buf.appendf("CLA specific options:\n");
+
+    buf.appendf("    remote_addr <IP address>           - IP address to connect to (extracted from nexthop)\n");
+    buf.appendf("    remote_port <U16>                  - Port to connect to (extracted from nexthop (default: 4558))\n");
+    buf.appendf("    local_addr <IP address>            - IP address to bind to (optional; seldom used for a link)\n");
+    buf.appendf("    local_port <U16>                   - Port to bind to (optional; seldom used for a link)\n");
+    buf.appendf("    sendbuf_len <U32>                  - Length of internal send buffer (not socket buffer) (default: 2048000)\n");
+
+    buf.appendf("\nOptions for all links:\n");
+    
+    buf.appendf("    remote_eid <Endpoint ID>           - Remote Endpoint ID\n");
+    buf.appendf("    reliable <Bool>                    - Whether the CLA is considered reliable (default: false)\n");
+    buf.appendf("    nexthop <ip_address:port>          - IP address and port of remote node (positional in link add command)\n");
+    buf.appendf("    mtu <U64>                          - Max size for outgoing bundle triggers proactive fragmentation (default: 0 = no limit)\n");
+    buf.appendf("    min_retry_interval <U32>           - Minimum seconds to try to reconnect (default: 5)\n");
+    buf.appendf("    max_retry_interval <U32>           - Maximum seconds to try to reconnect (default: 600)\n");
+    buf.appendf("    idle_close_time <U32>              - Seconds without receiving data to trigger disconnect (default: 0 = no limit)\n");
+    buf.appendf("    potential_downtime <U32>           - Seconds of potential downtime for routing algorithms (default: 30)\n");
+    buf.appendf("    prevhop_hdr <Bool>                 - Whether to include the Previous Node Block (default: true)\n");
+    buf.appendf("    cost <U32>                         - Abstract figure for use with routing algorithms (default: 100)\n");
+    buf.appendf("    qlimit_enabled <Bool>              - Whether Queued Bundle Limits are in use by router (default: false)\n");
+    buf.appendf("    qlimit_bundles_high <U64>          - Maximum number of bundles to queue on a link (default: 10)\n");
+    buf.appendf("    qlimit_bytes_high <U64>            - Maximum payload bytes to queue on a link (default: 1 MB)\n");
+    buf.appendf("    qlimit_bundles_low <U64>           - Low watermark number of bundles to add more bundles to link queue (default: 5)\n");
+    buf.appendf("    qlimit_bytes_low <U64>             - Low watermark of payload bytes to add more bundles to link queue (default: 512 KB)\n");
+    buf.appendf("    bp6_redirect <link_name>           - Redirect BP6 bundles to specified link (usually for Bundle In Bundle Encapsulation)\n");
+    buf.appendf("    bp7_redirect <link_name>           - Redirect BP7 bundles to specified link (usually for Bundle In Bundle Encapsulation)\n");
+
+    buf.appendf("\n");
+    buf.appendf("Example:\n");
+    buf.appendf("link add stcp_28 192.168.5.56:4557 ALWAYSON stcp \n");
+    buf.appendf("    (create a link named \"stcp3_28\" using the stcp convergence layer to connect to peer at IP address 192.168.5.56 port 4557)\n");
+    buf.appendf("\n");
+}
+
+//----------------------------------------------------------------------
+void
+STCPConvergenceLayer::list_interface_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("STCP Convergence Layer [%s] - valid Interface options:\n\n", name());
+    buf.appendf("CLA specific options:\n");
+
+    buf.appendf("    local_addr <IP address>            - IP address to listen on (default: 0.0.0.0 = all interfaces) \n");
+    buf.appendf("    local_port <U16>                   - Port to listen on (default: 4556)\n");
+
+    buf.appendf("    recvbuf_len <U32>                  - Length of internal receive buffer (not socket buffer) (default: 2048000)\n");
+
+    buf.appendf("\n");
+    buf.appendf("Example:\n");
+    buf.appendf("interface add stcp_in stcp local_addr=0.0.0.0 local_port=4557\n");
+    buf.appendf("    (create an interface named \"stcp_in\" using the stcp convergence layer to receive connections on all network interfaces on port 4557)\n");
+    buf.appendf("\n");
 }
 
 //----------------------------------------------------------------------
@@ -418,6 +484,17 @@ STCPConvergenceLayer::Connection::~Connection()
 
 //----------------------------------------------------------------------
 void
+STCPConvergenceLayer::Connection::run()
+{
+    char threadname[16] = "STcpCLConnectn";
+    pthread_setname_np(pthread_self(), threadname);
+
+    CLConnection::run();
+}
+
+
+//----------------------------------------------------------------------
+void
 STCPConvergenceLayer::Connection::serialize(oasys::SerializeAction *a)
 {
     STCPLinkParams *params = stcp_lparams();
@@ -436,8 +513,8 @@ STCPConvergenceLayer::Connection::serialize(oasys::SerializeAction *a)
 
     // from LinkParams
     a->process("reactive_frag_enabled", &params->reactive_frag_enabled_);     //XXX/dz false
-    a->process("sendbuf_length", &params->sendbuf_len_);
-    a->process("recvbuf_length", &params->recvbuf_len_);
+    a->process("sendbuf_len", &params->sendbuf_len_);
+    a->process("recvbuf_len", &params->recvbuf_len_);
     a->process("data_timeout", &params->data_timeout_);     //XXX/dz 
 }
 
@@ -581,13 +658,19 @@ STCPConvergenceLayer::Connection::handle_poll_activity()
     
     // finally, check for incoming data
     if (sock_pollfd_->revents & POLLIN) {
-        if (delay_reads_to_free_some_storage_ > 0) {
-            if (--delay_reads_to_free_some_storage_ == 0) {
+        if (delay_reads_to_free_some_storage_) {
+            if (delay_reads_timer_.elapsed_ms() >= 2000) {
+                delay_reads_to_free_some_storage_ = false;
+
                  // try to accept the last incoming bundle again
-                if (NULL != incoming_bundle_to_retry_to_accept_) {
+                if (nullptr != incoming_bundle_to_retry_to_accept_) {
                     IncomingBundle* incoming = incoming_bundle_to_retry_to_accept_;
-                    incoming_bundle_to_retry_to_accept_ = NULL;
-                    retry_to_accept_incoming_bundle(incoming);
+                    incoming_bundle_to_retry_to_accept_ = nullptr;
+                    if (incoming->bundle_ != nullptr) {
+                        retry_to_accept_incoming_bundle(incoming);
+                    } else {
+                        log_crit("Unable to retry_to_accept_incoming_bundle because bundle object is null");
+                    }
                 }
             }
             return;
@@ -746,7 +829,10 @@ STCPConvergenceLayer::Connection::send_data()
 
     //log_debug("send_data: trying to drain %u bytes from send buffer...",
     //          towrite);
-    ASSERT(towrite > 0);
+    //dzdebug1   ASSERT(towrite > 0);
+    if (towrite == 0) {
+        return;
+    }
 
     int cc = sock_->write(sendbuf_.start(), towrite);
     if (cc > 0) {
@@ -891,7 +977,7 @@ STCPConvergenceLayer::Connection::process_data()
     // depending on the type of the CL message. we don't consume the
     // byte yet since there's a possibility that we need to read more
     // from the remote side to handle the whole message
-    while (recvbuf_.fullbytes() != 0) {
+    while (!delay_reads_to_free_some_storage_ && (recvbuf_.fullbytes() != 0)) {
         if (contact_broken_) return;
         
         //log_debug("recvbuf has %zu full bytes, dispatching to handler routine",
@@ -937,8 +1023,10 @@ STCPConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
         return false;
     }
 
-    u_int32_t* bp_i32 = (u_int32_t*)recvbuf_.start();
-    u_int32_t segment_len = ntohl(*bp_i32);
+    u_int32_t bp_i32;
+    memcpy(&bp_i32, recvbuf_.start(), sizeof(bp_i32));
+
+    u_int32_t segment_len = ntohl(bp_i32);
     
     recvbuf_.consume(4);
     
@@ -947,6 +1035,7 @@ STCPConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
     }
 
 
+    BundleStore* bs = BundleStore::instance();
     IncomingBundle* incoming = NULL;
 
     // make sure we're done with the last bundle if we got a new
@@ -957,13 +1046,18 @@ STCPConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
     if (!incoming_.empty()) {
         incoming = incoming_.back();
 
-        if (incoming->rcvd_data_.empty() &&
-            incoming->ack_data_.empty())
+        if ((incoming->bytes_received_ == 0) && incoming->pending_acks_.empty())
         {
             //log_debug("found empty incoming bundle for BUNDLE_START");
             create_new_incoming = false;
             incoming->bundle_complete_ = false;
             incoming->bundle_accepted_ = false;
+
+            if (incoming->payload_bytes_reserved_ > 0) {
+                bs->try_reserve_payload_space(incoming->payload_bytes_reserved_);
+
+                incoming->payload_bytes_reserved_ = 0;
+            }
         }
         else if (incoming->total_length_ == 0)
         {
@@ -974,9 +1068,28 @@ STCPConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
         }
     }
 
+    // pause processing until there is storage available for this bundle
+    uint64_t    tmp_payload_storage_bytes_reserved = 0;
+    int32_t     ctr = 0;
+    while (!should_stop() && (tmp_payload_storage_bytes_reserved != segment_len))
+    {
+        if (bs->try_reserve_payload_space(segment_len)) {
+            tmp_payload_storage_bytes_reserved = segment_len;
+        } else {
+            if ((++ctr % 100) == 0) {
+                log_warn("Unable to reserve space for bundle for 10 seconds - continuing trying");
+            }
+            usleep(100000); // 1/10th sec
+        }
+    }
+        
+    if (should_stop()) {
+        return false;
+    }
+ 
     if (create_new_incoming) {
         //log_debug("got BUNDLE_START segment, creating new IncomingBundle");
-        IncomingBundle* incoming = new IncomingBundle(new Bundle());
+        incoming = new IncomingBundle(new Bundle(BundleProtocol::BP_VERSION_UNKNOWN));
         incoming_.push_back(incoming);
     }
 
@@ -984,25 +1097,12 @@ STCPConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
     // IncomingList, but it's the one at the back that we're reading
     // in data for. Others are waiting for acks to be sent.
     incoming = incoming_.back();
+    incoming->payload_bytes_reserved_ = tmp_payload_storage_bytes_reserved;
 
+    SPtr_AckObject ackptr = std::make_shared<AckObject>();
+    ackptr->acked_len_ = segment_len;
+    incoming->pending_acks_.push_back(ackptr);
 
-
-    size_t segment_offset = incoming->rcvd_data_.num_contiguous();
-    //log_debug("handle_data_segment: "
-    //          "got segment of length %u at offset %zu ",
-    //          segment_len, segment_offset);
-    
-    incoming->ack_data_.set(segment_offset + segment_len - 1);
-
-    //log_debug("handle_data_segment: "
-    //          "updated ack_data (segment_offset %zu) *%p ack_data *%p",
-    //          segment_offset, &incoming->rcvd_data_, &incoming->ack_data_);
-
-
-    // if this is the last segment for the bundle, we calculate and
-    // store the total length in the IncomingBundle structure so
-    // send_pending_acks knows when we're done.
-    // XXX/dz - STCP segment is a full bundle
     incoming->total_length_ = segment_len;
         
     //log_debug("STCP reading bundle of total length %u",

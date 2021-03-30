@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 #include "EndpointIDOpt.h"
 #include "EndpointID.h"
 

@@ -13,7 +13,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -34,7 +34,7 @@
 #define _IPN_SCHEME_H_
 
 #include "Scheme.h"
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 
@@ -50,12 +50,14 @@ namespace dtn {
 class IPNScheme : public Scheme, public oasys::Singleton<IPNScheme> {
 public:
     /// @{ virtual from Scheme
-    virtual bool validate(const URI& uri, bool is_pattern = false);
+    virtual bool validate(const URI& uri, bool is_pattern = false) override;
     virtual bool match(const EndpointIDPattern& pattern,
-                       const EndpointID& eid);
-    virtual bool append_service_tag(URI* uri, const char* tag);
-    virtual bool append_service_wildcard(URI* uri);
-    virtual singleton_info_t is_singleton(const URI& uri);
+                       const EndpointID& eid) override;
+    virtual bool ipn_node_match(const EndpointID& eid1, const EndpointID& eid2) override;
+    
+    virtual bool append_service_tag(URI* uri, const char* tag) override;
+    virtual bool append_service_wildcard(URI* uri) override;
+    virtual singleton_info_t is_singleton(const URI& uri) override;
     /// @}
 
     /**

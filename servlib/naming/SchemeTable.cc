@@ -20,10 +20,8 @@
 
 #include "SchemeTable.h"
 #include "DTNScheme.h"
-#include "EthernetScheme.h"
 #include "IPNScheme.h"
-#include "SessionScheme.h"
-#include "StringScheme.h"
+#include "IMCScheme.h"
 #include "WildcardScheme.h"
 
 namespace oasys {
@@ -37,12 +35,8 @@ SchemeTable::SchemeTable()
 {
     table_["dtn"] = DTNScheme::instance();
     table_["ipn"] = IPNScheme::instance();
-    table_["str"] = StringScheme::instance();
+    table_["imc"] = IMCScheme::instance();
     table_["*"]   = WildcardScheme::instance();
-#ifdef __linux__
-    table_["eth"] = EthernetScheme::instance();
-#endif
-    table_["dtn-session"] = SessionScheme::instance();
 }
 
 //----------------------------------------------------------------------

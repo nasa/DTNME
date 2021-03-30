@@ -25,44 +25,29 @@
 
 #include <vector>
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
 
-#include "BundleDaemon.h"
 #include "BundleEvent.h"
 #include "BundleEventHandler.h"
+#include "BundleListStrMap.h"
 #include "BundleProtocol.h"
-#include "BundleActions.h"
 #include "BundleStatusReport.h"
-
-#ifdef BPQ_ENABLED
-#    include "BPQBlock.h"
-#    include "BPQCache.h"
-#endif /* BPQ_ENABLED */
 
 namespace dtn {
 
 class Bundle;
-class BundleAction;
-class BundleActions;
+class BundleDaemon;
 class BundleRouter;
-class ContactManager;
 class FragmentManager;
-class RegistrationTable;
 
-/**
- * Class that handles the basic event / action mechanism. All events
- * are queued and then forwarded to the active router module. The
- * router then responds by calling various functions on the
- * BundleActions class that it is given, which in turn effect all the
- * operations.
- */
-class BundleDaemonInput : public oasys::Singleton<BundleDaemonInput, false>,
+//dzdebug class BundleDaemonInput : public oasys::Singleton<BundleDaemonInput, false>,
+class BundleDaemonInput : 
                      public BundleEventHandler,
                      public oasys::Thread
 {
@@ -70,24 +55,12 @@ public:
     /**
      * Constructor.
      */
-    BundleDaemonInput();
+    BundleDaemonInput(BundleDaemon* parent);
 
     /**
      * Destructor (called at shutdown time).
      */
     virtual ~BundleDaemonInput();
-
-    /**
-     * Virtual initialization function, overridden in the simulator to
-     * install the modified event queue (with no notifier) and the
-     * SimBundleActions class.
-     */
-    virtual void do_init();
-
-    /**
-     * Boot time initializer.
-     */
-    static void init();
 
     /**
      * Start thread but delay processing for specified milliseconds
@@ -104,26 +77,6 @@ public:
         return eventq_->size();
     }
 
-    /**
-     * Queues the event at the tail of the queue for processing by the
-     * daemon thread.
-     */
-    static void post(BundleEvent* event);
- 
-    /**
-     * Queues the event at the head of the queue for processing by the
-     * daemon thread.
-     */
-    static void post_at_head(BundleEvent* event);
-    
-    /**
-     * Post the given event and wait for it to be processed by the
-     * daemon thread or for the given timeout to elapse.
-     */
-    static bool post_and_wait(BundleEvent* event,
-                              oasys::Notifier* notifier,
-                              int timeout = -1, bool at_back = true);
-    
    /**
     * Virtual post_event function, overridden by the Node class in
      * the simulator to use a modified event queue.
@@ -134,9 +87,16 @@ public:
      * Getters for status parameters 
      */
     bundleid_t get_received_bundles() { return stats_.received_bundles_; };
+    bundleid_t get_rcvd_from_peer() { return stats_.rcvd_from_peer_; };
+    bundleid_t get_rcvd_from_app() { return stats_.rcvd_from_app_; };
+    bundleid_t get_rcvd_from_storage() { return stats_.rcvd_from_storage_; };
     bundleid_t get_generated_bundles() { return stats_.generated_bundles_; };
+    bundleid_t get_rcvd_from_frag() { return stats_.rcvd_from_frag_; };
     bundleid_t get_duplicate_bundles() { return stats_.duplicate_bundles_; };
     bundleid_t get_rejected_bundles() { return stats_.rejected_bundles_; };
+    bundleid_t get_injected_bundles() { return stats_.injected_bundles_; };
+    bundleid_t get_bpv6_bundles() { return stats_.bpv6_bundles_; };
+    bundleid_t get_bpv7_bundles() { return stats_.bpv7_bundles_; };
 
     /**
      * Format the given StringBuffer with the current internal
@@ -148,27 +108,6 @@ public:
      * Reset all internal stats.
      */
     void reset_stats();
-
-#ifdef BPQ_ENABLED
-    /**
-     * Accessor for the BPQ Cache.
-     */
-    BPQCache* bpq_cache() { return bpq_cache_; }
-#endif /* BPQ_ENABLED */
-
-
-    /**
-     * General daemon parameters
-     */
-    struct Params {
-        /// Default constructor
-        Params();
-        
-        /// no params currently defined for this class
-        bool not_currently_used_;
-    };
-
-    static Params params_;
 
     /**
      * This is used for delivering bundle to app by Late Binding
@@ -182,9 +121,6 @@ public:
     void handle_event(BundleEvent* event, bool closeTransaction);
 
 protected:
-    friend class BundleActions;
-    friend class BundleDaemon;
-
     /**
      * Generate delivery events for newly-loaded bundles.
      */
@@ -232,7 +168,6 @@ protected:
      * forwarded, false if it's already expired
      */
     bool add_to_pending(Bundle* bundle, bool add_to_store);
-    bool resume_add_to_pending(Bundle* bundle, bool add_to_store);
     
     /**
      * Remove the bundle from the pending list and data store, and
@@ -254,16 +189,6 @@ protected:
      */
     Bundle* find_duplicate(Bundle* bundle);
 
-#ifdef BPQ_ENABLED
-    /**
-     * Check the bundle for a BPQ extension block. If found handle:
-     *         QUERY      - search for matching response in cache and try to answer
-     *         RESPONSE - attempt to add to cache
-     * If a query is completely answered the bundle need not be forwarded on.
-     */
-    bool handle_bpq_block(Bundle* b, BundleReceivedEvent* event);
-#endif /* BPQ_ENABLED */
-
     /**
      * Check the registration table and optionally deliver the bundle
      * to any that match.
@@ -274,58 +199,39 @@ protected:
     bool check_local_delivery(Bundle* bundle, bool deliver);
 
     /// The BundleDaemon instance
-    BundleDaemon* daemon_;
+    BundleDaemon* daemon_ = nullptr;
  
     /// The active bundle router
-    BundleRouter* router_;
-
-    /// The active bundle actions handler
-    BundleActions* actions_;
-
-    /// The administrative registration
-    AdminRegistration* admin_reg_;
-
-    /// The ping registration
-    PingRegistration* ping_reg_;
-
-    /// The contact manager
-    ContactManager* contactmgr_;
+    BundleRouter* router_ = nullptr;
 
     /// The fragmentation / reassembly manager
-    FragmentManager* fragmentmgr_;
-
-    /// The table of active registrations
-    const RegistrationTable* reg_table_;
-
-    /// The list of all bundles in the system
-    all_bundles_t* all_bundles_;
-
-    /// The list of all bundles that are still being processed
-    pending_bundles_t* pending_bundles_;
+    FragmentManager* fragmentmgr_ = nullptr;
 
     /// The list of all bundles that we have custody of
-    custody_bundles_t* custody_bundles_;
+    BundleListStrMap* custody_bundles_ = nullptr;
     
-#ifdef BPQ_ENABLED
-    /// The LRU cache containing bundles with the BPQ response extension
-    BPQCache* bpq_cache_;
-#endif /* BPQ_ENABLED */
-
     /// The event queue
-    oasys::MsgQueue<BundleEvent*>* eventq_;
+    oasys::MsgQueue<BundleEvent*>* eventq_ = nullptr;
 
     /// Statistics structure definition
     struct Stats {
-        bundleid_t received_bundles_;
-        bundleid_t delivered_bundles_;
-        bundleid_t generated_bundles_;
-        bundleid_t transmitted_bundles_;
-        bundleid_t expired_bundles_;
-        bundleid_t deleted_bundles_;
-        bundleid_t duplicate_bundles_;
-        bundleid_t injected_bundles_;
-        bundleid_t events_processed_;
-        bundleid_t rejected_bundles_;
+        bundleid_t received_bundles_ = 0;
+        bundleid_t rcvd_from_peer_ = 0;
+        bundleid_t rcvd_from_app_ = 0;
+        bundleid_t rcvd_from_storage_ = 0;
+        bundleid_t generated_bundles_ = 0;
+        bundleid_t rcvd_from_frag_ = 0;
+        bundleid_t delivered_bundles_ = 0;
+        bundleid_t transmitted_bundles_ = 0;
+        bundleid_t expired_bundles_ = 0;
+        bundleid_t deleted_bundles_ = 0;
+        bundleid_t duplicate_bundles_ = 0;
+        bundleid_t injected_bundles_ = 0;
+        bundleid_t events_processed_ = 0;
+        bundleid_t rejected_bundles_ = 0;
+        bundleid_t hops_exceeded_ = 0;
+        bundleid_t bpv6_bundles_ = 0;
+        bundleid_t bpv7_bundles_ = 0;
     };
 
     /// Stats instance
@@ -335,7 +241,7 @@ protected:
     oasys::Time last_event_;
 
     /// number of milliseconds to delay before starting processing events
-    u_int32_t delayed_start_millisecs_;
+    u_int32_t delayed_start_millisecs_ = 0;
 };
 
 } // namespace dtn

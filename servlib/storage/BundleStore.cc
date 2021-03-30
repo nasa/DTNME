@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -41,7 +41,7 @@
 #include "BundleStore.h"
 #include "bundling/Bundle.h"
 
-#include <oasys/storage/DurableStore.h>
+#include <third_party/oasys/storage/DurableStore.h>
 
 namespace oasys {
     template <> dtn::BundleStore* oasys::Singleton<dtn::BundleStore, false>::instance_ = 0;
@@ -62,7 +62,8 @@ BundleStore::BundleStore(const DTNStorageConfig& cfg)
       bundle_details_("BundleStoreExtra", "/dtn/storage/bundle_details",
                "BundleDetail", "bundles_aux"),
 #endif
-                       total_size_(0)
+      total_size_(0),
+      max_size_(0)
 {
 }
 
@@ -80,14 +81,14 @@ BundleStore::init(const DTNStorageConfig& cfg,
 #ifdef LIBODBC_ENABLED
     // Auxiliary tables only available with ODBC/SQL
     if ((err == 0) && store->aux_tables_available()) {
-    	err = instance_->bundle_details_.do_init_aux(cfg, store);
-    	if (err == 0) {
-    		using_aux_table_ = true;
-    		log_debug_p("/dtn/storage/bundle",
-    				    "BundleStore::init initialised auxiliary bundle details table.");
-    	}
+        err = instance_->bundle_details_.do_init_aux(cfg, store);
+        if (err == 0) {
+            using_aux_table_ = true;
+            log_debug_p("/dtn/storage/bundle",
+                        "BundleStore::init initialised auxiliary bundle details table.");
+        }
     } else {
-    	log_debug_p("/dtn/storage/bundle", "BundleStore::init skipping auxiliary table initialisation.");
+        log_debug_p("/dtn/storage/bundle", "BundleStore::init skipping auxiliary table initialisation.");
     }
 #endif
     return err;
@@ -106,16 +107,15 @@ BundleStore::add(Bundle* bundle)
     lock_.unlock();
 
     if (ret) {
-        //total_size_ += bundle->durable_size();
         reserve_payload_space(bundle);
 
 #ifdef LIBODBC_ENABLED
         if (using_aux_table_) {
             lock_.lock("BundleStore::add (detail)");   // ?? needed here
-       	    BundleDetail *details = new BundleDetail(bundle);
-       	    ret = bundle_details_.add(details);
+               BundleDetail *details = new BundleDetail(bundle);
+               ret = bundle_details_.add(details);
             lock_.unlock();
-       	    delete details;
+               delete details;
         }
 #endif
     }
@@ -157,9 +157,9 @@ BundleStore::update(Bundle* bundle)
 #ifdef LIBODBC_ENABLED
 #if 0
     if ((ret == 0) && using_aux_table_) {
-    	BundleDetail *details = new BundleDetail(bundle);
-    	ret = bundle_details_.update(details);
-    	delete details;
+        BundleDetail *details = new BundleDetail(bundle);
+        ret = bundle_details_.update(details);
+        delete details;
     }
 #endif
 #endif
@@ -225,6 +225,11 @@ BundleStore::reserve_payload_space(Bundle* bundle)
         total_size_lock_.lock("reserve_payload_space");
 
         total_size_ += bundle->durable_size();
+
+        if (total_size_ > max_size_) {
+            max_size_ = total_size_;
+        }
+
         total_size_lock_.unlock();
         bundle->set_payload_space_reserved();
     }
@@ -247,6 +252,11 @@ BundleStore::try_reserve_payload_space(u_int64_t durable_size)
     {
         // good to go - reserve the space
         total_size_ += durable_size;
+
+        if (total_size_ > max_size_) {
+            max_size_ = total_size_;
+        }
+
     }
     total_size_lock_.unlock();
 
@@ -255,9 +265,8 @@ BundleStore::try_reserve_payload_space(u_int64_t durable_size)
 
 //----------------------------------------------------------------------
 void
-BundleStore::release_payload_space(u_int64_t durable_size, bundleid_t bundleid)
+BundleStore::release_payload_space(u_int64_t durable_size)
 {
-    (void) bundleid;
     total_size_lock_.lock("release_payload_space");
 
     ASSERT(total_size_ >= durable_size);
@@ -283,7 +292,7 @@ BundleStore::close()
     // Auxiliary tables only available with ODBC/SQL
     if (using_aux_table_)
     {
-    	bundle_details_.close();
+        bundle_details_.close();
     }
 #endif
 }

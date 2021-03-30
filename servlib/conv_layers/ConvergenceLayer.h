@@ -19,8 +19,8 @@
 
 #include <string>
 #include <vector>
-#include <oasys/util/Singleton.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/Singleton.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "contacts/Link.h"
 #include "contacts/Contact.h"
@@ -218,6 +218,16 @@ public:
      */
     static const u_int32_t MAGIC = 0x64746e21; //'DTN!'
     
+    /**
+     * Get valid link options for the CLA
+     */
+    virtual void list_link_opts(oasys::StringBuffer& buf);
+
+    /**
+     * Get valid interface options for the CLA
+     */
+    virtual void list_interface_opts(oasys::StringBuffer& buf);
+
 protected:
     friend class Link;
 
@@ -257,6 +267,9 @@ public:
      * Virtual from SerializableObject
      */
     virtual void serialize( oasys::SerializeAction *) {}
+
+    virtual size_t get_incoming_list_size() { return 0; }
+    virtual void get_cla_stats(oasys::StringBuffer& buf) { (void) buf;  }
 };
 
 } // namespace dtn

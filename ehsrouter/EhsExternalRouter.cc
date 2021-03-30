@@ -19,14 +19,10 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <string.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "EhsExternalRouter.h"
 #include "EhsExternalRouterImpl.h"
@@ -95,16 +91,16 @@ EhsExternalRouter::configure_use_tcp_interface(std::string& val)
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouter::configure_mc_address(std::string& val)
+EhsExternalRouter::configure_remote_address(std::string& val)
 {
-    return ehs_ext_router_->configure_mc_address(val);
+    return ehs_ext_router_->configure_remote_address(val);
 }
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouter::configure_mc_port(std::string& val)
+EhsExternalRouter::configure_remote_port(std::string& val)
 {
-    return ehs_ext_router_->configure_mc_port(val);
+    return ehs_ext_router_->configure_remote_port(val);
 }
 
 //----------------------------------------------------------------------
@@ -191,6 +187,22 @@ const char*
 EhsExternalRouter::update_statistics()
 {
     return ehs_ext_router_->update_statistics();
+}
+
+
+//----------------------------------------------------------------------
+const char* 
+EhsExternalRouter::update_statistics2()
+{
+    return ehs_ext_router_->update_statistics2();
+}
+
+
+//----------------------------------------------------------------------
+const char* 
+EhsExternalRouter::update_statistics3()
+{
+    return ehs_ext_router_->update_statistics3();
 }
 
 
@@ -369,6 +381,3 @@ EhsExternalRouter::set_log_level(int level)
 
 } // namespace dtn
 
-#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
-
-#endif // EHSROUTER_ENABLED

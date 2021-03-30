@@ -17,9 +17,9 @@
 #ifndef _STCP_CONVERGENCE_LAYER_H_
 #define _STCP_CONVERGENCE_LAYER_H_
 
-#include <oasys/io/TCPClient.h>
-#include <oasys/io/TCPServer.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/io/TCPServer.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "StreamConvergenceLayer.h"
 
@@ -50,6 +50,7 @@ public:
     void interface_activate(Interface* iface);
     bool interface_down(Interface* iface);
     void dump_interface(Interface* iface, oasys::StringBuffer* buf);
+    void list_interface_opts(oasys::StringBuffer& buf) override;
     /// @}
 
     /**
@@ -84,6 +85,7 @@ protected:
     bool set_link_defaults(int argc, const char* argv[],
                            const char** invalidp);
     void dump_link(const LinkRef& link, oasys::StringBuffer* buf);
+    void list_link_opts(oasys::StringBuffer& buf) override;
     /// @}
     
     /// @{ Virtual from ConvergenceLayer
@@ -135,6 +137,12 @@ protected:
          * Destructor.
          */
         virtual ~Connection();
+
+
+        /**
+         * Wrapper for the CLConnection::run method to allow setting the name of the thread
+         */
+        virtual void run() override;
 
         /**
          * Virtual from SerializableObject

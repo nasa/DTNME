@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,10 +37,10 @@
 #endif
 
 
-#include <oasys/io/NetUtils.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/OptParser.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "UDPConvergenceLayer.h"
 #include "bundling/Bundle.h"
@@ -66,7 +66,6 @@ UDPConvergenceLayer::Params::serialize(oasys::SerializeAction *a)
     bucket_type_ = (oasys::RateLimitedSocket::BUCKET_TYPE) temp;
     a->process("rate", &rate_);
     a->process("bucket_depth", &bucket_depth_);
-    a->process("wait_and_send", &wait_and_send_);
 }
 
 //----------------------------------------------------------------------
@@ -80,7 +79,6 @@ UDPConvergenceLayer::UDPConvergenceLayer()
     defaults_.bucket_type_              = (oasys::RateLimitedSocket::BUCKET_TYPE) 0;
     defaults_.rate_                     = 0; // unlimited
     defaults_.bucket_depth_             = 0; // default
-    defaults_.wait_and_send_           = true;
     next_hop_addr_                      = INADDR_NONE;
     next_hop_port_                      = 0;
     next_hop_flags_                     = 0;
@@ -116,7 +114,6 @@ UDPConvergenceLayer::parse_params(Params* params,
     p.addopt(new oasys::IntOpt("bucket_type", &temp));
     p.addopt(new oasys::UInt64Opt("rate", &params->rate_));
     p.addopt(new oasys::UInt64Opt("bucket_depth", &params->bucket_depth_));
-    p.addopt(new oasys::BoolOpt("wait_and_send",&params->wait_and_send_));
 
     if (! p.parse(argc, argv, invalidp)) {
         return false;
@@ -126,6 +123,72 @@ UDPConvergenceLayer::parse_params(Params* params,
 
     return true;
 };
+
+//----------------------------------------------------------------------
+void
+UDPConvergenceLayer::list_link_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("UDP Convergence Layer [%s] - valid Link options:\n\n", name());
+    buf.appendf("<next hop> format for \"link add\" command is ip_address:port or hostname:port\n\n");
+    buf.appendf("CLA specific options:\n");
+
+    buf.appendf("    local_addr <IP address>            - IP address to bind to (usually not needed for a link)\n");
+    buf.appendf("    local_port <U16>                   - Port to bind to (usually not needed for a link)\n");
+
+    buf.appendf("    rate <U64>                         - transmit rate throttle in bits per second (default: 0 = no throttle)\n");
+    buf.appendf("    bucket_type <0 or 1>               - throttle token bucket type: 0=standard, 1=leaky (default: 0)\n");
+    buf.appendf("    bucket_depth <U64>                 - throttle token bucket depth in bits (default: 524280 = 64K * 8)\n");
+
+
+    buf.appendf("\nOptions for all links:\n");
+    
+    buf.appendf("    remote_eid <Endpoint ID>           - Remote Endpoint ID\n");
+    buf.appendf("    reliable <Bool>                    - Whether the CLA is considered reliable (default: false)\n");
+    buf.appendf("    nexthop <ip_address:port>          - IP address and port of remote node (positional in link add command)\n");
+    buf.appendf("    mtu <U64>                          - Max size for outgoing bundle triggers proactive fragmentation (default: 0 = no limit)\n");
+    buf.appendf("                                           (recommend 65000 to keep it less than the max UDP packet size)\n");
+    buf.appendf("    min_retry_interval <U32>           - Minimum seconds to try to reconnect (default: 5)\n");
+    buf.appendf("    max_retry_interval <U32>           - Maximum seconds to try to reconnect (default: 600)\n");
+    buf.appendf("    idle_close_time <U32>              - Seconds without receiving data to trigger disconnect (default: 0 = no limit)\n");
+    buf.appendf("    potential_downtime <U32>           - Seconds of potential downtime for routing algorithms (default: 30)\n");
+    buf.appendf("    prevhop_hdr <Bool>                 - Whether to include the Previous Node Block (default: true)\n");
+    buf.appendf("    cost <U32>                         - Abstract figure for use with routing algorithms (default: 100)\n");
+    buf.appendf("    qlimit_enabled <Bool>              - Whether Queued Bundle Limits are in use by router (default: false)\n");
+    buf.appendf("    qlimit_bundles_high <U64>          - Maximum number of bundles to queue on a link (default: 10)\n");
+    buf.appendf("    qlimit_bytes_high <U64>            - Maximum payload bytes to queue on a link (default: 1 MB)\n");
+    buf.appendf("    qlimit_bundles_low <U64>           - Low watermark number of bundles to add more bundles to link queue (default: 5)\n");
+    buf.appendf("    qlimit_bytes_low <U64>             - Low watermark of payload bytes to add more bundles to link queue (default: 512 KB)\n");
+    buf.appendf("    bp6_redirect <link_name>           - Redirect BP6 bundles to specified link (usually for Bundle In Bundle Encapsulation)\n");
+    buf.appendf("    bp7_redirect <link_name>           - Redirect BP7 bundles to specified link (usually for Bundle In Bundle Encapsulation)\n");
+
+    buf.appendf("\n");
+    buf.appendf("Example:\n");
+    buf.appendf("link add udp_6 192.168.0.6:4556 ALWAYSON udp mtu=65000 rate=150000000\n");
+    buf.appendf("    (create a link named \"udp_6\" to transmit UDP to peer at IP address 192.168.0.6 port 4556\n");
+    buf.appendf("     with a transmit rate of 150 Mbps and bundles greater than 65000 bytes will be fragmented prior to sending)\n");
+    buf.appendf("\n");
+}
+
+//----------------------------------------------------------------------
+void
+UDPConvergenceLayer::list_interface_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("UDP Convergence Layer [%s] - valid Interface options:\n\n", name());
+    buf.appendf("CLA specific options:\n");
+
+    buf.appendf("  UDP related params:\n");
+    buf.appendf("    local_addr <IP address>            - IP address of interface on which to listen (default: 0.0.0.0 = all interfaces)\n");
+    buf.appendf("    local_port <U16>                   - Port on which to listen (default: 4556)\n");
+    buf.appendf("    remote_addr <IP address>           - Only accept packets from specified IP address (usually not needed)\n");
+    buf.appendf("    remote_port <U16>                  - Only accept packets from specified port (usually not needed)\n");
+
+    buf.appendf("\n");
+    buf.appendf("Example:\n");
+    buf.appendf("interface add udprcvr udp local_addr=192.168.0.1 local_port=4556\n");
+    buf.appendf("    (create an interface named \"udprcvr\" to listen for UDP packets on network interface\n");
+    buf.appendf("     with IP address 192.168.0.1 using port 4556)\n");
+    buf.appendf("\n");
+}
 
 //----------------------------------------------------------------------
 bool
@@ -220,7 +283,7 @@ UDPConvergenceLayer::dump_interface(Interface* iface,
         buf->appendf("\tconnected remote_addr: %s remote_port: %d\n",
                      intoa(params->remote_addr_), params->remote_port_);
     } else {
-        buf->appendf("\tnot connected\n");
+        buf->appendf("\tlistening\n");
     }
 }
 
@@ -232,9 +295,9 @@ UDPConvergenceLayer::init_link(const LinkRef& link,
     in_addr_t addr;
     u_int16_t port = 0;
 
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() == NULL);
+    ASSERT(link->cl_info() == nullptr);
     
     log_debug("adding %s link %s", link->type_str(), link->nexthop());
 
@@ -257,7 +320,7 @@ UDPConvergenceLayer::init_link(const LinkRef& link,
     }
 
     if (link->params().mtu_ > MAX_BUNDLE_LEN) {
-        log_err("error parsing link options: mtu %d > maximum %d",
+        log_err("error parsing link options: mtu %" PRIu64 " > maximum %d",
                 link->params().mtu_, MAX_BUNDLE_LEN);
         delete params;
         return false;
@@ -272,24 +335,24 @@ UDPConvergenceLayer::init_link(const LinkRef& link,
 void
 UDPConvergenceLayer::delete_link(const LinkRef& link)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->cl_info() != nullptr);
 
     log_debug("UDPConvergenceLayer::delete_link: "
               "deleting link %s", link->name());
 
     delete link->cl_info();
-    link->set_cl_info(NULL);
+    link->set_cl_info(nullptr);
 }
 
 //----------------------------------------------------------------------
 void
 UDPConvergenceLayer::dump_link(const LinkRef& link, oasys::StringBuffer* buf)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->cl_info() != nullptr);
         
     Params* params = (Params*)link->cl_info();
     
@@ -310,9 +373,9 @@ UDPConvergenceLayer::open_contact(const ContactRef& contact)
     u_int16_t port;
 
     LinkRef link = contact->link();
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->cl_info() != nullptr);
     
     log_debug("UDPConvergenceLayer::open_contact: "
               "opening contact for link *%p", link.object());
@@ -373,7 +436,7 @@ UDPConvergenceLayer::close_contact(const ContactRef& contact)
 
     if (sender) {
         delete sender;
-        contact->set_cl_info(NULL);
+        contact->set_cl_info(nullptr);
     }
     
     return true;
@@ -385,7 +448,7 @@ UDPConvergenceLayer::bundle_queued(const LinkRef& link, const BundleRef& bundle)
 {
     (void) bundle;
 
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
    
      
@@ -396,16 +459,18 @@ UDPConvergenceLayer::bundle_queued(const LinkRef& link, const BundleRef& bundle)
                  contact.object());
         return;
     }
-    BundleRef lbundle = link->queue()->front();
-    ASSERT(contact == sender->contact_);
+    if(link->get_contact_state()){
+      BundleRef lbundle = link->queue()->front();
+      ASSERT(contact == sender->contact_);
 
-    int len = sender->send_bundle(lbundle, next_hop_addr_, next_hop_port_);
+      int len = sender->send_bundle(lbundle, next_hop_addr_, next_hop_port_);
 
-    if (len > 0) {
-        link->del_from_queue(lbundle, len);
-        link->add_to_inflight(lbundle, len);
+      if (len > 0) {
+        link->del_from_queue(lbundle);
+        link->add_to_inflight(lbundle);
         BundleDaemon::post(
-            new BundleTransmittedEvent(lbundle.object(), contact, link, len, 0));
+            new BundleTransmittedEvent(lbundle.object(), contact, link, len, 0, true, false));
+      }
     }
 }
 
@@ -424,10 +489,10 @@ void
 UDPConvergenceLayer::Receiver::process_data(u_char* bp, size_t len)
 {
     // the payload should contain a full bundle
-    Bundle* bundle = new Bundle();
+    Bundle* bundle = new Bundle(BundleProtocol::BP_VERSION_UNKNOWN);
     
     bool complete = false;
-    int cc = BundleProtocol::consume(bundle, bp, len, &complete);
+    ssize_t cc = BundleProtocol::consume(bundle, bp, len, &complete);
 
     if (cc < 0) {
         log_err("process_data: bundle protocol error");
@@ -555,16 +620,24 @@ UDPConvergenceLayer::Sender::init(Params* params,
 int
 UDPConvergenceLayer::Sender::send_bundle(const BundleRef& bundle, in_addr_t next_hop_addr_, u_int16_t next_hop_port_)
 {
+    oasys::ScopeLock scoplok(bundle->lock(), __func__);
+
     int cc = 0;
-    BlockInfoVec* blocks = bundle->xmit_blocks()->find_blocks(contact_->link());
-    ASSERT(blocks != NULL);
+    SPtr_BlockInfoVec blocks = bundle->xmit_blocks()->find_blocks(contact_->link());
+    ASSERT(blocks != nullptr);
+
+    scoplok.unlock();
+
 
     bool complete = false;
     size_t total_len = BundleProtocol::produce(bundle.object(), blocks,
                                                buf_, 0, sizeof(buf_),
                                                &complete);
+
+    scoplok.unlock();
+
     if (!complete) {
-        size_t formatted_len = BundleProtocol::total_length(blocks);
+        size_t formatted_len = BundleProtocol::total_length(bundle.object(), blocks);
         log_err("send_bundle: bundle too big (%zu > %u)",
                 formatted_len, UDPConvergenceLayer::MAX_BUNDLE_LEN);
         return -1;
@@ -573,7 +646,7 @@ UDPConvergenceLayer::Sender::send_bundle(const BundleRef& bundle, in_addr_t next
     // write it out the socket and make sure we wrote it all
     if(params_->rate_ > 0) {
         //log_debug("about to call rate_socket_.sendto");
-        cc = rate_socket_->sendto((char*)buf_, total_len, 0, next_hop_addr_, next_hop_port_, params_->wait_and_send_);
+        cc = rate_socket_->sendto((char*)buf_, total_len, 0, next_hop_addr_, next_hop_port_, true);
     } else {
         cc = socket_.sendto((char*)buf_, total_len, 0, next_hop_addr_, next_hop_port_);
     }

@@ -19,7 +19,7 @@
 #endif
 
 #include "Dictionary.h"
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 namespace dtn {
 
@@ -108,7 +108,13 @@ Dictionary::add_str(const std::string& str)
             dict_length_ = (dict_length_ == 0) ? 64 : dict_length_ * 2;
         } while (dict_length_ < length_ + str.length() + 1);
         
-        dict_ = (u_char*)realloc(dict_, dict_length_);
+        u_char* tmp = (u_char*)realloc(dict_, dict_length_);
+        if (tmp == nullptr) {
+	    log_err_p("/dtn/bundle/protocol", "error adding string to dictionary - realloc call failed");
+            return;
+        } else {
+            dict_ = tmp;
+        }
     }
 
     memcpy(&dict_[length_], str.data(), str.length());

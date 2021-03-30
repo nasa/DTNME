@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,9 +35,9 @@
 #ifndef _UDP_CONVERGENCE_LAYER_H_
 #define _UDP_CONVERGENCE_LAYER_H_
 
-#include <oasys/io/UDPClient.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/io/RateLimitedSocket.h>
+#include <third_party/oasys/io/UDPClient.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/io/RateLimitedSocket.h>
 
 #include "IPConvergenceLayer.h"
 
@@ -65,6 +65,12 @@ public:
      */
     bool interface_up(Interface* iface, int argc, const char* argv[]);
     void interface_activate(Interface* iface);
+
+    /**
+     * List valid options for links and interfaces
+     */
+    void list_link_opts(oasys::StringBuffer& buf);
+    void list_interface_opts(oasys::StringBuffer& buf);
 
     /**
      * Bring down the interface.
@@ -136,7 +142,6 @@ public:
         oasys::RateLimitedSocket::BUCKET_TYPE bucket_type_;         ///< bucket type for standard or leaky
         uint64_t  rate_;		///< Rate (in bps)
         uint64_t  bucket_depth_;	///< Token bucket depth (in bits)
-        bool      wait_and_send_;       ///< Force the socket to wait until sent on rate socket only
     };
     
     /**

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -63,7 +63,7 @@ extern "C" {
  * Make sure to bump this when changing any data structures, message
  * types, adding functions, etc.
  */
-#define DTN_IPC_VERSION 7
+#define DTN_IPC_VERSION 8
 
 /**
  * Default api ports. The handshake port is used for initial contact
@@ -76,7 +76,8 @@ extern "C" {
  * The maximum IPC message size (in bytes). Used primarily for
  * efficiency in buffer allocation since the transport uses TCP.
  */
-#define DTN_MAX_API_MSG 65536
+//version8 -- #define DTN_MAX_API_MSG 65536
+#define DTN_MAX_API_MSG 1050000
 
 /**
  * State of a DTN IPC channel.

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,13 +36,11 @@
 #define _BUNDLE_PROTOCOL_H_
 
 #include <sys/types.h>
-
+#include "BlockInfo.h"
 #include "contacts/Link.h"
 
 namespace dtn {
 
-class BlockInfo;
-class BlockInfoVec;
 class BlockProcessor;
 class Bundle;
 struct BundleTimestamp;
@@ -57,20 +55,6 @@ class EndpointID;
  */
 class BundleProtocol {
 public:
-    /**
-     * Register a new BlockProcessor handler to handle the given block
-     * type code when received off the wire.
-     */
-    static void register_processor(BlockProcessor* bp);
-
-    static void delete_block_processors();
-
-    /**
-     * Find the appropriate BlockProcessor for the given block type
-     * code.
-     */
-    static BlockProcessor* find_processor(u_int8_t type);
-
     /**
      * Initialize the default set of block processors.
      */
@@ -88,7 +72,7 @@ public:
      *
      * @return a pointer to the new block list
      */
-    static BlockInfoVec* prepare_blocks(Bundle* bundle, const LinkRef& link);
+    static SPtr_BlockInfoVec prepare_blocks(Bundle* bundle, const LinkRef& link);
     
     /**
      * Generate contents for the given BlockInfoVec on the given Link.
@@ -96,7 +80,7 @@ public:
      * @return the total length of the formatted blocks for this bundle.
      */
     static size_t generate_blocks(Bundle*        bundle,
-                                  BlockInfoVec*  blocks,
+                                  SPtr_BlockInfoVec&  blocks,
                                   const LinkRef& link);
 
     static void delete_blocks(Bundle* bundle, const LinkRef& link);
@@ -104,13 +88,13 @@ public:
     /**
      * Return the total length of the formatted bundle block data.
      */
-    static size_t total_length(const BlockInfoVec* blocks);
-    
+    static size_t total_length(Bundle* bundle, const SPtr_BlockInfoVec& blocks);
+
     /**
      * Temporary helper function to find the offset of the first byte
      * of the payload in a block list.
      */
-    static size_t payload_offset(const BlockInfoVec* blocks);
+    static size_t payload_offset(const Bundle* bundle, const SPtr_BlockInfoVec& blocks);
     
     /**
      * Copies out a chunk of formatted bundle data at a specified
@@ -119,7 +103,7 @@ public:
      * @return the length of the chunk produced (up to the supplied
      * length) and sets *last to true if the bundle is complete.
      */
-    static size_t produce(const Bundle* bundle, const BlockInfoVec* blocks,
+    static size_t produce(const Bundle* bundle, const SPtr_BlockInfoVec& blocks,
                           u_char* data, size_t offset, size_t len, bool* last);
     
     /**
@@ -135,7 +119,16 @@ public:
      * @return the length of data consumed or -1 on protocol error,
      * plus sets *last to true if the bundle is complete.
      */
-    static int64_t consume(Bundle* bundle, u_char* data, size_t len, bool* last);
+    static ssize_t consume(Bundle* bundle, u_char* data, size_t len, bool* last);
+
+    /**
+     * Bundle Protocol Versions
+     */
+    typedef enum : int64_t {
+        BP_VERSION_UNKNOWN                = -1,
+        BP_VERSION_6                      = 6,
+        BP_VERSION_7                      = 7,
+    } bp_versions_t;
 
     /**
      * Bundle Status Report "Reason Code" flags
@@ -150,7 +143,11 @@ public:
         REASON_NO_ROUTE_TO_DEST           = 0x06,
         REASON_NO_TIMELY_CONTACT          = 0x07,
         REASON_BLOCK_UNINTELLIGIBLE       = 0x08,
-        REASON_SECURITY_FAILED            = 0x09,
+        REASON_HOP_LIMIT_EXCEEDED         = 0x09,
+        REASON_TRAFFIC_PARED              = 0x0A,
+        REASON_BLOCK_UNSUPPORTED          = 0x0B,
+
+        REASON_SECURITY_FAILED            = 0x0F,
     } status_report_reason_t;
 
     /**
@@ -163,109 +160,6 @@ public:
     static bool validate(Bundle* bundle,
                          status_report_reason_t* reception_reason,
                          status_report_reason_t* deletion_reason);
-
-    /**
-     * Store a DTN timestamp into a 64-bit value suitable for
-     * transmission over the network.
-     */
-    static int set_timestamp(u_char* bp, size_t len, const BundleTimestamp& tv);
-
-    /**
-     * Retrieve a DTN timestamp from a 64-bit value that was
-     * transmitted over the network. This does not require the
-     * timestamp to be word-aligned.
-     */
-    static u_int64_t get_timestamp(BundleTimestamp* tv, const u_char* bp, size_t len);
-
-    /**
-     * Return the length required to encode the timestamp as two SDNVs
-     */
-    static size_t ts_encoding_len(const BundleTimestamp& tv);
-
-    /**
-     * The current version of the bundling protocol.
-     */
-    static const int CURRENT_VERSION = 0x06;
-    
-    static const unsigned PREAMBLE_FIXED_LENGTH = 1;
-
-    /**
-     * Valid type codes for bundle blocks.
-     * (See http://www.dtnrg.org/wiki/AssignedNamesAndNumbers)
-     */
-    typedef enum {
-        PRIMARY_BLOCK               = 0x000, ///< INTERNAL ONLY -- NOT IN SPEC
-        PAYLOAD_BLOCK               = 0x001, ///< Defined in RFC5050
-        BUNDLE_AUTHENTICATION_BLOCK = 0x002, ///< Defined in RFC6257
-        PAYLOAD_SECURITY_BLOCK      = 0x003, ///< Defined in RFC6257
-        CONFIDENTIALITY_BLOCK       = 0x004, ///< Defined in RFC6257
-        PREVIOUS_HOP_BLOCK          = 0x005, ///< Defined in RFC6259
-        METADATA_BLOCK              = 0x008, ///< Defined in RFC6258
-        EXTENSION_SECURITY_BLOCK    = 0x009, /// Defined in RFC6257
-
-        // XXX/dz In order to be compatible with the ION implementation
-        // the CTEB must be 0x00a and it is believed that it will be
-        // officially assigned. As a result, I had to move the 
-        // Age Block to 0x00d - sorry for any inconvenience!!
-        // XXX/dz not conditionally compiling values in this header so 
-        // that they will be placeholders even if not enabled.
-        CUSTODY_TRANSFER_ENHANCEMENT_BLOCK    = 0x00a,  ///< draft-jenkins-custody-transfer-enhancement-block-01
-
-        QUERY_EXTENSION_BLOCK       = 0x00b, ///< draft-farrell-dtnrg-bpq-00
-        SESSION_BLOCK               = 0x00c, ///< NOT IN SPEC YET
-        AGE_BLOCK                   = 0x00d, ///< draft-irtf-dtnrg-bundle-age-block-01
-        SEQUENCE_ID_BLOCK           = 0x010, ///< NOT IN SPEC YET
-        OBSOLETES_ID_BLOCK          = 0x011, ///< NOT IN SPEC YET
-
-        // XXX/dz Adding for compatibility with ION ACS in use by 
-        // University of Colorado at Boulder and the CGBA experiments
-        // NOT IN SPEC YET
-        EXTENDED_CLASS_OF_SERVICE_BLOCK        = 0x013,  ///< draft-irtf-dtnrg-ecos-02
-
-        API_EXTENSION_BLOCK         = 0x100, ///< INTERNAL ONLY -- NOT IN SPEC
-        UNKNOWN_BLOCK               = 0x101, ///< INTERNAL ONLY -- NOT IN SPEC
-    } bundle_block_type_t;
-
-    /**
-     * Values for block processing flags that appear in all blocks
-     * except the primary block.
-     */
-    typedef enum {
-        BLOCK_FLAG_REPLICATE               = 1 << 0,
-        BLOCK_FLAG_REPORT_ONERROR          = 1 << 1,
-        BLOCK_FLAG_DISCARD_BUNDLE_ONERROR  = 1 << 2,
-        BLOCK_FLAG_LAST_BLOCK              = 1 << 3,
-        BLOCK_FLAG_DISCARD_BLOCK_ONERROR   = 1 << 4,
-        BLOCK_FLAG_FORWARDED_UNPROCESSED   = 1 << 5,
-        BLOCK_FLAG_EID_REFS                = 1 << 6
-    } block_flag_t;
-
-    /**
-     * The basic block preamble that's common to all blocks
-     * (including the payload block but not the primary block).
-     */
-    struct BlockPreamble {
-        u_int8_t type;
-        u_int8_t flags;
-        u_char   length[0]; // SDNV
-    } __attribute__((packed));
-
-    /**
-     * Administrative Record Type Codes
-     */
-    typedef enum {
-        ADMIN_STATUS_REPORT            = 0x01,
-        ADMIN_CUSTODY_SIGNAL           = 0x02,
-        ADMIN_AGGREGATE_CUSTODY_SIGNAL = 0x04,
-        ADMIN_ANNOUNCE                 = 0x05,   // NOT IN BUNDLE SPEC
-    } admin_record_type_t;
-
-    /**
-     * Administrative Record Flags.
-     */
-    typedef enum {
-        ADMIN_IS_FRAGMENT       = 0x01,
-    } admin_record_flags_t;
 
     /**
      * Bundle Status Report Status Flags
@@ -293,30 +187,15 @@ public:
         CUSTODY_BLOCK_UNINTELLIGIBLE       = 0x08
     } custody_signal_reason_t;
 
-    /**
-     * Assuming the given bundle is an administrative bundle, extract
-     * the admin bundle type code from the bundle's payload.
-     *
-     * @return true if successful
-     */
-    static bool get_admin_type(const Bundle* bundle,
-                               admin_record_type_t* type);
 
     struct Params {
         Params();
-        bool age_outbound_enabled_;
-        bool age_inbound_processing_;
-        bool age_zero_creation_ts_time_;
+        bool status_rpts_enabled_;
+        bool use_bundle_age_block_;
+        uint8_t default_hop_limit_;
     };
 
     static Params params_;
-
-private:
-    /**
-     * Array of registered BlockProcessor handlers -- fixed size since
-     * there can be at most one handler per protocol type
-     */
-    static BlockProcessor* processors_[256];
 
 };
 

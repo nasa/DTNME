@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include <oasys/util/URI.h>
+#include <third_party/oasys/util/URI.h>
 #include "EndpointID.h"
 
 namespace dtn {
@@ -56,6 +56,17 @@ public:
      */
     virtual bool match(const EndpointIDPattern& pattern,
                        const EndpointID& eid) = 0;
+    
+    /**
+     * Whether the IPN Scheme Node Numbers match. 
+     * Default is to assume this is not the IPN scheme so return false.
+     */
+    virtual bool ipn_node_match(const EndpointID& eid1, const EndpointID& eid2)
+    {
+        (void) eid1;
+        (void) eid2;
+        return false;
+    }
     
     /**
      * Append the given service tag to the uri in a scheme-specific

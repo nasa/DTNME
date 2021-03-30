@@ -20,12 +20,12 @@
 
 #include <map>
 
-#include "oasys/debug/Log.h"
-#include "oasys/serialize/Serialize.h"
-#include "oasys/thread/SpinLock.h"
-#include "oasys/thread/Thread.h"
-#include "oasys/util/ScratchBuffer.h"
-#include "oasys/thread/Notifier.h"
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/Notifier.h>
 
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleEventHandler.h"
@@ -50,6 +50,7 @@ typedef std::pair<std::string, DtpcPayloadAggregator*> DtpcPayloadAggregatorPair
 typedef DtpcPayloadAggregatorMap::iterator             DtpcPayloadAggregatorIterator;
 typedef std::pair<DtpcPayloadAggregatorIterator, bool> DtpcPayloadAggregatorInsertResult;
 
+typedef std::shared_ptr<DtpcPayloadAggregationTimer> SPtr_DtpcPayloadAggregationTimer;
 
 /**
  * DTPC PayloadAggregator object is instantiated for each unique 
@@ -249,7 +250,7 @@ protected:
     DtpcTopicAggregatorMap topic_agg_map_;
 
     /// Aggregation Timer signals payload should be sent
-    DtpcPayloadAggregationTimer* timer_;
+    SPtr_DtpcPayloadAggregationTimer timer_;
 
     /// Time when the Aggregation Timer should trigger (kept for reload from datastore)
     struct timeval expiration_time_;

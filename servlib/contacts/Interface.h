@@ -17,7 +17,7 @@
 #ifndef _INTERFACE_H_
 #define _INTERFACE_H_
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 #include <vector>
 
 namespace dtn {

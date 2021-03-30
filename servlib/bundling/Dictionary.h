@@ -17,7 +17,7 @@
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
 
-#include <oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
 #include <servlib/naming/EndpointID.h>
 
 namespace dtn {

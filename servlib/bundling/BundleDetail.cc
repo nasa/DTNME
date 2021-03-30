@@ -16,7 +16,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,10 +37,10 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/debug/Logger.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/storage/StoreDetail.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/storage/StoreDetail.h>
 
 #include "Bundle.h"
 #include "BundleDetail.h"
@@ -102,38 +102,6 @@ BundleDetail::BundleDetail(Bundle				   *bndl,
 		add_detail("bundle_length",				oasys::DK_ULONG,
 				   (void *)&payload_length_,		sizeof(size_t));
 	}
-
-#ifdef BPQ_ENABLED
-	/* Check if bundle has a BPQ block */
-	has_BPQ_blk_ = false;
-	const BlockInfo* bi_bpq;
-    if( ((bi_bpq = bndl->recv_blocks().find_block(BundleProtocol::QUERY_EXTENSION_BLOCK)) != NULL) ||
-        ((bi_bpq = (const_cast<Bundle*>(bndl)->api_blocks()->
-                       find_block(BundleProtocol::QUERY_EXTENSION_BLOCK))) != NULL) ) {
-
-        log_debug("bundle %d has BPQ block - adding details for BPQ", bundleid_);
-
-        bpq_blk_ = dynamic_cast<BPQBlock *>(bi_bpq->locals());
-        ASSERT (bpq_blk_ != NULL);
-        has_BPQ_blk_ = true;
-        bpq_blk_->add_ref("bundle_detail::", "add_detail");
-        bpq_kind_ = bpq_blk_->kind();
-        bpq_matching_rule_ = bpq_blk_->matching_rule();
-
-		add_detail("bpq_kind",	oasys::DK_USHORT,
-				   (void *)&bpq_kind_, sizeof(BPQBlock::kind_t));
-		add_detail("bpq_matching_rule",	oasys::DK_USHORT,
-				   (void *)&bpq_matching_rule_, sizeof(u_int));
-		log_debug( "query: %s, src: %s", bpq_blk_->query_val(), bpq_blk_->source().c_str());
-		add_detail("bpq_query", oasys::DK_VARCHAR,
-				   (void *)const_cast<u_char *>(bpq_blk_->query_val()),
-				   bpq_blk_->query_len() - 1);
-		add_detail("bpq_real_source", oasys::DK_VARCHAR,
-				   (void *)const_cast<char *>(bpq_blk_->source().c_str()),
-				   bpq_blk_->source().length());
-    }
-
-#endif /* BPQ_ENABLED */
 }
 //----------------------------------------------------------------------
 BundleDetail::BundleDetail(const oasys::Builder&) :    
@@ -141,19 +109,10 @@ BundleDetail::BundleDetail(const oasys::Builder&) :
 		bundle_(NULL)
 {
 	bundleid_ = BUNDLE_ID_MAX;
-#ifdef BPQ_ENABLED
-	has_BPQ_blk_ = false;
-#endif /* BPQ_ENABLED */
 }
 //----------------------------------------------------------------------
 BundleDetail::~BundleDetail()
 {
-#ifdef BPQ_ENABLED
-	if (has_BPQ_blk_)
-	{
-		bpq_blk_->del_ref("bundle_detail:", "destructor");
-	}
-#endif /* BPQ_ENABLED */
 }
 //----------------------------------------------------------------------
 }  /* namespace dtn */

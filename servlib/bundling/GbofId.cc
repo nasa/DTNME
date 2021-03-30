@@ -16,7 +16,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -44,29 +44,6 @@
 
 // GBOFID -- Global Bundle Or Fragment ID
 
-namespace oasys {
-
-//----------------------------------------------------------------------
-template<>
-const char*
-InlineFormatter<dtn::GbofId>
-::format(const dtn::GbofId& id)
-{
-    if (! id.is_fragment_) {
-        buf_.appendf("<%s, %" PRIu64 ".%" PRIu64 ">",
-                     id.source_.c_str(),
-                     id.creation_ts_.seconds_,
-                     id.creation_ts_.seqno_);
-    } else {
-        buf_.appendf("<%s, %" PRIu64 ".%" PRIu64 ", FRAG len %u offset %u>",
-                     id.source_.c_str(),
-                     id.creation_ts_.seconds_,
-                     id.creation_ts_.seqno_,
-                     id.frag_length_, id.frag_offset_);
-    }
-    return buf_.c_str();
-}
-} // namespace oasys
 
 namespace dtn {
 
@@ -75,8 +52,7 @@ GbofId::GbofId()
     : source_(EndpointID::NULL_EID()),
       is_fragment_(false),
       frag_length_(0),
-      frag_offset_(0),
-      is_gbofid_str_set_(false)
+      frag_offset_(0)
 {
     gbofid_str_.clear();
 }
@@ -85,14 +61,13 @@ GbofId::GbofId()
 GbofId::GbofId(EndpointID      source,
                BundleTimestamp creation_ts,
                bool            is_fragment,
-               u_int32_t       frag_length,
-               u_int32_t       frag_offset)
+               size_t       frag_length,
+               size_t       frag_offset)
     : source_(source),
       creation_ts_(creation_ts),
       is_fragment_(is_fragment),
       frag_length_(frag_length),
-      frag_offset_(frag_offset),
-      is_gbofid_str_set_(false)
+      frag_offset_(frag_offset)
 {
     set_gbofid_str();
 }
@@ -103,8 +78,7 @@ GbofId::GbofId (const GbofId& other)
       creation_ts_(other.creation_ts_),
       is_fragment_(other.is_fragment_),
       frag_length_(other.frag_length_),
-      frag_offset_(other.frag_offset_),
-      is_gbofid_str_set_(false)
+      frag_offset_(other.frag_offset_)
 {
     set_gbofid_str();
 }
@@ -119,15 +93,14 @@ void
 GbofId::init(EndpointID      source,
              BundleTimestamp creation_ts,
              bool            is_fragment,
-             u_int32_t       frag_length,
-             u_int32_t       frag_offset)
+             size_t       frag_length,
+             size_t       frag_offset)
 {
     source_ = source;
     creation_ts_ = creation_ts;
     is_fragment_ = is_fragment;
     frag_length_ = frag_length;
     frag_offset_ = frag_offset;
-    is_gbofid_str_set_ = false;
     set_gbofid_str();
 }
 
@@ -186,8 +159,8 @@ bool
 GbofId::equals(EndpointID source,
                BundleTimestamp creation_ts,
                bool is_fragment,
-               u_int32_t frag_length,
-               u_int32_t frag_offset) const
+               size_t frag_length,
+               size_t frag_offset) const
 {
     if (creation_ts_.seconds_ == creation_ts.seconds_ &&
 	creation_ts_.seqno_ == creation_ts.seqno_ &&
@@ -203,36 +176,97 @@ GbofId::equals(EndpointID source,
 }
 
 //----------------------------------------------------------------------
-std::string
-GbofId::str() const
+void
+GbofId::set_gbofid_str()
 {
-    if (!is_gbofid_str_set_) {
-        GbofId* tmp = (GbofId*) this;
-        tmp->set_gbofid_str();
+    char buf[128];
+
+    if (!is_fragment_) {
+        snprintf(buf, sizeof(buf), "<%s, %" PRIu64 ".%" PRIu64 ">",
+                     source_.c_str(),
+                     creation_ts_.seconds_,
+                     creation_ts_.seqno_);
+    } else {
+        snprintf(buf, sizeof(buf), "<%s, %" PRIu64 ".%" PRIu64 ", FRAG len %zu offset %zu>",
+                     source_.c_str(),
+                     creation_ts_.seconds_,
+                     creation_ts_.seqno_,
+                     frag_length_,
+                     frag_offset_);
     }
-    return gbofid_str_;
+
+    buf[sizeof(buf)-1] = '\0';
+    gbofid_str_ = buf;
 }
 
 //----------------------------------------------------------------------
 void
-GbofId::set_gbofid_str()
+GbofId::set_source(const EndpointID& eid)
 {
-/* XXX/dz - Need this format in addition to the InlineFormatter?
-
-    std::ostringstream oss;
-
-    oss << source_.str() << ","
-        << creation_ts_.seconds_ << "," 
-        << creation_ts_.seqno_ << ","
-        << is_fragment_ << ","
-        << frag_length_ << ","
-        << frag_offset_;
-
-    gbofid_str_ = oss.str();
-*/
-
-    gbofid_str_ = oasys::InlineFormatter<GbofId>().format(*this);
-    is_gbofid_str_set_ = true;
+    source_.assign(eid);
+    set_gbofid_str();
 }
+
+//----------------------------------------------------------------------
+void
+GbofId::set_source(std::string& eid)
+{
+    source_.assign(eid);
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_creation_ts(uint64_t seconds, uint64_t seqno)
+{
+    creation_ts_.seconds_ = seconds;
+    creation_ts_.seqno_ = seqno;
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_creation_ts(const BundleTimestamp& ts)
+{
+    creation_ts_ = ts; 
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_fragment(bool t, size_t offset, size_t length)
+{ 
+    is_fragment_ = t; 
+    frag_offset_ = offset;
+    frag_length_ = length;
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_is_fragment(bool t)
+{ 
+    is_fragment_ = t; 
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_frag_offset(size_t offset)
+{ 
+    frag_offset_ = offset;
+    set_gbofid_str();
+}
+
+//----------------------------------------------------------------------
+void
+GbofId::set_frag_length(size_t length)
+{ 
+    frag_length_ = length;
+    set_gbofid_str();
+}
+
+
+
 
 } // namespace dtn

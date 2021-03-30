@@ -22,19 +22,12 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#include <oasys/io/UDPClient.h>
-#include <oasys/io/TCPClient.h>
-#include <oasys/serialize/XercesXMLSerialize.h>
-#include <oasys/thread/MsgQueue.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/thread/MsgQueue.h>
 
 #include "EhsDtnNode.h"
 #include "EhsSrcDstWildBoolMap.h"
 #include "EhsLink.h"
-#include "router-custom.h"
 
 namespace dtn {
 
@@ -46,7 +39,8 @@ typedef void (*LOG_CALLBACK_FUNC)(const std::string& path, int level, const std:
  * EhsExternalRouterImpl is an ExternalRouter implementation specific to MSFC and ISS
  */
 class EhsExternalRouterImpl : public oasys::Thread,
-                              public oasys::UDPClient {
+                              public oasys::Logger,
+                              public ExternalRouterClientIF {
 public:
     EhsExternalRouterImpl(LOG_CALLBACK_FUNC log_msg, int log_level=4, bool oasys_app=false);
     virtual ~EhsExternalRouterImpl();
@@ -54,9 +48,7 @@ public:
     /**
      * The main thread loop
      */
-    virtual void run();
-    virtual void run_multicast();
-    virtual void run_tcp();
+    virtual void run() override;
 
     /**
      * Issue shutdown request to the DTNME server(s)
@@ -67,11 +59,20 @@ public:
      * String parsing configuration methods 
      * NOTE: these can be called before start()
      */
+    virtual bool configure_remote_address(std::string& val);
+    virtual bool configure_remote_port(std::string& val);
+
+    // depricated - always TCP
     virtual bool configure_use_tcp_interface(std::string& val);
-    virtual bool configure_mc_address(std::string& val);
-    virtual bool configure_mc_port(std::string& val);
+    // depricated - not needed for TCP
     virtual bool configure_network_interface(std::string& val);
+    // depricated - always TCP
+    virtual bool configure_mc_address(std::string& val) { return configure_remote_address(val); }
+    // depricated - always TCP
+    virtual bool configure_mc_port(std::string& val) { return configure_remote_port(val); }
+    // depricated - schema no longer used - only retained for backward compatibility for a while
     virtual bool configure_schema_file(std::string& val);
+
 
     virtual bool configure_link_throttle(std::string& link_id, uint32_t throttle_bps);
 
@@ -130,6 +131,8 @@ public:
      */
     virtual int num_dtn_nodes();
     virtual const char* update_statistics();
+    virtual const char* update_statistics2();
+    virtual const char* update_statistics3();
     virtual void bundle_stats(oasys::StringBuffer* buf);
     virtual void bundle_list(oasys::StringBuffer* buf);
     virtual void link_dump(oasys::StringBuffer* buf);
@@ -151,14 +154,12 @@ public:
     /**
      * Parse incoming actions and place them on the
      * global event queue
-     * @param payload the incoming XML document payload
      */
-    void process_action(const char *payload);
+    int process_action(std::unique_ptr<std::string>& msgptr);
 
     /**
      * Send a message to the DTNME ExternalRouterImpl interface
      */
-    virtual void send_msg(rtrmessage::bpa &message, const std::string* server_eid);
     virtual void send_tcp_msg(std::string* msg);
 
     /**
@@ -179,6 +180,11 @@ public:
     virtual void log_msg(const std::string& path, oasys::log_level_t level, std::string& msg);
     virtual void log_msg_va(const std::string& path, oasys::log_level_t level, const char*format, va_list args);
 
+    /** 
+     ** override pure virtual from ExternalRouterClientIF  (not actually used)
+     **/
+    virtual void send_msg(std::string* msg) override;
+ 
 protected:
     /**
      * Log message method for internal use
@@ -188,33 +194,50 @@ protected:
 protected:
     virtual void init();
 
-    virtual bool open_socket();
-
-    virtual EhsDtnNode* get_dtn_node(std::string eid, std::string eid_ipn, std::string alert);
+    virtual SPtr_EhsDtnNode get_dtn_node(std::string eid, std::string eid_ipn, std::string alert);
+    virtual void remove_dtn_nodes_after_comm_error();
 
 
 
     class TcpSender;
 
-    /**
-     * callback when tcp sender exits
-     */
-    virtual void tcp_sender_closed(TcpSender* tcp_sender);
+protected:
 
-private:
-//    Link::link_type_t convert_link_type(rtrmessage::linkTypeType type);
-//    Bundle::priority_values_t convert_priority(rtrmessage::bundlePriorityType);
-//    ForwardingInfo::action_t convert_fwd_action(rtrmessage::bundleForwardActionType);
+    /**
+     * Helper class (and thread) that manages communications
+     * with external routers
+     */
+    class TcpSender : public oasys::Thread,
+                      public oasys::Logger {
+    public:
+        TcpSender();
+        virtual ~TcpSender();
+        virtual void set_parent(EhsExternalRouterImpl* parent) { parent_ = parent; }
+        virtual void run();
+        virtual void post(std::string* event);
+
+        virtual uint64_t max_bytes_sent();
+
+    protected:
+        /// Message queue for accepting BundleEvents from ExternalRouter
+        oasys::MsgQueue< std::string * > eventq_;
+    
+        EhsExternalRouterImpl* parent_ = nullptr;
+    };
 
 
 protected:
-    class Sender;
-
     /// Lock to serialize access between threads
-    oasys::SpinLock lock_;
+    oasys::SpinLock node_map_lock_;
+    oasys::SpinLock config_lock_;
+    oasys::SpinLock tcp_sender_lock_;
 
     /// Lock to serialize returning log messages to parent application
     oasys::SpinLock log_lock_;
+
+    /// socket params
+    in_addr_t remote_addr_;
+    uint16_t  remote_port_;
 
     /// Flag indicating Forward Link processing enabled
     bool fwdlnk_enabled_;
@@ -225,24 +248,8 @@ protected:
     /// Flag indicating whether or not to allow LTP ACKs while disabled
     bool fwdlnk_force_LOS_while_disabled_;
 
-    /// Separate thread to handle sending messages back to the DTN node(s)
-    Sender* sender_;
-    TcpSender* tcp_sender_;
-
     /// Message queue for accepting transmit requests 
-    oasys::MsgQueue< std::string * > *eventq;
-
-    /// Xerces XML validating parser for incoming messages
-    oasys::XercesXMLUnmarshal *parser_;
-
-    /// schema to use in the ExternalRouter communications
-    std::string schema_;
-
-    /// Is server validation required?
-    bool server_validation_;
-
-    /// Is client validation required?
-    bool client_validation_;
+    oasys::MsgQueue< std::string * > eventq_;
 
     /// map of DTN nodes by EID
     EhsDtnNodeMap dtn_node_map_;
@@ -254,7 +261,7 @@ protected:
     int log_level_;
 
     /// Flag indicating parent is an oasys application (Log already initialized)
-    bool oasys_app_;
+    bool oasys_app_ = false;
 
 
     /// List of Link configurations
@@ -284,80 +291,14 @@ protected:
     /// Sequence Counter for outgoing messages
     uint64_t send_seq_ctr_;
 
+    /// Socket connected to DTNME server
+    oasys::TCPClient tcp_client_;
 
-    /// Configure to use TCP instead of multicast
-    bool use_tcp_interface_;
-    oasys::TCPClient* tcp_client_;
-};
+    /// Separate thread to handle sending messages back to the DTN node(s)
+    TcpSender tcp_sender_;
 
-/**
- * Helper class (and thread) that manages communications
- * with external routers
- */
-class EhsExternalRouterImpl::Sender: public oasys::Thread,
-                                     public oasys::UDPClient {
-public:
-    Sender(EhsExternalRouterImpl* parent, 
-           oasys::IPSocket::ip_socket_params& params,
-           in_addr_t local_addr,
-           in_addr_t remote_addr, uint16_t remote_port);
-
-    virtual ~Sender();
-
-    /**
-     * The main thread loop
-     */
-    virtual void run();
-
-    /**
-     * Parse incoming actions and place them on the
-     * global event queue
-     * @param payload the incoming XML document payload
-     */
-    void process_action(const char *payload);
-
-    /// Message queue for accepting BundleEvents from ExternalRouter
-    oasys::MsgQueue< std::string * > *eventq;
-
-    oasys::SpinLock *lock_;
-
-    /// Max bytes sent in one second
-    uint64_t max_bytes_sent()   { return max_bytes_sent_; }
-
-private:
-    /// Pointer to the parent object
-    EhsExternalRouterImpl* parent_;
-
-    /// Rate Limiting TokenBucket
-    oasys::TokenBucket bucket_;
-
-    /// Gather stats on bytes sent per second
-    oasys::Time transmit_timer_;
-    uint64_t bytes_sent_;
-    uint64_t max_bytes_sent_;
-};
-
-class EhsExternalRouterImpl::TcpSender : public oasys::Thread,
-                                         public oasys::Logger {
-public:
-    TcpSender(EhsExternalRouterImpl* parent);
-    virtual ~TcpSender();
-    virtual void run();
-    virtual void post(std::string* event);
-
-    virtual uint64_t max_bytes_sent();
-
-protected:
-    /// Message queue for accepting BundleEvents from ExternalRouter
-    oasys::MsgQueue< std::string * > *eventq_;
-
-    EhsExternalRouterImpl* parent_;
 };
 
 } // namespace dtn
-
-#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
-
-#endif // EHSROUTER_ENABLED
 
 #endif //_EHS_EXTERNAL_ROUTER_IMPL_H_

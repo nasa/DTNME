@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,7 +37,7 @@
 #endif
 
 #include <algorithm>
-#include <oasys/util/OptParser.h>
+#include <third_party/oasys/util/OptParser.h>
 
 #include "Bundle.h"
 #include "BundleDaemon.h"
@@ -59,7 +59,7 @@ CustodyTimerSpec CustodyTimerSpec::defaults_(30 * 60, 25, 0);
 u_int32_t
 CustodyTimerSpec::calculate_timeout(const Bundle* bundle) const
 {
-    u_int32_t timeout = (u_int32_t)((double)lifetime_pct_ * bundle->expiration() / 100.0);
+    u_int32_t timeout = (u_int32_t)((double)lifetime_pct_ * bundle->expiration_secs() / 100.0);
 
     if (min_ != 0) {
         timeout = std::max(timeout, min_);
@@ -70,7 +70,7 @@ CustodyTimerSpec::calculate_timeout(const Bundle* bundle) const
     
     log_debug_p("/dtn/bundle/custody_timer", "calculate_timeout: "
                 "min %u, lifetime_pct %u, expiration %" PRIu64 ", max %u: timeout %u",
-                min_, lifetime_pct_, bundle->expiration(), max_, timeout);
+                min_, lifetime_pct_, bundle->expiration_secs(), max_, timeout);
     return timeout;
 }
 
@@ -96,37 +96,74 @@ CustodyTimerSpec::serialize(oasys::SerializeAction* a)
 }
 
 //----------------------------------------------------------------------
-CustodyTimer::CustodyTimer(const oasys::Time& xmit_time,
-                           const CustodyTimerSpec& spec,
-                           Bundle* bundle, const LinkRef& link)
+CustodyTimer::CustodyTimer(Bundle* bundle, const LinkRef& link)
     : Logger("CustodyTimer", "/dtn/bundle/custody_timer"),
-      bundle_(bundle, "CustodyTimer"), link_(link.object(), "CustodyTimer")
+      bref_(bundle, "CustodyTimer"), lref_(link.object(), "CustodyTimer")
 {
+}
+
+
+//----------------------------------------------------------------------
+void
+CustodyTimer::start(const oasys::Time& xmit_time,
+                    const CustodyTimerSpec& spec,
+                    SPtr_CustodyTimer& sptr)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    // save an internal reference so we can later cancel
+    sptr_ = sptr;
+
     oasys::Time time(xmit_time);
-    u_int32_t delay = spec.calculate_timeout(bundle);
+    u_int32_t delay = spec.calculate_timeout(bref_.object());
     time.sec_ += delay;
 
-    log_info("scheduling timer: xmit_time %u.%u delay %u secs "
-             "(in %u msecs) for *%p",
+    log_debug("scheduling timer: xmit_time %" PRIu64 ".%" PRIu64 " delay %u secs "
+             "(in %" PRIu64 " msecs) for *%p",
              xmit_time.sec_, xmit_time.usec_, delay,
-             (time - oasys::Time::now()).in_milliseconds(), bundle);
+             (time - oasys::Time::now()).in_milliseconds(), bref_.object());
 
     // XXX/demmer the Timer interface should be changed to use oasys::Time
     struct timeval tv;
     tv.tv_sec  = time.sec_;
     tv.tv_usec = time.usec_;
-    schedule_at(&tv);
+
+    oasys::SharedTimer::schedule_at(&tv, sptr_);
+}
+
+//----------------------------------------------------------------------
+void
+CustodyTimer::cancel()
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    // release the bundle and link
+    bref_.release();
+    lref_.release();
+
+    if (sptr_ != nullptr) {
+        oasys::SharedTimer::cancel(sptr_);
+        sptr_ = nullptr;
+    }
 }
 
 //----------------------------------------------------------------------
 void
 CustodyTimer::timeout(const struct timeval& now)
 {
-    (void)now;
-    log_info("CustodyTimer::timeout");
-    if (NULL != bundle_.object()) {
-        BundleDaemon::post(new CustodyTimeoutEvent(bundle_.object(), link_));
+    (void) now;
+
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (bref_ != nullptr) {
+        BundleDaemon::post(new CustodyTimeoutEvent(bref_.object(), lref_));
     }
+
+    // release the bundle and link
+    bref_.release();
+    lref_.release();
+
+    sptr_ = nullptr;
 }
 
 } // namespace dtn

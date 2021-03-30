@@ -36,7 +36,7 @@
 % */
 %#define DTPC_MAX_ENDPOINT_ID 256	/* max endpoint_id size (bytes) */
 %#define DTPC_MAX_PATH_LEN PATH_MAX	/* max path length */
-%#define DTPC_MAX_DATA_ITEM_MEM 50000	/* biggest in-memory bundle is ~50K*/
+%#define DTPC_MAX_DATA_ITEM_MEM 1048576 /* biggest in-memory bundle is 1MB*/
 
 %
 %/**

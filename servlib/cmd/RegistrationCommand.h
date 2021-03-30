@@ -17,7 +17,7 @@
 #ifndef _REGISTRATION_COMMAND_H_
 #define _REGISTRATION_COMMAND_H_
 
-#include <oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
 
 namespace dtn {
 

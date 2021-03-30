@@ -17,9 +17,9 @@
 #ifndef _DTNSERVER_H_
 #define _DTNSERVER_H_
 
-#include <oasys/debug/Logger.h>
-#include <oasys/thread/Atomic.h>
-#include <oasys/storage/DurableStore.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/Atomic.h>
+#include <third_party/oasys/storage/DurableStore.h>
 
 namespace dtn {
 

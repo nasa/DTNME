@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,7 +36,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
+#include <third_party/oasys/util/OptParser.h>
 
 #include "Link.h"
 #include "ContactManager.h"
@@ -62,7 +62,7 @@ Link::Params::Params()
       max_retry_interval_(10 * 60),
       idle_close_time_(0),
       potential_downtime_(30),
-      prevhop_hdr_(false),
+      prevhop_hdr_(true),
       cost_(100),
       qlimit_enabled_(false),
       qlimit_bundles_high_(10),
@@ -94,7 +94,7 @@ Link::create_link(const std::string& name, link_type_t type,
     int count = link->parse_args(argc, argv, invalid_argp);
     if (count == -1) {
         link->deleted_ = true;
-        link = NULL;
+        link = nullptr;
         return link;
     }
 
@@ -108,7 +108,7 @@ Link::create_link(const std::string& name, link_type_t type,
     link->cl_name_ = std::string(link->clayer_->name());
     if (!link->clayer_->init_link(link, argc, argv)) {
         link->deleted_ = true;
-        link = NULL;
+        link = nullptr;
         return link;
     }
     
@@ -147,19 +147,20 @@ Link::Link(const std::string& name, link_type_t type,
       contact_("Link"),
       clayer_(cl),
       cl_name_(cl->name()),
-      cl_info_(NULL),
-      router_info_(NULL),
+      cl_info_(nullptr),
+      router_info_(nullptr),
       remote_eid_(EndpointID::NULL_EID()),
       reincarnated_(false),
       used_in_fwdlog_(false),
       in_datastore_(false),
       deferred_bundle_count_(0),
-      deferred_timer_(NULL)
-
+      deferred_timer_(nullptr),
+      contact_timer_(nullptr),
+      contact_state_(0)
 {
     ASSERT(clayer_);
-
     params_         = default_params_;
+
     retry_interval_ = 0; // set in ContactManager
 
     memset(&stats_, 0, sizeof(Stats));
@@ -185,10 +186,10 @@ Link::Link(const oasys::Builder&)
       bundles_inflight_(0),
       bytes_inflight_(0),
       contact_("Link"),
-      clayer_(NULL),
+      clayer_(nullptr),
       cl_name_(""),
-      cl_info_(NULL),
-      router_info_(NULL),
+      cl_info_(nullptr),
+      router_info_(nullptr),
       remote_eid_(EndpointID::NULL_EID()),
       reincarnated_(false),
       used_in_fwdlog_(false),
@@ -203,7 +204,7 @@ Link::delete_link()
     oasys::ScopeLock l(&lock_, "Link::delete_link");
 
     ASSERT(!isdeleted());
-    ASSERT(clayer_ != NULL);
+    ASSERT(clayer_ != nullptr);
 
     clayer_->delete_link(LinkRef(this, "Link::delete_link"));
     deleted_ = true;
@@ -255,7 +256,7 @@ Link::cancel_all_bundles()
         payload_len = bref->payload().length();
 
         // sanity checks
-        ASSERT(payload_len != 0);
+//        ASSERT(payload_len != 0);
         if (bytes_queued_ >= payload_len) {
             bytes_queued_ -= payload_len;
     
@@ -282,6 +283,11 @@ Link::isdeleted() const
 void
 Link::set_used_in_fwdlog()
 {
+    if (used_in_fwdlog_)
+    {
+        return;
+    }
+
     oasys::ScopeLock l(&lock_, "Link::set_used_in_fwdlog");
 
     // Update persistent storage if changing value
@@ -313,7 +319,7 @@ Link::reconfigure_link(int argc, const char* argv[])
         return false;
     }
 
-    ASSERT(clayer_ != NULL);
+    ASSERT(clayer_ != nullptr);
     return clayer_->reconfigure_link(LinkRef(this, "Link::reconfigure_link"),
                                      argc, argv);
 }
@@ -366,7 +372,7 @@ Link::reconfigure_link(AttributeVector& params)
         }
     }
     
-    ASSERT(clayer_ != NULL);
+    ASSERT(clayer_ != nullptr);
     return clayer_->reconfigure_link(
                         LinkRef(this, "Link::reconfigure_link"), params);
 }
@@ -400,7 +406,7 @@ Link::serialize(oasys::SerializeAction* a)
      * The persistent store just records the name of the convergence layer.
      * Initially we are just using this for checking manually created links
      * for consistency.  If the convergence layer is not available when
-     * restarting we just leave the clayer NULL.  the cl_info needs more
+     * restarting we just leave the clayer nullptr.  the cl_info needs more
      * work because the connection convergence layer doesn't have a serialize
      * routine for the link parameters (yet).
      */
@@ -427,6 +433,8 @@ Link::serialize(oasys::SerializeAction* a)
     a->process("idle_close_time",    &params_.idle_close_time_);
     a->process("potential_downtime", &params_.potential_downtime_);
     a->process("cost",               &params_.cost_);
+    a->process("bp6_redirect",       &params_.bp6_redirect_);
+    a->process("bp7_redirect",       &params_.bp7_redirect_);
 
     if (a->action_code() == oasys::Serialize::UNMARSHAL) {
         logpathf("/dtn/link/%s", name_.c_str());
@@ -442,7 +450,7 @@ Link::parse_args(int argc, const char* argv[], const char** invalidp)
     p.addopt(new dtn::EndpointIDOpt("remote_eid", &remote_eid_));
     p.addopt(new oasys::BoolOpt("reliable", &reliable_));
     p.addopt(new oasys::StringOpt("nexthop", &nexthop_));
-    p.addopt(new oasys::UIntOpt("mtu", &params_.mtu_));
+    p.addopt(new oasys::UInt64Opt("mtu", &params_.mtu_));
     p.addopt(new oasys::UIntOpt("min_retry_interval",
                                 &params_.min_retry_interval_));
     p.addopt(new oasys::UIntOpt("max_retry_interval",
@@ -462,6 +470,14 @@ Link::parse_args(int argc, const char* argv[], const char** invalidp)
                                 &params_.qlimit_bundles_low_));
     p.addopt(new oasys::SizeOpt("qlimit_bytes_low",
                                 &params_.qlimit_bytes_low_));
+
+    p.addopt(new oasys::SizeOpt("qlimit_bytes_low",
+                                &params_.qlimit_bytes_low_));
+    
+    p.addopt(new oasys::StringOpt("bp6_redirect",
+                                &params_.bp6_redirect_));
+    p.addopt(new oasys::StringOpt("bp7_redirect",
+                                &params_.bp7_redirect_));
     
     int ret = p.parse_and_shift(argc, argv, invalidp);
     if (ret == -1) {
@@ -493,14 +509,21 @@ Link::set_initial_state()
 //----------------------------------------------------------------------
 Link::~Link()
 {
-    log_debug("destroying link %s", name());
+    if (!BundleDaemon::shutting_down()) {
+        // occasional segfault while shutting down trying to delete cl_info_
         
-    ASSERT(!isopen());
-    if(cl_info_ !=NULL) {
-        delete cl_info_;
-        cl_info_ = NULL;
+        ASSERT(!isopen());
+
+        if(cl_info_ != nullptr) {
+            delete cl_info_;
+            cl_info_ = nullptr;
+        }
+
+        if (router_info_ != nullptr) {
+            delete router_info_;
+            router_info_ = nullptr;
+        }
     }
-    ASSERT(router_info_ == NULL);
 }
 
 //----------------------------------------------------------------------
@@ -565,8 +588,11 @@ Link::open()
     // tell the convergence layer to establish a new session however
     // it needs to, it will set the Link state to OPEN and post a
     // ContactUpEvent when it has done the deed
-    ASSERT(contact_ == NULL);
-    contact_ = new Contact(LinkRef(this, "Link::open"));
+    ASSERT(contact_ == nullptr);
+
+    Contact* contact = new Contact(LinkRef(this, "Link::open"));
+    set_contact(contact);
+
     clayer()->open_contact(contact_);
 
     stats_.contact_attempts_++;
@@ -585,7 +611,7 @@ Link::close()
         oasys::ScopeLock l(&lock_, __func__);
 
         // we should always be open, therefore we must have a contact
-        if (contact_ == NULL) {
+        if (contact_ == nullptr) {
            log_err("Link::close with no contact");
            return;
        }
@@ -599,11 +625,11 @@ Link::close()
     // get the lock again
     oasys::ScopeLock l(&lock_, __func__);
 
-    ASSERT(contact_->cl_info() == NULL);
+    ASSERT(contact_->cl_info() == nullptr);
 
     // Remove the reference from the link, which will clean up the
     // object eventually
-    contact_ = NULL;
+    contact_ = nullptr;
 
     log_debug("Link::close complete");
 }
@@ -645,10 +671,8 @@ Link::queue_limits_active () const
 
 //----------------------------------------------------------------------
 bool
-Link::add_to_queue(const BundleRef& bundle, size_t total_len)
+Link::add_to_queue(const BundleRef& bundle)
 {
-    (void) total_len;
-
     oasys::ScopeLock l(&lock_, "Link::add_to_queue");
 
     if ((state_ == UNAVAILABLE) && is_opportunistic()) {
@@ -675,7 +699,7 @@ Link::add_to_queue(const BundleRef& bundle, size_t total_len)
     queue_.push_back(bundle);
 
     // finally, kick the convergence layer
-    if (clayer_ != nullptr)
+    if ((contact_ != nullptr) && (clayer_ != nullptr))
     {
         LinkRef lref = LinkRef(this, "Link::add_to_queue");
         clayer_->bundle_queued(lref, bundle);
@@ -686,10 +710,8 @@ Link::add_to_queue(const BundleRef& bundle, size_t total_len)
 
 //----------------------------------------------------------------------
 bool
-Link::del_from_queue(const BundleRef& bundle, size_t total_len)
+Link::del_from_queue(const BundleRef& bundle)
 {
-    (void) total_len;
-
     oasys::ScopeLock l(&lock_, "Link::del_from_queue");
     
     if (! queue_.erase(bundle)) {
@@ -702,7 +724,7 @@ Link::del_from_queue(const BundleRef& bundle, size_t total_len)
     size_t payload_len = bundle->payload().length();
  
     // sanity checks
-    ASSERT(payload_len != 0);
+//    ASSERT(payload_len != 0);
     if (bytes_queued_ >= payload_len) {
         bytes_queued_ -= payload_len;
 
@@ -717,10 +739,8 @@ Link::del_from_queue(const BundleRef& bundle, size_t total_len)
 }
 //----------------------------------------------------------------------
 bool
-Link::add_to_inflight(const BundleRef& bundle, size_t total_len)
+Link::add_to_inflight(const BundleRef& bundle)
 {
-    (void) total_len;
-
     oasys::ScopeLock l(&lock_, "Link::add_to_inflight");
 
     if (bundle->is_queued_on(&inflight_)) {
@@ -742,10 +762,8 @@ Link::add_to_inflight(const BundleRef& bundle, size_t total_len)
 
 //----------------------------------------------------------------------
 bool
-Link::del_from_inflight(const BundleRef& bundle, size_t total_len)
+Link::del_from_inflight(const BundleRef& bundle)
 {
-    (void) total_len;
-
     oasys::ScopeLock l(&lock_, "Link::del_from_inflight");
 
     if (! inflight_.erase(bundle)) {
@@ -758,7 +776,7 @@ Link::del_from_inflight(const BundleRef& bundle, size_t total_len)
     size_t payload_len = bundle->payload().length();
 
     // sanity checks
-    ASSERT(payload_len != 0);
+//    ASSERT(payload_len != 0);
     if (bytes_inflight_ >= payload_len) {
         bytes_inflight_ -= payload_len;
 
@@ -798,10 +816,12 @@ Link::dump(oasys::StringBuffer* buf)
                  "clayer: %s\n"
                  "type: %s\n"
                  "state: %s\n"
+                 "bp6_redirect: %s\n"
+                 "bp7_redirect: %s\n"
                  "deleted: %s\n"
                  "nexthop: %s\n"
                  "remote eid: %s\n"
-                 "mtu: %u\n"
+                 "mtu: %" PRIu64 "\n"
                  "min_retry_interval: %u\n"
                  "max_retry_interval: %u\n"
                  "idle_close_time: %u\n"
@@ -810,9 +830,11 @@ Link::dump(oasys::StringBuffer* buf)
                  "reincarnated: %s\n"
                  "used in fwdlog: %s\n",
                  name(),
-                 (clayer_!=NULL) ? clayer_->name(): "(blank)",
+                 (clayer_!=nullptr) ? clayer_->name(): "(blank)",
                  link_type_to_str(type()),
                  state_to_str(state()),
+                 params_.bp6_redirect_.c_str(),
+                 params_.bp7_redirect_.c_str(),
                  (deleted_? "true" : "false"),
                  nexthop(),
                  remote_eid_.c_str(),
@@ -839,9 +861,30 @@ Link::dump(oasys::StringBuffer* buf)
                      params_.qlimit_bytes_low_ );
     }
 
-    ASSERT(clayer_ != NULL);
-    if (cl_info_ !=NULL)
+    buf->append("\n");
+    if (contact_ != nullptr) {
+        buf->appendf("contact: connected\n");
+        buf->appendf("contact duration: %u\n", contact_->duration());
+        buf->appendf("contact elapsed: %lu\n", contact_->start_time().elapsed_ms()/1000);
+    } else {
+        buf->appendf("contact: not connected\n");
+    }
+    buf->appendf("contact planned state: %s\n\n", contact_state_ ? "active" : "not active");
+
+    ASSERT(clayer_ != nullptr);
+    if (cl_info_ !=nullptr)
     	clayer_->dump_link(LinkRef(this, "Link::dump"), buf);
+}
+
+//----------------------------------------------------------------------
+void
+Link::get_cla_stats(oasys::StringBuffer& buf)
+{
+    oasys::ScopeLock l(&lock_, "Link::dump_stats");
+
+    if (contact_ != nullptr) {
+       contact_->get_cla_stats(buf);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -857,7 +900,7 @@ Link::dump_stats(oasys::StringBuffer* buf)
     }
 
     size_t uptime = stats_.uptime_;
-    if (contact_ != NULL) {
+    if (contact_ != nullptr) {
         uptime += (contact_->start_time().elapsed_ms() / 1000);
     }
 
@@ -892,6 +935,48 @@ Link::dump_stats(oasys::StringBuffer* buf)
     if (router_info_) {
         router_info_->dump_stats(buf);
     }
+    if(planner_contact_!=NULL){	
+      time_t tmp_start = (time_t)planner_contact_->start_time().in_seconds();
+      struct tm* tmp_info;
+      tmp_info = localtime(&tmp_start);
+      char time_buf[18];
+      strftime(time_buf,18,"%Y:%j:%H:%M:%S",tmp_info);
+      std::string start_time(time_buf);
+      std::stringstream ss_duration;
+      ss_duration << planner_contact_->duration();
+      std::string duration;
+      ss_duration >> duration;
+
+      buf->appendf("\n\nContact Info");
+      buf->appendf("\nStart Time: ");
+      buf->appendf(start_time.c_str());
+      buf->appendf(" - Duration: ");
+      buf->appendf(duration.c_str());
+
+    } else if(contact_!=NULL){	
+      time_t tmp_start = (time_t)contact_->start_time().in_seconds();
+      struct tm* tmp_info;
+      tmp_info = localtime(&tmp_start);
+      char time_buf[18];
+      strftime(time_buf,18,"%Y:%j:%H:%M:%S",tmp_info);
+      std::string start_time(time_buf);
+      std::stringstream ss_duration;
+      ss_duration << contact_->duration();
+      std::string duration;
+      ss_duration >> duration;
+
+      buf->appendf("\n\nContact Info");
+      buf->appendf("\nStart Time: ");
+      buf->appendf(start_time.c_str());
+      buf->appendf(" - Duration: ");
+      buf->appendf(duration.c_str());
+    }
+
+    if (contact_ != nullptr) {
+        buf->appendf(" - Elapsed: %lu", contact_->start_time().elapsed_ms()/1000);
+    }
+    buf->appendf(" - Planned State:: %s", contact_state_ ? "active" : "not active");
+    buf->appendf("\n");
 }
 
 
@@ -900,9 +985,10 @@ void
 Link::increment_deferred_count()
 {
     ++deferred_bundle_count_;
-    if (NULL == deferred_timer_) {
-        deferred_timer_ = new LinkDeferredTimer(this);
-        deferred_timer_->schedule_in(1000);
+    if (nullptr == deferred_timer_) {
+        deferred_timer_ = std::make_shared<LinkDeferredTimer>(this);
+        oasys::SPtr_Timer base_sptr = deferred_timer_;
+        oasys::SharedTimerSystem::instance()->schedule_in(1000, base_sptr);
     }
 }
 
@@ -917,16 +1003,82 @@ Link::decrement_deferred_count()
 void
 Link::check_deferred_bundles()
 {
-    deferred_timer_ = NULL;
+    deferred_timer_ = nullptr;
 
     if (deferred_bundle_count_ > 0) {
         // timer expired - issue event and start a new timer
         BundleDaemon::post(new LinkCheckDeferredEvent(this));
 
-        deferred_timer_ = new LinkDeferredTimer(this);
-        deferred_timer_->schedule_in(1000);
+        deferred_timer_ = std::make_shared<LinkDeferredTimer>(this);
+        oasys::SPtr_Timer base_sptr = deferred_timer_;
+        oasys::SharedTimerSystem::instance()->schedule_in(1000, base_sptr);
     }
 }
+
+//----------------------------------------------------------------------
+bool
+Link::get_contact_state()
+{
+    oasys::ScopeLock l(&lock_, __func__);
+    return contact_state_;
+}
+
+//----------------------------------------------------------------------
+void
+Link::set_contact_state(bool state)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+    contact_state_ = state;
+}
+
+//----------------------------------------------------------------------
+void
+Link::set_contact_state(bool state, Contact* contact)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+    contact_timer_ = nullptr;
+    int duration = (int)contact->duration();
+    if(duration > 0)
+    {
+      contact_timer_ = std::make_shared<ContactTimer>(this);
+      oasys::SPtr_Timer base_sptr = contact_timer_;
+      oasys::SharedTimerSystem::instance()->schedule_in(duration, base_sptr);
+    }
+    contact_state_ = state;
+    planner_contact_ = contact;
+}
+
+//----------------------------------------------------------------------
+void 
+Link::set_contact(Contact* contact)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    // XXX/demmer check this invariant
+    ASSERT(contact_ == NULL);
+    contact_ = contact;
+    int duration = (int)contact_->duration();
+    if(duration > 0)
+    {
+      contact_timer_ = nullptr;
+      contact_timer_ = std::make_shared<ContactTimer>(this);
+      oasys::SPtr_Timer base_sptr = contact_timer_;
+      oasys::SharedTimerSystem::instance()->schedule_in(duration, base_sptr);
+    }
+
+    set_contact_state(true);
+}
+
+//----------------------------------------------------------------------
+void
+Link::ContactTimer::timeout(const struct timeval& now)
+{
+    (void)now;
+    linkref_->set_contact_state(false);
+    usleep(1);
+    delete this;
+}
+
 
 //----------------------------------------------------------------------    
 void
@@ -935,7 +1087,6 @@ Link::LinkDeferredTimer::timeout(
 {
     (void)now;
     linkref_->check_deferred_bundles();
-    delete this;
 }
 
 

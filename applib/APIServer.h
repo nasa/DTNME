@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,12 +37,12 @@
 
 #include <list>
 
-#include <oasys/compat/rpc.h>
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/io/TCPClient.h>
-#include <oasys/io/TCPServer.h>
+#include <third_party/oasys/compat/rpc.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/io/TCPServer.h>
 
 #include "dtn_api.h"
 #include "dtn_ipc.h"
@@ -128,7 +128,6 @@ protected:
     int handle_begin_poll();
     int handle_cancel_poll();
     int handle_close();
-    int handle_session_update();
     int handle_peek();
 
     // block the calling thread, waiting for bundle arrival on a bound

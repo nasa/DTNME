@@ -130,8 +130,9 @@ endif
 .PHONY: swig
 swig: 
 	swig -c++ -tcl    -w302 -o tcl/dtn_api_wrap_tcl.cc    dtn_api.i
-	swig -c++ -perl   -w302 -shadow -o perl/dtn_api_wrap_perl.cc  dtn_api.i
-	swig -c++ -python -w302 -o python/dtn_api_wrap_python.cc -classic dtn_api.i
+
+#	swig -c++ -perl   -w302 -shadow -o perl/dtn_api_wrap_perl.cc  dtn_api.i
+#	swig -c++ -python -w302 -o python/dtn_api_wrap_python.cc -classic dtn_api.i
 
 #
 # Swig rules for Tcl
@@ -145,50 +146,50 @@ tcl/libdtntcl-$(VSHLIB): tcl/dtn_api_wrap_tcl.o libdtnapi-$(VSHLIB)
 #
 # Swig rules for Python
 #
-.PHONY: pythonapi pythonapi_install
-pythonapi: python/dtnapi.pyc
-python/dtnapi.pyc: python/setup.py python/dtn_api_wrap_python.cc libdtnapi-$(VSHLIB)
-	cd python && $(SWIG_BUILD_ENV) python setup.py build
-	cd python && python -c "import py_compile; py_compile.compile('dtnapi.py')"
+###.PHONY: pythonapi pythonapi_install
+###pythonapi: python/dtnapi.pyc
+###python/dtnapi.pyc: python/setup.py python/dtn_api_wrap_python.cc libdtnapi-$(VSHLIB)
+###	cd python && $(SWIG_BUILD_ENV) python setup.py build
+###	cd python && python -c "import py_compile; py_compile.compile('dtnapi.py')"
 
 #
 # Need to create the python directory and symlink the relevant files
 # if we're not building in the source directory
 #
-python/setup.py:
-	mkdir python && cd python && \
-	ln -s $(SRCDIR)/applib/python/dtnapi.py && \
-	ln -s $(SRCDIR)/applib/python/dtn_api_wrap_python.cc && \
-	ln -s $(SRCDIR)/applib/python/setup.py
+###python/setup.py:
+###	mkdir python && cd python && \
+###	ln -s $(SRCDIR)/applib/python/dtnapi.py && \
+###	ln -s $(SRCDIR)/applib/python/dtn_api_wrap_python.cc && \
+###	ln -s $(SRCDIR)/applib/python/setup.py
 
-pythonapi_install:
-	cd python && $(SWIG_BUILD_ENV) python setup.py install $(INSTALL_PREFIX)
+###pythonapi_install:
+###	cd python && $(SWIG_BUILD_ENV) python setup.py install $(INSTALL_PREFIX)
 
-OTHER_FILES += python/MANIFEST python/dtnapi.pyc python/build python/dist
+###OTHER_FILES += python/MANIFEST python/dtnapi.pyc python/build python/dist
 
 #
 # Swig rules for Perl
 #
-.PHONY: perlapi perlapi_install
-perlapi: perl/dtn_api_wrap_perl.o
+###.PHONY: perlapi perlapi_install
+###perlapi: perl/dtn_api_wrap_perl.o
 
-perl/dtn_api_wrap_perl.o: perl/Makefile.PL perl/dtn_api_wrap_perl.cc libdtnapi-$(VSHLIB)
-	cd perl && \
-	  $(SWIG_BUILD_ENV) perl Makefile.PL CC=$(CXX) LD=$(CXX) CCFLAGS=$(CFLAGS) VERSION=$(DTN_VERSION) && make
+###perl/dtn_api_wrap_perl.o: perl/Makefile.PL perl/dtn_api_wrap_perl.cc libdtnapi-$(VSHLIB)
+###	cd perl && \
+###	  $(SWIG_BUILD_ENV) perl Makefile.PL CC=$(CXX) LD=$(CXX) CCFLAGS=$(CFLAGS) VERSION=$(DTN_VERSION) && make
 
-perlapi_install: perlapi
-	cd perl && make install
+###perlapi_install: perlapi
+###	cd perl && make install
 
 #
 # Need to create the perl directory and symlink the relevant files
 # if we're not building in the source directory
 #
-perl/Makefile.PL:
-	mkdir perl && cd perl && \
-	ln -s $(SRCDIR)/applib/perl/Makefile.PL && \
-	ln -s $(SRCDIR)/applib/perl/dtn_api_wrap_perl.cc
+###perl/Makefile.PL:
+###	mkdir perl && cd perl && \
+###	ln -s $(SRCDIR)/applib/perl/Makefile.PL && \
+###	ln -s $(SRCDIR)/applib/perl/dtn_api_wrap_perl.cc
 
-OTHER_FILES += perl/Makefile perl/Makefile.old perl/blib perl/dtnapi.bs perl/pm_to_blib
+###OTHER_FILES += perl/Makefile perl/Makefile.old perl/blib perl/dtnapi.bs perl/pm_to_blib
 
 #
 # Linking rules for the libraries.
@@ -233,7 +234,7 @@ libdtnapisrv.a: $(SERVERLIB_OBJS)
 LIBFILES =  libdtnapi.a libdtnapi-$(VLIB) 
 LIBFILES += libdtnapi++.a libdtnapi++-$(VLIB) 
 LIBFILES += libdtnapisrv.a 
-LIBFILES += perlapi
+###LIBFILES += perlapi
 LIBFILES += tclapi
 ifeq ($(SHLIBS),yes)
 LIBFILES += libdtnapi.$(SHLIB_EXT) libdtnapi-$(VSHLIB) 
@@ -241,8 +242,8 @@ LIBFILES += libdtnapi++.$(SHLIB_EXT) libdtnapi++-$(VSHLIB)
 LIBFILES += tcl/libdtntcl.$(SHLIB_EXT) tcl/libdtntcl-$(VSHLIB)
 endif
 
-ifneq ($(PYTHON_BUILD_EXT),)
-LIBFILES += python/dtnapi.pyc
-endif
+###ifneq ($(PYTHON_BUILD_EXT),)
+###LIBFILES += python/dtnapi.pyc
+###endif
 
 libs: $(LIBFILES)

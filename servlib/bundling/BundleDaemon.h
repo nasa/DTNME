@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -39,18 +39,20 @@
 #  include <dtn-config.h>
 #endif
 
+#include <memory>
 #include <vector>
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/IdleTclExit.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/IdleTclExit.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
+#include "BundleDaemonInput.h"
 #include "BundleEvent.h"
 #include "BundleEventHandler.h"
 #include "BundleListIntMap.h"
@@ -60,21 +62,21 @@
 #include "BundleActions.h"
 #include "BundleStatusReport.h"
 
-#ifdef BPQ_ENABLED
-#	include "BPQBlock.h"
-#	include "BPQCache.h"
-#endif /* BPQ_ENABLED */
+
 
 namespace dtn {
 
 class AdminRegistration;
 class AdminRegistrationIpn;
+class BIBEExtractor;
 class Bundle;
 class BundleAction;
 class BundleActions;
+class BundleDaemonACS;
 class BundleDaemonInput;
 class BundleDaemonOutput;
 class BundleDaemonStorage;
+class BundleDaemonCleanup;
 class BundleRouter;
 class ContactManager;
 class FragmentManager;
@@ -83,25 +85,20 @@ class IpnEchoRegistration;
 class RegistrationTable;
 class RegistrationInitialLoadThread;
 
-#ifdef ACS_ENABLED
-    class BundleDaemonACS;
-#endif // ACS_ENABLED
 
+class LTPEngine;
+typedef std::shared_ptr<LTPEngine> SPtr_LTPEngine;
 
 // XXX/dz Set the typedefs to the type of list you want to use for each of the 
 // bundle lists and enable the #define for those that are maps 
 typedef BundleListIntMap       all_bundles_t;
-//typedef BundleList             pending_bundles_t;
 typedef BundleListIntMap       pending_bundles_t;
 typedef BundleListStrMap       custody_bundles_t;
 typedef BundleListStrMultiMap  dupefinder_bundles_t;
-#define ALL_BUNDLES_IS_MAP 1
-#define PENDING_BUNDLES_IS_MAP 1
-#define CUSTODY_BUNDLES_IS_MAP 1
 
 // XXX/dz Looking at the current usage of the custody_bundles, it could be
 // combined with the dupefinder list with the addition a method which 
-// returns the one bundle which in in local custody for a key and a separate
+// returns the one bundle which is in local custody for a key and a separate
 // counter which tracks the number of bundles in custody.
 
 
@@ -131,6 +128,11 @@ public:
     virtual ~BundleDaemon();
 
     /**
+     * Release the allocated objects
+     */
+    void cleanup_allocations();
+
+    /**
      * Virtual initialization function, overridden in the simulator to
      * install the modified event queue (with no notifier) and the
      * SimBundleActions class.
@@ -142,6 +144,32 @@ public:
      */
     static void init();
     
+    virtual void inc_ltp_retran_timers_created();
+    virtual void inc_ltp_retran_timers_deleted();
+
+    virtual void inc_ltp_inactivity_timers_created();
+    virtual void inc_ltp_inactivity_timers_deleted();
+
+    virtual void inc_ltp_closeout_timers_created();
+    virtual void inc_ltp_closeout_timers_deleted();
+
+
+    virtual void inc_ltpseg_created();
+    virtual void inc_ltpseg_deleted();
+
+    virtual void inc_ltpsession_created();
+    virtual void inc_ltpsession_deleted();
+
+    virtual void inc_bibe6_encapsulations();
+    virtual void inc_bibe6_extractions();
+    virtual void inc_bibe6_extraction_errors();
+
+    virtual void inc_bibe7_encapsulations();
+    virtual void inc_bibe7_extractions();
+    virtual void inc_bibe7_extraction_errors();
+
+
+
     /**
      * Return the number of events currently waiting for processing.
      * This is overridden in the simulator since it doesn't use a
@@ -211,6 +239,7 @@ public:
      * Accessor for the all bundles list.
      */
     all_bundles_t* all_bundles() { return all_bundles_; }
+    all_bundles_t* deleting_bundles() { return deleting_bundles_; }
     
     /**
      * Accessor for the pending bundles list.
@@ -226,13 +255,6 @@ public:
      * Accessor for the dupefinder bundles list.
      */
     dupefinder_bundles_t* dupefinder_bundles() { return dupefinder_bundles_; }
-
-#ifdef BPQ_ENABLED
-    /**
-     * Accessor for the BPQ Cache.
-     */
-    BPQCache* bpq_cache() { return bpq_cache_; }
-#endif /* BPQ_ENABLED */
 
     /**
      * Format the given StringBuffer with current routing info.
@@ -250,6 +272,8 @@ public:
      * statistics value.
      */
     void get_daemon_stats(oasys::StringBuffer* buf);
+    uint64_t get_received_bundles() { return daemon_input_->get_received_bundles(); }
+    void get_ltp_object_stats(oasys::StringBuffer* buf);
 
     /**
      * Reset all internal stats.
@@ -281,57 +305,67 @@ public:
      */
     struct Params {
         /// Default constructor
-        Params();
+        Params() {}
         
+
         /// Whether or not to delete bundles before they're expired if
         /// all routers / registrations have handled it
-        bool early_deletion_;
+        bool early_deletion_ = true;
 
         /// Whether or not to skip routing decisions for and delete duplicate
         /// bundles
-        bool suppress_duplicates_;
+        bool suppress_duplicates_ = true;
 
         /// Whether or not to accept custody when requested
-        bool accept_custody_;
+        bool accept_custody_ = true;
 
         /// Whether or not reactive fragmentation is enabled
-        bool reactive_frag_enabled_;
+        bool reactive_frag_enabled_ = false;
         
         /// Whether or not to retry unacked transmissions on reliable CLs.
-        bool retry_reliable_unacked_;
+        bool retry_reliable_unacked_ = true;
 
         /// Test hook to permute bundles before delivering to registrations
-        bool test_permuted_delivery_;
+        bool test_permuted_delivery_ = false;
 
         /// Whether or not injected bundles are held in memory by default
-        bool injected_bundles_in_memory_;
+        bool injected_bundles_in_memory_ = false;
 
         /// Whether non-opportunistic links should be recreated when the
         /// DTN daemon is restarted.
-        bool recreate_links_on_restart_;
+        bool recreate_links_on_restart_ = true;
 
         /// Whether or not links should be maintained in the database
         /// (if not then bundle queue-ing will be redone from scratch on reload)
-        bool persistent_links_;
+        bool persistent_links_ = true;
 
         /// Whether or not to write updated forwarding logs to storage
-        bool persistent_fwd_logs_;
+        bool persistent_fwd_logs_ = false;
 
         /// Whether to clear bundles from opportunistic links when they go unavailable
-        bool clear_bundles_when_opp_link_unavailable_;
+        bool clear_bundles_when_opp_link_unavailable_ = true;
 
         /// Set the announce_ipn bool.
-        bool announce_ipn_;
+        bool announce_ipn_ = true;
 
         /// Whether to write API Registration bundle lists to the database
         /// XXX/dz defaulting to false but original DTNME reference implementation would be true
-        bool serialize_apireg_bundle_lists_;
+        bool serialize_apireg_bundle_lists_ = false;
 
         /// ipn_echo_service_number_
-        u_int64_t ipn_echo_service_number_;
+        u_int64_t ipn_echo_service_number_ = 2047;
 
         /// ipn_echo_max_return_length_
-        u_int64_t ipn_echo_max_return_length_;
+        u_int64_t ipn_echo_max_return_length_ = 1024;
+
+        /// which BP version the API should generate/send
+        bool api_send_bp_version7_ = true;
+
+        /// allow specification of the local LTP Engine ID (otherwise pull from local IPN EID)
+        uint64_t ltp_engine_id_ = 0;
+
+        //dzdebug
+        bool dzdebug_reg_delivery_cache_enabled_ = true;
     };
 
     static Params params_;
@@ -379,6 +413,7 @@ public:
      * signal to the current custodian.
      */
     void accept_custody(Bundle* bundle);
+    void accept_bibe_custody(Bundle* bundle, std::string bibe_custody_dest);
 
 
     /**
@@ -416,6 +451,32 @@ public:
     bool load_previous_links_executed_;
 
 
+    /**
+     * pass through methods to other BundleDaemonXXXs
+     */
+    void add_bibe_bundle_to_acs(int32_t bp_version, const EndpointID& custody_eid,
+                                uint64_t transmission_id, bool success, uint8_t reason);
+    void bibe_erase_from_custodyid_list(Bundle* bundle);
+    void bibe_accept_custody(Bundle* bundle);
+    void switch_bp6_to_bibe_custody(Bundle* bundle, std::string& bibe_custody_dest);
+    void bundle_delete_from_storage(Bundle* bundle);
+    void bundle_add_update_in_storage(Bundle* bundle);
+    void acs_accept_custody(Bundle* bundle);
+    void acs_post_at_head(BundleEvent* event);
+    void reloaded_pendingacs();
+    void set_route_acs_params(EndpointIDPattern& pat, bool enabled, 
+                              u_int acs_delay, u_int acs_size);
+    int delete_route_acs_params(EndpointIDPattern& pat);
+    void dump_acs_params(oasys::StringBuffer* buf);
+    void storage_get_stats(oasys::StringBuffer* buf);
+    void registration_add_update_in_storage(APIRegistration* reg);
+
+    void bibe_extractor_post(Bundle* bundle, Registration* reg);
+
+    /**
+     * Get pointer to the LTP Engine
+     */
+    SPtr_LTPEngine ltp_engine() { return ltp_engine_; }
 
     
     /**
@@ -428,8 +489,11 @@ public:
 
 protected:
     friend class BundleActions;
+    friend class BundleDaemonACS;
     friend class BundleDaemonInput;
+    friend class BundleDaemonCleanup;
     friend class RegistrationInitialLoadThread;
+
 
     /**
      * Initialize and load in the registrations.
@@ -446,12 +510,10 @@ protected:
      */
     void load_bundles();
         
-#ifdef ACS_ENABLED
     /**
      * Initialize and load in stored Pending ACSs .
      */
     void load_pendingacs();
-#endif // ACS_ENABLED
 
     /**
      * Main thread function that dispatches events.
@@ -520,10 +582,7 @@ protected:
     void handle_iface_attributes_report(IfaceAttributesReportEvent* event);
     void handle_cla_parameters_query(CLAParametersQueryRequest* request);
     void handle_cla_parameters_report(CLAParametersReportEvent* event);
-
-#ifdef ACS_ENABLED
     void handle_aggregate_custody_signal(AggregateCustodySignalEvent* event);
-#endif // ACS_ENABLED
     ///@}
 
     /// @{
@@ -559,15 +618,6 @@ protected:
     bool add_to_pending(Bundle* bundle, bool add_to_store);
     
     /**
-     * Resume the add the bundle to the pending list processing
-     * and set up the expiration timer for it.
-     *
-     * @return true if the bundle is legal to be delivered and/or
-     * forwarded, false if it's already expired
-     */
-    bool resume_add_to_pending(Bundle* bundle, bool add_to_store);
-
-    /**
      * Remove the bundle from the pending list and data store, and
      * cancel the expiration timer.
      */
@@ -578,7 +628,7 @@ protected:
      * arrival, once it's been transmitted or delivered at least once,
      * or when we release custody.
      */
-    bool try_to_delete(const BundleRef& bundle);
+    bool try_to_delete(const BundleRef& bundle, const char* event_type);
 
     /**
      * Delete (rather than silently discard) a bundle, e.g., an expired
@@ -611,16 +661,16 @@ protected:
     BundleActions* actions_;
 
     /// The administrative registration
-    AdminRegistration* admin_reg_;
+    AdminRegistration* admin_reg_ = nullptr;
 
     /// The IPN administrative registration
-    AdminRegistrationIpn* admin_reg_ipn_;
+    AdminRegistrationIpn* admin_reg_ipn_ = nullptr;
 
     /// The ping registration
-    PingRegistration* ping_reg_;
+    PingRegistration* ping_reg_ = nullptr;
 
     /// The ipn echo registration
-    IpnEchoRegistration* ipn_echo_reg_;
+    IpnEchoRegistration* ipn_echo_reg_ = nullptr;
 
     /// The contact manager
     ContactManager* contactmgr_;
@@ -633,6 +683,7 @@ protected:
 
     /// The list of all bundles in the system
     all_bundles_t* all_bundles_;
+    all_bundles_t* deleting_bundles_;
 
     /// The list of all bundles that are still being processed
     pending_bundles_t* pending_bundles_;
@@ -681,77 +732,71 @@ protected:
 
     // indicator that a BundleDaemon shutdown is in progress
     static bool shutting_down_;
+    bool final_cleanup_ = false;
 
     /// Class used for the idle timer
     struct DaemonIdleExit : public oasys::IdleTclExit {
-        DaemonIdleExit(int interval) : IdleTclExit(interval) {}
+        DaemonIdleExit(int interval) : IdleTclExit(interval, true) {}
         bool is_idle(const struct timeval& now);
     };
     friend struct DaemonIdleExit;
+
+    typedef std::shared_ptr<DaemonIdleExit> SPtr_DaemonIdleExit;
     
     /// Pointer to the idle exit handler (if any)
-    DaemonIdleExit* idle_exit_;
+    SPtr_DaemonIdleExit idle_exit_;
 
     /// Time value when the last event was handled
     oasys::Time last_event_;
 
-#ifdef ACS_ENABLED
     /// The Bundle Daemon Aggregate Custody Signal thread
-    BundleDaemonACS* daemon_acs_;
-    friend class BundleDaemonACS;
-#endif // ACS_ENABLED
+    std::unique_ptr<BundleDaemonACS> daemon_acs_;
+
+    SPtr_LTPEngine ltp_engine_;
 
     /// The Bundle Daemon Input thread
-    BundleDaemonInput* daemon_input_;
+    std::unique_ptr<BundleDaemonInput> daemon_input_;
 
     /// The Bundle Daemon Input thread
-    BundleDaemonOutput* daemon_output_;
+    std::unique_ptr<BundleDaemonOutput> daemon_output_;
 
     /// The Bundle Daemon Storage thread
-    BundleDaemonStorage* daemon_storage_;
+    std::unique_ptr<BundleDaemonStorage> daemon_storage_;
 
-#ifdef BPQ_ENABLED
-    /// The LRU cache containing bundles with the BPQ response extension
-    BPQCache* bpq_cache_;
-#endif /* BPQ_ENABLED */
+    /// The Bundle Daemon Cleanup thread
+    std::unique_ptr<BundleDaemonCleanup> daemon_cleanup_;
 
-#ifdef BDSTATS_ENABLED
-    /// BD Statistics structure definition
-    struct BDStats {
-        uint64_t bundle_accept_;
-        uint64_t bundle_received_;
-        uint64_t bundle_transmitted_;
-        uint64_t bundle_free_;
-        uint64_t link_created_;
-        uint64_t contact_up_;
-        uint64_t other_;
-        uint64_t deliver_bundle_;
-        uint64_t bundle_delivered_;
-    };
-    BDStats bdstats_posted_;
-    BDStats bdstats_processed_;
-    mutable oasys::SpinLock bdstats_lock_;
+    std::unique_ptr<BIBEExtractor> bibe_extractor_;
 
-    bool bdstats_init_;
-    oasys::Time bdstats_start_time_;
-    oasys::Time bdstats_time_;
 
-    /**
-     *     A simple thread class that drives the TimerSystem implementation.
-     */
-    class BDStatusThread : public Thread {
-    public:
-        BDStatusThread();
-    
-    private:
-        void run();
-    };
+protected:
+     // could use a separate lock for each counter to minimize contention
+    oasys::SpinLock ltp_stats_lock_;
 
-public:
-    void bdstats_update(BDStats* stats=NULL, BundleEvent* event=NULL);
+    uint64_t ltp_retran_timers_created_ = 0;
+    uint64_t ltp_retran_timers_deleted_ = 0;
 
-#endif // BDSTATS_ENABLED
+    uint64_t ltp_inactivity_timers_created_ = 0;
+    uint64_t ltp_inactivity_timers_deleted_ = 0;
 
+    uint64_t ltp_closeout_timers_created_ = 0;
+    uint64_t ltp_closeout_timers_deleted_ = 0;
+
+    uint64_t ltpseg_created_ = 0;
+    uint64_t ltpseg_deleted_ = 0;
+
+    uint64_t ltpsession_created_ = 0;
+    uint64_t ltpsession_deleted_ = 0;
+
+    oasys::SpinLock bibe_stats_lock_;
+
+    uint64_t bibe6_encapsulations_ = 0;
+    uint64_t bibe6_extractions_ = 0;
+    uint64_t bibe6_extraction_errors_ = 0;
+
+    uint64_t bibe7_encapsulations_ = 0;
+    uint64_t bibe7_extractions_ = 0;
+    uint64_t bibe7_extraction_errors_ = 0;
 };
 
 } // namespace dtn

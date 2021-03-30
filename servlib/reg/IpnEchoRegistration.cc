@@ -19,7 +19,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 #include "IpnEchoRegistration.h"
 #include "RegistrationTable.h"
@@ -44,11 +44,12 @@ IpnEchoRegistration::deliver_bundle(Bundle* bundle)
               payload_len, bundle->source().c_str());
     
     Bundle* reply = new Bundle();
-    reply->mutable_source()->assign(endpoint_);
+    reply->set_source(endpoint_);
+    reply->set_bp_version(bundle->bp_version());
     reply->mutable_dest()->assign(bundle->source());
     reply->mutable_replyto()->assign(EndpointID::NULL_EID());
     reply->mutable_custodian()->assign(EndpointID::NULL_EID());
-    reply->set_expiration(bundle->expiration());
+    reply->set_expiration_millis(bundle->expiration_millis());
 
     if (payload_len > ipn_echo_max_length_) {
         reply->mutable_payload()->set_length(ipn_echo_max_length_);

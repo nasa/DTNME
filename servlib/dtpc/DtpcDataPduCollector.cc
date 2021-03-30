@@ -91,6 +91,8 @@ DtpcDataPduCollector::~DtpcDataPduCollector ()
         pdu_map_.erase(iter);
         delete pdu;
     }
+
+    timer_ = nullptr;
 }
 
 
@@ -172,7 +174,7 @@ DtpcDataPduCollector::ds_reload_post_processing()
         pdu = iter->second;
 
         if (curr_time.tv_sec > pdu->expiration_ts()) {
-            log_debug("ds_reload_post_processing - delete expired PDU: %"PRIu64,
+            log_debug("ds_reload_post_processing - delete expired PDU: %" PRIu64,
                      pdu->seq_ctr());
 
             seq_ctr_ = pdu->seq_ctr() + 1;
@@ -184,10 +186,12 @@ DtpcDataPduCollector::ds_reload_post_processing()
             expiration_time_.tv_sec = pdu->expiration_ts() - 1;
             expiration_time_.tv_usec = 0;
     
-            timer_ = new DtpcDeliverPduTimer(pdu->collector_key(), pdu->seq_ctr());
-            timer_->schedule_at(&expiration_time_);
+            timer_ = std::make_shared<DtpcDeliverPduTimer>(pdu->collector_key(), pdu->seq_ctr());
+            timer_->set_sptr(timer_);
+            oasys::SPtr_Timer otimer = timer_;
+            timer_->schedule_at( &expiration_time_, otimer);
 
-            log_debug("ds_reload_post_processing - started expiration timer for PDU: %"PRIu64" secs: %ld",
+            log_debug("ds_reload_post_processing - started expiration timer for PDU: %" PRIu64 " secs: %ld",
                      pdu->seq_ctr(), expiration_time_.tv_sec);
 
             break;
@@ -206,24 +210,24 @@ DtpcDataPduCollector::pdu_received(DtpcProtocolDataUnit* pdu, BundleRef& rcvd_br
     }
 
     if (0 == pdu->seq_ctr()) {
-        log_info("pdu_received - no transport service - deliver DPDU - SeqCtr: %"PRIu64,
+        log_info("pdu_received - no transport service - deliver DPDU - SeqCtr: %" PRIu64,
                   pdu->seq_ctr());
         // No Transport Service so deliver PDU immmediately
         deliver_pdu(pdu);
     } else if (pdu->seq_ctr() < seq_ctr_) {
         // duplicate suppression - discard PDU
-        log_warn("pdu_received - deleting duplicate or late PDU - SeqCtr: %"PRIu64" Expected: %"PRIu64,
+        log_warn("pdu_received - deleting duplicate or late PDU - SeqCtr: %" PRIu64 " Expected: %" PRIu64,
                   pdu->seq_ctr(), seq_ctr_);
         delete pdu;
     } else if (pdu->seq_ctr() == seq_ctr_) {
-        log_info("pdu_received - deliver DPDU - SeqCtr: %"PRIu64,
+        log_info("pdu_received - deliver DPDU - SeqCtr: %" PRIu64,
                   pdu->seq_ctr());
         // this is the PDU we are waiting for so deliver immediately
         deliver_pdu(pdu);
     } else {
         // not the PDU we are waiting for so add it to the PDU list and
         // update the delivery timer if appropriate
-        log_warn("pdu_received - queue DPDU - SeqCtr: %"PRIu64" Expected: %"PRIu64,
+        log_warn("pdu_received - queue DPDU - SeqCtr: %" PRIu64 " Expected: %" PRIu64,
                   pdu->seq_ctr(), seq_ctr_);
         queue_pdu(pdu);
     }
@@ -243,11 +247,20 @@ DtpcDataPduCollector::send_ack(DtpcProtocolDataUnit* pdu, BundleRef& rcvd_bref)
 
 
     BundleRef bref("DtpcDataPduCollector::send_ack");
-    bref = new Bundle();
+
+    Bundle* bundle = nullptr;
+    
+    if (BundleDaemon::params_.api_send_bp_version7_) {
+        bundle = new Bundle();
+    } else {
+        bundle = new Bundle(BundleProtocol::BP_VERSION_6);
+    }
+    bref = bundle;
+
 
 
     // load the EIDs
-    bref->mutable_source()->assign(pdu->local_eid());
+    bref->set_source(pdu->local_eid());
 
     if (pdu->remote_eid().scheme() == IPNScheme::instance()) {
         u_int64_t node = 0;
@@ -286,7 +299,7 @@ DtpcDataPduCollector::send_ack(DtpcProtocolDataUnit* pdu, BundleRef& rcvd_bref)
     bref->set_custody_rcpt(rcvd_bref->custody_rcpt());
     bref->set_deletion_rcpt(rcvd_bref->deletion_rcpt());
 
-    bref->set_expiration(rcvd_bref->expiration());
+    bref->set_expiration_millis(rcvd_bref->expiration_millis());
     bref->set_app_acked_rcpt(false);
 
 
@@ -323,7 +336,7 @@ DtpcDataPduCollector::send_ack(DtpcProtocolDataUnit* pdu, BundleRef& rcvd_bref)
     bref->mutable_payload()->set_length(buf_.len());
     bref->mutable_payload()->set_data(buf_.buf(), buf_.len());
 
-    log_debug("send_ack - posting bundle to send (%s~%"PRIi32"~%"PRIu64")", 
+    log_debug("send_ack - posting bundle to send (%s~%" PRIi32 "~%" PRIu64 ")", 
               remote_eid().c_str(), profile_id_, pdu->seq_ctr());
 
     BundleDaemon::post(new BundleReceivedEvent(bref.object(), EVENTSRC_APP));
@@ -420,7 +433,7 @@ DtpcDataPduCollector::deliver_pdu(DtpcProtocolDataUnit* pdu)
         }
 
         if (is_valid && NULL != collector) {
-            log_debug("deliver topic (%"PRIu32") to collector", topic_id);
+            log_debug("deliver topic (%" PRIu32 ") to collector", topic_id);
             deliver_topic_collector(collector);
             collector = NULL;
         }
@@ -450,24 +463,26 @@ DtpcDataPduCollector::check_for_deliverable_pdu()
         DtpcProtocolDataUnit* pdu = iter->second;
 
         if (pdu->seq_ctr() == seq_ctr_) {
-            if (NULL != timer_) {
+            if (timer_ != nullptr) {
                 timer_->cancel();
-                timer_ = NULL;
+                timer_ = nullptr;
                 memset(&expiration_time_, 0, sizeof(expiration_time_));
             }
             
             pdu_map_.erase(iter);
             deliver_pdu(pdu);
 
-        } else if (NULL == timer_) {
+        } else if (timer_ = nullptr) {
             // wait for up to 1 second before expiration for prior PDUs 
             // to arrive then give up and deliver what we have            
             expiration_time_.tv_sec = pdu->expiration_ts() - 1;
             expiration_time_.tv_usec = 0;
     
             // start a timer ticking for this payload
-            timer_ = new DtpcDeliverPduTimer(pdu->collector_key(), pdu->seq_ctr());
-            timer_->schedule_at(&expiration_time_);
+            timer_ = std::make_shared<DtpcDeliverPduTimer>(pdu->collector_key(), pdu->seq_ctr());
+            timer_->set_sptr(timer_);
+            oasys::SPtr_Timer otimer = timer_;
+            timer_->schedule_at( &expiration_time_, otimer);
         }
     }
 }
@@ -477,21 +492,21 @@ DtpcDataPduCollector::check_for_deliverable_pdu()
 bool
 DtpcDataPduCollector::validate_topic_id(u_int32_t topic_id)
 {
-    log_debug("validate_topic_id - validate Topic ID: %"PRIu32, topic_id);
+    log_debug("validate_topic_id - validate Topic ID: %" PRIu32, topic_id);
 
     bool result = true;
     DtpcTopicTable* toptab = DtpcTopicTable::instance();
     if (! toptab->find(topic_id) ) {
         if (DtpcDaemon::params_.require_predefined_topics_) {
             // on the fly topics not allowed
-            log_err("validate_topic_id - Topic Block rejected - no predefined Topic ID: %"PRIu32,
+            log_err("validate_topic_id - Topic Block rejected - no predefined Topic ID: %" PRIu32,
                     topic_id);
             result = false;
         } else {
             // add the on the fly topic
 	    oasys::StringBuffer errmsg;
             if (! toptab->add(&errmsg, topic_id, false, "<on the fly API topic received>")) {
-                log_err("validate_topic_id - error adding on the fly Topic ID: %"PRIu32,
+                log_err("validate_topic_id - error adding on the fly Topic ID: %" PRIu32,
                         topic_id);
                 result = false;
             }
@@ -510,7 +525,7 @@ DtpcDataPduCollector::deliver_topic_collector(DtpcTopicCollector* collector)
 
     DtpcTopic* topic = DtpcTopicTable::instance()->get(collector->topic_id());
     if (NULL == topic) {
-        log_err("deliver_topic_collector - Topic ID: %"PRIu32" not found - abort delivery",
+        log_err("deliver_topic_collector - Topic ID: %" PRIu32 " not found - abort delivery",
                 collector->topic_id());
         delete collector;
     } else {
@@ -531,9 +546,9 @@ DtpcDataPduCollector::queue_pdu(DtpcProtocolDataUnit* pdu)
     // if this is now the first entry in the list then we need to 
     // cancel the delivery timer and start a new one
     if (iter == pdu_map_.begin()) {
-        if (NULL != timer_) {
+        if (timer_ != nullptr) {
             timer_->cancel();
-            timer_ = NULL;
+            timer_ = nullptr;
             memset(&expiration_time_, 0, sizeof(expiration_time_));
         }
 
@@ -543,8 +558,10 @@ DtpcDataPduCollector::queue_pdu(DtpcProtocolDataUnit* pdu)
         expiration_time_.tv_usec = 0;
 
         // start a timer ticking for this payload
-        timer_ = new DtpcDeliverPduTimer(pdu->collector_key(), pdu->seq_ctr());
-        timer_->schedule_at(&expiration_time_);
+        timer_ = std::make_shared<DtpcDeliverPduTimer>(pdu->collector_key(), pdu->seq_ctr());
+        timer_->set_sptr(timer_);
+        oasys::SPtr_Timer otimer = timer_;
+        timer_->schedule_at( &expiration_time_, otimer);
     }
 }
 
@@ -559,7 +576,7 @@ DtpcDataPduCollector::timer_expired(u_int64_t seq_ctr)
         DtpcProtocolDataUnit* pdu = iter->second;
 
         if (pdu->seq_ctr() == seq_ctr) {
-            timer_ = NULL;
+            timer_ = nullptr;
             memset(&expiration_time_, 0, sizeof(expiration_time_));
 
             pdu_map_.erase(iter);

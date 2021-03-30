@@ -20,7 +20,7 @@
 
 #include <map>
 
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DtpcApplicationDataItem.h"
 #include "DtpcProtocolDataUnit.h"

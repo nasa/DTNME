@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,9 +36,9 @@
 #define _BUNDLE_ROUTER_H_
 
 #include <vector>
-#include <oasys/debug/Logger.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleEvent.h"
@@ -120,6 +120,10 @@ public:
         /// link that is ALWAYSON and isopen() if possible
         bool static_router_prefer_always_on_;
         
+        /// Allow [External] router to control delivery of bundles
+        /// if so desired
+        bool auto_deliver_bundles_;
+        
     } config_;
     
     /**
@@ -160,6 +164,21 @@ public:
      * @return true if okay to accept custody of the bundle.
      */
     virtual bool accept_custody(Bundle* bundle);
+
+    /**
+     * for handling ACS and BIBE custody releases on individual bundles
+     * - mainly by the ExternalRouter
+     **/ 
+    virtual void handle_custody_released(uint64_t bundleid, bool succeeded, int reason) {
+        (void) bundleid;
+        (void) succeeded;
+        (void) reason;
+    }
+
+    /**
+     * Whether or not to automatically deliver local bundles upon receipt
+     */
+    virtual bool auto_deliver_bundles() { return config_.auto_deliver_bundles_; }
 
     /**
      * Synchronous probe indicating whether or not this bundle can be
