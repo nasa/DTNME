@@ -48,7 +48,7 @@ BlockProcessor::BlockProcessor(int block_type)
     : block_type_(block_type)
 {
     // quiet down non-debugging build
-    (void)log;
+    //(void)log; --- voidcast here causes problems with newer compilers
 
     log_path_ = "/dtn/bp";
     bp_version_t = BundleProtocol::BP_VERSION_UNKNOWN;
