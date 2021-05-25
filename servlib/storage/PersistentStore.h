@@ -19,7 +19,7 @@
 
 
 #include <vector>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 namespace dtn {
 

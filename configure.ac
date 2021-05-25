@@ -24,7 +24,7 @@ AC_PREREQ(2.57)
 AC_INIT(DTNME)
 AC_CONFIG_SRCDIR([dtn-version.h])
 AC_CONFIG_HEADER([dtn-config.h])
-AC_CONFIG_AUX_DIR([tools])
+#AC_CONFIG_AUX_DIR([tools])
 AC_PREFIX_DEFAULT([/usr])
 
 #  Stick a comment in the generated file so people know what to do.
@@ -68,12 +68,13 @@ fi
 #  First set srcdir and builddir, calculated above in AC_CONFIG_SRCDIR
 AC_MSG_CHECKING([location of source directory])
 SRCDIR=`(cd $srcdir && pwd)`
-AC_MSG_RESULT([\"$SRCDIR\"])
+AC_MSG_RESULT([$SRCDIR])
+
 AC_SUBST([SRCDIR])
 
 builddir=`pwd`
 AC_MSG_CHECKING([location of build directory])
-AC_MSG_RESULT([\"$builddir\"])
+AC_MSG_RESULT([$builddir])
 BUILDDIR=$builddir
 AC_SUBST([BUILDDIR])
 
@@ -107,7 +108,7 @@ prefix=$oasys_save_prefix
 # -------------------------------------------------------------------------
 # Configure find oasys
 # -------------------------------------------------------------------------
-AC_OASYS_CONFIG(1,5)
+AC_OASYS_WITH_DTNME_CONFIG
 
 # -------------------------------------------------------------------------
 # Dump the autoconf cache now to try to avoid redundant checks
@@ -119,35 +120,16 @@ AC_CACHE_SAVE
 # libraries.
 #--------------------------------------------------------------------------
 AC_CONFIG_BONJOUR
-AC_CONFIG_EXTERNAL_CL
-AC_CONFIG_EXTERNAL_DP
-AC_CONFIG_NORM
-AC_CONFIG_LTP
-AC_CONFIG_LTPUDP
-AC_CONFIG_LTPUDPAUTH
 AC_CONFIG_SCRIPT_APIS
 AC_CONFIG_ODBC
+AC_CONFIG_WOLFSSL
 
-#--------------------------------------------------------------------------
-# Check if BSP should be enabled, and if so, look for OpenSSL
-#--------------------------------------------------------------------------
-AC_CONFIG_BSP
-AC_CONFIG_OPENSSL
+AC_CONFIG_TINYCBOR
 
-#--------------------------------------------------------------------------
-# Check if BPQ should be enabled
-#--------------------------------------------------------------------------
-AC_CONFIG_BPQ
-
-#--------------------------------------------------------------------------
-# Check if ACS should be enabled
-#--------------------------------------------------------------------------
-AC_CONFIG_ACS
-
-#--------------------------------------------------------------------------
-# Check if BundleDaemon Statistics should be enabled
-#--------------------------------------------------------------------------
-AC_CONFIG_BDSTATS
+# -------------------------------------------------------------------------
+# Configure gcc 
+# -------------------------------------------------------------------------
+AC_OASYS_CONFIG_GCC
 
 #--------------------------------------------------------------------------
 # Configure for 64 bit Bundle IDs
@@ -164,21 +146,6 @@ AC_CONFIG_DTPC
 #--------------------------------------------------------------------------
 AC_CONFIG_ECOS
 
-#--------------------------------------------------------------------------
-# Check if the EHS External Router should be built
-#--------------------------------------------------------------------------
-AC_CONFIG_EHSROUTER
-
-# -------------------------------------------------------------------------
-# Configure gcc 
-# -------------------------------------------------------------------------
-AC_OASYS_CONFIG_GCC
-
-#--------------------------------------------------------------------------
-# Check if the BBN IPND implementation should be enabled
-#--------------------------------------------------------------------------
-AC_CONFIG_BBN_IPND
-
 # -------------------------------------------------------------------------
 # Output
 # -------------------------------------------------------------------------
@@ -188,7 +155,6 @@ AC_SUBST(INCFLAGS)
 
 AC_CONFIG_FILES([Rules.make:$OASYS_ETCDIR/Rules.make.in])
 AC_CONFIG_FILES([System.make:$OASYS_ETCDIR/System.make:System.make.in])
-AC_CONFIG_FILES([servlib/ipnd.make:servlib/ipnd.make.in])
 AC_CONFIG_FILES([servlib/dtpc.make:servlib/dtpc.make.in])
 
 if test ! $SRCDIR = `pwd` ; then
@@ -197,8 +163,6 @@ if test ! $SRCDIR = `pwd` ; then
    AC_CONFIG_FILES([servlib/Makefile:servlib/Makefile-Builddir.in])
    AC_CONFIG_FILES([daemon/Makefile:daemon/Makefile-Builddir.in])
    AC_CONFIG_FILES([apps/Makefile:apps/Makefile-Builddir.in])
-   AC_CONFIG_FILES([sim/Makefile:sim/Makefile-Builddir.in])
-   AC_CONFIG_FILES([test/Makefile:test/Makefile-Builddir.in])
 fi
 
 AC_OUTPUT

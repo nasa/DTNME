@@ -17,7 +17,7 @@
 #ifndef _ENDPOINTIDOPT_H_
 #define _ENDPOINTIDOPT_H_
 
-#include <oasys/util/Options.h>
+#include <third_party/oasys/util/Options.h>
 
 namespace dtn {
 

@@ -19,17 +19,17 @@
 #define _DTPC_PROTOCOL_DATA_UNIT_H_
 
 #include <map>
+#include <memory>
 
-#include "oasys/debug/Log.h"
-#include <oasys/serialize/Serialize.h>
-#include "oasys/util/ScratchBuffer.h"
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "naming/EndpointID.h"
 
 namespace dtn {
 
-class DtpcPayloadAggregationTimer;
 class DtpcApplicationDataItem;
 class DtpcProtocolDataUnit;
 class DtpcProfile;
@@ -48,6 +48,8 @@ typedef DtpcPduSeqCtrMap::iterator                    DtpcPduSeqCtrIterator;
 typedef std::pair<DtpcPduSeqCtrIterator, bool>        DtpcPduSeqCtrInsertResult;
 
 typedef oasys::ScratchBuffer<u_int8_t*, 1024>         DtpcPayloadBuffer;
+
+typedef std::shared_ptr<DtpcRetransmitTimer> SPtr_DtpcRetransmitTimer;
 
 /**
  * DTPC ProtocolDataUnit object is instantiated for each PDU
@@ -115,7 +117,7 @@ public:
     virtual const EndpointID&        local_eid()         { return local_eid_; }
     virtual u_int64_t                seq_ctr()           { return seq_ctr_; }
     virtual int                      retransmit_count()  { return retransmit_count_; }
-    virtual DtpcRetransmitTimer*     retransmit_timer()  { return retransmit_timer_; }
+    virtual SPtr_DtpcRetransmitTimer retransmit_timer()  { return retransmit_timer_; }
     virtual time_t                   retransmit_ts()     { return retransmit_ts_; }
     virtual int64_t                  size()              { return buf_->len(); }
     virtual const DtpcPayloadBuffer* buf()               { return buf_; }
@@ -134,7 +136,8 @@ public:
     virtual void set_remote_eid(const EndpointID& eid);
     virtual void set_seq_ctr(u_int64_t t);
     virtual int inc_retransmit_count()                        { return ++retransmit_count_; }
-    virtual void set_retransmit_timer(DtpcRetransmitTimer* t, time_t ts) { retransmit_timer_ = t; retransmit_ts_ = ts; }
+    virtual void set_retransmit_timer(SPtr_DtpcRetransmitTimer t, time_t ts) { retransmit_timer_ = t; retransmit_ts_ = ts; }
+    virtual void clear_retransmit_timer()                     { retransmit_timer_ = nullptr; }
     virtual void set_buf(DtpcPayloadBuffer* t)                { buf_ = t; }
     virtual void set_creation_ts(time_t t)                    { creation_ts_ = t; }
     virtual void set_expiration_ts(time_t t)                  { expiration_ts_ = t; }
@@ -183,7 +186,7 @@ private:
     time_t retransmit_ts_;
 
     /// Retransmit Timer signals when payload should be re-sent
-    DtpcRetransmitTimer* retransmit_timer_;
+    SPtr_DtpcRetransmitTimer retransmit_timer_;
 
     /// buffer to hold the payload
     //oasys::ScratchBuffer<u_int8_t*, 4096>* buf_;

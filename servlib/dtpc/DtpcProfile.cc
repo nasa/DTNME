@@ -37,7 +37,7 @@ namespace dtn {
 DtpcProfile::DtpcProfile(u_int32_t profile_id)
     : profile_id_(profile_id),
       custody_transfer_(false),
-      expiration_(864000),
+      expiration_(3600),
       replyto_("dtn:none"),
       priority_(0),
       ecos_ordinal_(0),
@@ -120,7 +120,7 @@ DtpcProfile::format_for_list(oasys::StringBuffer* buf)
 {
 #define bool_to_c(x)   ((x) ? 'T' : 'F')
 
-    buf->appendf("%6"PRIu32" %6"PRIu32" %7"PRIu32" %7"PRIu32"  %c   %8"PRIu64" %-9.9s  %3u  %c    %c    %c    %c    %c   %s\n",
+    buf->appendf("%6" PRIu32 " %6" PRIu32 " %7" PRIu32 " %7" PRIu32 "  %c   %8" PRIu64 " %-9.9s  %3u  %c    %c    %c    %c    %c   %s\n",
                  profile_id_, retransmission_limit_, aggregation_size_limit_, aggregation_time_limit_,
                  bool_to_c(custody_transfer_), expiration_, priority_str(),
                  ecos_ordinal_, bool_to_c(rpt_reception_), bool_to_c(rpt_acceptance_),
@@ -135,7 +135,7 @@ DtpcProfile::format_verbose(oasys::StringBuffer* buf)
 
 #define bool_to_str(x)   ((x) ? "true" : "false")
 
-    buf->appendf("profile id %"PRIu32":\n", profile_id_);
+    buf->appendf("profile id %" PRIu32 ":\n", profile_id_);
     buf->appendf("              dest: %s\n", replyto_.c_str());
 }
 

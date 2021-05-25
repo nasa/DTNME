@@ -15,8 +15,8 @@
  */
 
 #include "MultiGraph.h"
-#include <oasys/util/StringAppender.h>
-#include <oasys/util/UpdatablePriorityQueue.h>
+#include <third_party/oasys/util/StringAppender.h>
+#include <third_party/oasys/util/UpdatablePriorityQueue.h>
 
 namespace dtn {
 

@@ -19,8 +19,6 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
 #include <inttypes.h>
 
 #include "EhsSrcDstWildBoolMap.h"
@@ -310,5 +308,3 @@ EhsSrcDstWildBoolMap::dump(oasys::StringBuffer* buf)
 
 } // namespace dtn
 
-
-#endif // EHSROUTER_ENABLED

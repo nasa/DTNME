@@ -54,7 +54,7 @@ Contact::~Contact()
 int
 Contact::format(char* buf, size_t sz) const
 {
-    return snprintf(buf, sz, "contact %s (started %u.%u)",
+    return snprintf(buf, sz, "contact %s (started %" PRIu64 ".%" PRIu64 ")",
                     link_->nexthop(),
                     start_time_.sec_, start_time_.usec_);
 }
@@ -68,6 +68,15 @@ Contact::serialize(oasys::SerializeAction *a)
     a->process("bps", &bps_);
     a->process("latency", &latency_);
     a->process("link", link_.object());
+}
+
+//----------------------------------------------------------------------
+void
+Contact::get_cla_stats(oasys::StringBuffer& buf)
+{
+    if (cl_info_ != nullptr) {
+       cl_info_->get_cla_stats(buf);
+    }
 }
 
 } // namespace dtn

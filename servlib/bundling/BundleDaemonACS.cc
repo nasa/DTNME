@@ -19,18 +19,16 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef ACS_ENABLED
 
-#include <oasys/io/IO.h>
-#include <oasys/util/Time.h>
-#include <oasys/storage/DurableStore.h>
+#include <third_party/oasys/io/IO.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/storage/DurableStore.h>
 
 #include "Bundle.h"
 #include "BundleActions.h"
 #include "BundleEvent.h"
 #include "BundleDaemonACS.h"
 #include "BundleDaemonStorage.h"
-#include "CustodyTransferEnhancementBlockProcessor.h"
 #include "SDNV.h"
 #include "naming/EndpointID.h"
 #include "naming/IPNScheme.h"
@@ -38,16 +36,6 @@
 #include "storage/PendingAcsStore.h"
 
 #include "ExpirationTimer.h"
-
-#ifdef BSP_ENABLED
-#  include "security/Ciphersuite.h"
-#  include "security/SPD.h"
-#  include "security/KeyDB.h"
-#endif
-
-namespace oasys {
-    template <> dtn::BundleDaemonACS* oasys::Singleton<dtn::BundleDaemonACS, false>::instance_ = NULL;
-}
 
 namespace dtn {
 
@@ -62,65 +50,29 @@ bool BundleDaemonACS::shutting_down_ = false;
 
 
 //----------------------------------------------------------------------
-void
-BundleDaemonACS::init()
-{       
-    if (instance_ != NULL) 
-    {
-        PANIC("BundleDaemonACS already initialized");
-    }
-
-    instance_ = new BundleDaemonACS();     
-    instance_->do_init();
-}
-    
-//----------------------------------------------------------------------
 BundleDaemonACS::BundleDaemonACS()
-    : BundleEventHandler("BundleDaemonACS", "/dtn/bundle/daemon/acs"),
-      Thread("BundleDaemonACS", CREATE_JOINABLE)
+    : BundleEventHandler("BundleDaemonACS", "/dtn/bd/acs"),
+      Thread("BundleDaemonACS")
 {
-    daemon_ = NULL;
-    eventq_ = NULL;
-    
     memset(&stats_, 0, sizeof(stats_));
 
     pending_acs_map_ = new PendingAcsMap();
+
+    acs_params_revision_ = 1;
+
+    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
+    eventq_->notify_when_empty();
+
+    dbg_last_ae_op_ = AE_OP_NOOP;
+
+    log_always("BundleDaemonACS initialized");
 }
 
 //----------------------------------------------------------------------
 BundleDaemonACS::~BundleDaemonACS()
 {
     delete eventq_;
-    delete custodyid_list_;
     delete pending_acs_map_;
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonACS::do_init()
-{
-    acs_params_revision_ = 1;
-
-    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
-    eventq_->notify_when_empty();
-
-    custodyid_list_ = new custodyid_list_t("acs_custodyids");
-
-    dbg_last_ae_op_ = AE_OP_NOOP;
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonACS::post(BundleEvent* event)
-{
-    instance_->post_event(event);
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonACS::post_at_head(BundleEvent* event)
-{
-    instance_->post_event(event, false);
 }
 
 //----------------------------------------------------------------------
@@ -131,29 +83,6 @@ BundleDaemonACS::post_event(BundleEvent* event, bool at_back)
               event, event->type_str(), at_back ? "back" : "head");
     event->posted_time_.get_time();
     eventq_->push(event, at_back);
-}
-
-//----------------------------------------------------------------------
-bool 
-BundleDaemonACS::post_and_wait(BundleEvent* event,
-                               oasys::Notifier* notifier,
-                               int timeout, bool at_back)
-{
-    /*
-     * Make sure that we're either already started up or are about to
-     * start. Otherwise the wait call below would block indefinitely.
-     */
-    ASSERT(! oasys::Thread::start_barrier_enabled());
-
-
-    ASSERT(event->processed_notifier_ == NULL);
-    event->processed_notifier_ = notifier;
-    if (at_back) {
-        post(event);
-    } else {
-        post_at_head(event);
-    }
-    return notifier->wait(NULL, timeout);
 }
 
 //----------------------------------------------------------------------
@@ -170,7 +99,7 @@ BundleDaemonACS::get_bundle_stats(oasys::StringBuffer* buf)
                  "%u generated -- "
                  "%u reloaded -- "
                  "%u invalid",
-                 custodyid_list_->size(),
+                 custody_list_.size(),
                  stats_.acs_accepted_,
                  stats_.acs_released_,
                  stats_.acs_redundant_,
@@ -186,7 +115,7 @@ void
 BundleDaemonACS::get_daemon_stats(oasys::StringBuffer* buf)
 {
     buf->appendf("%zu pending_events -- "
-                 "%u processed_events",
+                 "%" PRIu64 " processed_events",
                  event_queue_size(),
                  stats_.events_processed_);
 }
@@ -280,12 +209,12 @@ BundleDaemonACS::delete_route_acs_params(EndpointIDPattern& pat)
 void
 BundleDaemonACS::dump_acs_params(oasys::StringBuffer* buf)
 {
-    buf->appendf("Aggregate Custody Signal Parameters:\n");
+    buf->appendf("BIBE/Aggregate Custody Signal Parameters:\n");
     buf->appendf("    acs_enabled: %s\n", (params_.acs_enabled_ ? "true" : "false"));
     buf->appendf("      acs_delay: %u\n", params_.acs_delay_);
     buf->appendf("       acs_size: %u\n", params_.acs_size_);
-    buf->appendf("last custody id: %" PRIu64 "\n", GlobalStore::instance()->last_custodyid());
-    buf->appendf(" num in custody: %zu\n", custodyid_list_->size());
+//    buf->appendf("last custody id: %" PRIu64 "\n", GlobalStore::instance()->last_custodyid());
+    buf->appendf(" num in custody: %zu\n", custody_list_.size());
 
     ACSRouteParamsList::iterator iter;
     ACSRouteParams* arp;
@@ -436,12 +365,13 @@ BundleDaemonACS::handle_add_bundle_to_acs(AddBundleToAcsEvent* event)
         pending_acs_map_->insert(PendingAcsPair(key, pacs));
 
         // fill in the Pending ACS info
-        pacs->pacs_id() = GlobalStore::instance()->next_pacsid();
-        pacs->custody_eid().assign(*(event->custody_eid_));
-        pacs->succeeded() = event->succeeded_;
-        pacs->reason() = event->reason_;
+        pacs->pacs_id_ = GlobalStore::instance()->next_pacsid();
+        pacs->custody_eid_.assign(*(event->custody_eid_));
+        pacs->succeeded_ = event->succeeded_;
+        pacs->reason_ = event->reason_;
         pacs->set_acs_entry_map(new AcsEntryMap()); 
-        pacs->set_acs_expiration_timer(NULL);
+        pacs->clear_acs_expiration_timer();
+        pacs->bp_version_ = 6;
     } else {
         // Add this custody id to the Pending ACS
         pacs = pa_itr->second;
@@ -484,10 +414,11 @@ BundleDaemonACS::handle_add_bundle_to_acs(AddBundleToAcsEvent* event)
            ((pacs->acs_payload_length() + delta) > pacs->acs_size()) ) ||
          ( acs_params_changed && (pacs->acs_delay() < old_acs_delay ) ) ) {
         // cancel the expiration timer
-        pacs->acs_expiration_timer()->cancel(); 
+        oasys::SPtr_Timer exp_sptr = pacs->acs_expiration_timer();
+        oasys::SharedTimerSystem::instance()->cancel_timer(exp_sptr);
 
         // the timer object will be deleted by the oasys::TimerSystem
-        pacs->set_acs_expiration_timer(NULL);
+        pacs->clear_acs_expiration_timer();
 
         log_debug("Size constraint triggered ACS: num entries: %zd", 
                   pacs->acs_entry_map()->size());
@@ -508,6 +439,105 @@ BundleDaemonACS::handle_add_bundle_to_acs(AddBundleToAcsEvent* event)
 
     // clean up: delete the event custody EndpointID
     delete event->custody_eid_;
+}
+
+//----------------------------------------------------------------------
+void
+BundleDaemonACS::add_bibe_bundle_to_acs(int32_t bp_version, const EndpointID& custody_eid, 
+                                        uint64_t transmission_id, bool success, uint8_t reason)
+{
+    // Check if an ACS tree already exists for this custodian+succeeded+reason combo
+    std::string key;
+    key.append(custody_eid.c_str());
+    key.append(success ? "~success~" : "~fail~" );
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%2.2x", reason);
+    key.append(buf);
+   
+    PendingAcs* pacs;
+
+    // try to find this key
+    PendingAcsIterator pa_itr = pending_acs_map_->find(key);
+
+    if ( pa_itr == pending_acs_map_->end() ) {
+        // create a Pending ACS entry for this key
+        pacs = new PendingAcs(key);
+
+        // Add this new Pending ACS to the map
+        pending_acs_map_->insert(PendingAcsPair(key, pacs));
+
+        // fill in the Pending ACS info
+        pacs->pacs_id_ = GlobalStore::instance()->next_pacsid();
+        pacs->custody_eid().assign(custody_eid);
+        pacs->succeeded_ = success;
+        pacs->reason_ = reason;
+        pacs->set_acs_entry_map(new AcsEntryMap()); 
+        pacs->clear_acs_expiration_timer();
+        pacs->bp_version_ = bp_version;
+    } else {
+        // Add this custody id to the Pending ACS
+        pacs = pa_itr->second;
+    }
+
+    oasys::ScopeLock l(&pacs->lock(), "BundleDaemonACS::handle_issue_acs");
+
+    // Determine where this custody ID needs to be entered 
+    // and how it will delta the ACS payload. Also identify
+    // the operation that needs to be performed if the size
+    // constraint is not triggered.
+    uint64_t custody_id = transmission_id;
+    AcsEntryIterator ae_itr;
+    AcsEntry* entry = NULL;
+    AcsEntry* next_entry = NULL;
+    ae_operation_t ae_op = AE_OP_NOOP;
+    int new_entry_size = 0;
+    int new_next_size = 0;
+    uint64_t new_entry_diff = 0;
+    uint64_t new_next_diff = 0;
+
+    int delta = determine_acs_changes(pacs, ae_op, custody_id, ae_itr,
+                                      entry, next_entry,
+                                      new_entry_size, new_next_size,
+                                      new_entry_diff, new_next_diff);
+
+    // get the latest parameter values in case they changed
+    u_int old_acs_delay = pacs->acs_delay();
+    bool acs_params_changed = get_acs_params_for_endpoint(
+                                      pacs->custody_eid(),
+                                      pacs->mutable_params_revision(),
+                                      pacs->mutable_acs_delay(),
+                                      pacs->mutable_acs_size());
+
+    // before applying changes determine if the new length would be larger
+    // than the configured max size and if so we need to send the current ACS
+    // and then start a new ACS with this entry.
+    // also sending ACS if the accumulate seconds was lowered
+    if ( ( (pacs->acs_size() > 0) && (pacs->acs_payload_length() > 0) && 
+           ((pacs->acs_payload_length() + delta) > pacs->acs_size()) ) ||
+         ( acs_params_changed && (pacs->acs_delay() < old_acs_delay ) ) ) {
+        // cancel the expiration timer
+        oasys::SPtr_Timer exp_sptr = pacs->acs_expiration_timer();
+        oasys::SharedTimerSystem::instance()->cancel_timer(exp_sptr);
+
+        // the timer object will be deleted by the oasys::TimerSystem
+        pacs->clear_acs_expiration_timer();
+
+        log_debug("Size constraint triggered ACS: num entries: %zd", 
+                  pacs->acs_entry_map()->size());
+
+        // Create the ACS (clears and resets the Pending ACS object).
+        // Skip the datastore update as we will do it shortly...
+        generate_acs(pacs, false);
+    }
+
+    // now apply the changes
+    apply_acs_changes(pacs, ae_op, custody_id, ae_itr, delta, 
+                      entry, next_entry,
+                      new_entry_size, new_next_size,
+                      new_entry_diff, new_next_diff);
+
+    // and update the database
+    update_pending_acs_store(pacs);
 }
 
 //----------------------------------------------------------------------
@@ -628,7 +658,7 @@ BundleDaemonACS::determine_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
                     SDNV::encoding_len(prev_entry->length_of_fill_);
 
                 // bump the num custody ids
-                ++pacs->num_custody_ids();
+                ++pacs->num_custody_ids_;
 
                 // remove the entry we no longer need
                 pacs->acs_entry_map()->erase(ae_itr);
@@ -636,7 +666,7 @@ BundleDaemonACS::determine_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
 
                 // adjust the payload length and fall through
                 ASSERT(prev_entry->sdnv_length_ <= old_size);
-                pacs->acs_payload_length() += prev_entry->sdnv_length_ - old_size;
+                pacs->acs_payload_length_ += prev_entry->sdnv_length_ - old_size;
                 delta = 0;
             } else {
                 // this custody id prepends the left edge of the entry
@@ -762,16 +792,17 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
                       new_entry_diff, new_entry_size);
 
         // set the size of the payload
-        pacs->acs_payload_length() = new_entry_size;
+        pacs->acs_payload_length_ = new_entry_size;
 
         // set the initial num custody ids
-        pacs->num_custody_ids() = 1;
+        pacs->num_custody_ids_ = 1;
 
         // create a new timer object and start it ticking
-        pacs->set_acs_expiration_timer(
-                new AcsExpirationTimer(pacs->durable_key(), pacs->pacs_id()));
-        pacs->acs_expiration_timer()->schedule_in(
-            pacs->acs_delay() * 1000);
+        SPtr_AcsExpirationTimer exp_sptr = std::make_shared<AcsExpirationTimer>(pacs->durable_key(), pacs->pacs_id());
+        pacs->set_acs_expiration_timer(exp_sptr);
+        oasys::SPtr_Timer base_sptr = exp_sptr;
+        oasys::SharedTimerSystem::instance()->schedule_in(pacs->acs_delay() * 1000, base_sptr);
+
     } else {
         switch (ae_op) {
         case AE_OP_INSERT_FIRST_ENTRY:
@@ -782,7 +813,7 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
                           new_entry_diff, new_entry_size);
 
             // bump the num custody ids
-            ++pacs->num_custody_ids();
+            ++pacs->num_custody_ids_;
 
             // if a next_entry is set up then update it
             if (next_entry) {
@@ -791,7 +822,7 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
             }
 
             // update the Pending ACS payload length
-            pacs->acs_payload_length() += delta;
+            pacs->acs_payload_length_ += delta;
             break;
 
         case AE_OP_EXTEND_ENTRY:
@@ -800,7 +831,7 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
             entry->sdnv_length_ = new_entry_size;
 
             // bump the num custody ids
-            ++pacs->num_custody_ids();
+            ++pacs->num_custody_ids_;
 
             // if a next_entry is set up then update it
             if (next_entry) {
@@ -809,7 +840,7 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
             }
 
             // update the Pending ACS payload length
-            pacs->acs_payload_length() += delta;
+            pacs->acs_payload_length_ += delta;
             break;
 
         case AE_OP_PREPEND_ENTRY:
@@ -824,10 +855,10 @@ BundleDaemonACS::apply_acs_changes(PendingAcs* pacs, ae_operation_t &ae_op,
             pacs->acs_entry_map()->insert(AcsEntryPair(custody_id, entry));
 
             // bump the num custody ids
-            ++pacs->num_custody_ids();
+            ++pacs->num_custody_ids_;
 
             // update the Pending ACS payload length
-            pacs->acs_payload_length() += delta;
+            pacs->acs_payload_length_ += delta;
             break;
 
         default:
@@ -866,12 +897,17 @@ BundleDaemonACS::update_pending_acs_store(PendingAcs* pacs)
 void
 BundleDaemonACS::generate_acs(PendingAcs* pacs, bool update_datastore)
 {
+    if (pacs->bp_version_ == 7) {
+        bibe_generate_acs(pacs, update_datastore);
+        return;
+    }
+
     if (pacs->acs_payload_length() > 0) {
         log_info("generating ACS for key: %s",
                    pacs->durable_key().c_str());
 
         // Create a new bundle and submit it to be processed
-        Bundle* signal = new Bundle();
+        Bundle* signal = new Bundle(BundleProtocol::BP_VERSION_6);
         // Note that the Pending ACS is cleared and unusable after this call
 
         // Note that the Pending ACS is cleared and unusable after this call
@@ -901,18 +937,15 @@ BundleDaemonACS::generate_acs(PendingAcs* pacs, bool update_datastore)
         *data = ecos_ordinal;
 
         // add our ECOS as an API block
-        u_int16_t block_type = BundleProtocol::EXTENDED_CLASS_OF_SERVICE_BLOCK;
-        BlockProcessor* ecosbpr = BundleProtocol::find_processor(block_type);
-        BlockInfo* info = signal->api_blocks()->append_block(ecosbpr);
-        ecosbpr->init_block(info, signal->api_blocks(), NULL, block_type,
+        u_int16_t block_type = BundleProtocolVersion6::EXTENDED_CLASS_OF_SERVICE_BLOCK;
+        BlockProcessor* ecosbpr = BundleProtocolVersion6::find_processor(block_type);
+        SPtr_BlockInfo sptr_info = signal->api_blocks()->append_block(ecosbpr);
+        SPtr_BlockInfoVec sptr_api_blocks = signal->api_blocks();
+        ecosbpr->init_block(sptr_info.get(), sptr_api_blocks.get(), nullptr, block_type,
                             block_flags, scratch_ecos.buf(), len);
 #endif // ECOS_ENABLED
 
         BundleDaemon::post(new BundleReceivedEvent(signal, EVENTSRC_ADMIN));
-
-#ifdef S10_ENABLED
-        s10_bundle(S10_TXADMIN,signal,NULL,0,0,NULL,"aggregate custody signal");
-#endif
 
         ++stats_.acs_generated_;
     }
@@ -971,11 +1004,11 @@ BundleDaemonACS::process_acs(AggregateCustodySignalEvent* event)
 {
     // release custody if either the signal succeded or if it
     // (paradoxically) failed due to duplicate transmission
-    bool redundant = ( event->data_.reason_ == 
-                           BundleProtocol::CUSTODY_REDUNDANT_RECEPTION );
+    bool redundant = event->data_.redundant_;
     bool release = ( event->data_.succeeded_ || redundant );
     if ( !release ) {
-        // this should not happen
+        // XXX/dz could be storage depleted or some such - wait for custody
+        // transfer timer to kick off or try to do something immediately??
         log_info("AGGREGATE_CUSTODY_SIGNAL: %s (%s) - does not release "
                  "bundles: ACS not processed",
                  event->data_.succeeded_ ? "succeeded" : "failed",
@@ -999,6 +1032,9 @@ BundleDaemonACS::process_acs(AggregateCustodySignalEvent* event)
     uint64_t num_acks = 0;
     uint64_t num_not_fnd = 0; 
 
+
+    uint64_t last_custody_id = custody_list_.last_custody_id(event->dest_eid_);
+
     // loop through the ACS entries and update the bundles
     u_int64_t idx;
     u_int64_t cid;
@@ -1012,42 +1048,45 @@ BundleDaemonACS::process_acs(AggregateCustodySignalEvent* event)
         for ( idx=0; idx<entry->length_of_fill_; ++idx ) {
             cid = entry->left_edge_ + idx;
 
+            if (cid > last_custody_id) {
+                log_err("received BIBE/aggregate custody signal for custody id: %" PRIu64
+                         " which was greater than the last one issued for dest (%s): %" PRIu64,
+                         cid, event->dest_eid_.c_str(), last_custody_id);
+                break;
+            }
+
             // find this bundle
-            BundleRef bref = custodyid_list_->find(cid);
+            BundleRef bref = custody_list_.find(event->dest_eid_, cid);
     
             if (bref == NULL) {
-                log_info("received aggregate custody signal for custody id: %" PRIu64
-                         " which was deleted", cid);
+                //log_debug("received BIBE/aggregate custody signal for custody id: %" PRIu64
+                //         " which was deleted", cid);
                 ++num_not_fnd; 
                 ++stats_.acs_not_found_;
                 // continue processing the other bundle ids
             } else {
                 Bundle* bundle = bref.object();
 
-                if ( ! bundle->local_custody() ) {
+                if ( ! bundle->local_custody() && ! bundle->bibe_custody() ) {
                     // data base was cleared and bundle ids reused??
                     //** this should have been caught above and processing aborted
-                    log_warn("received aggregate custody signal for custody id %"  PRIu64
-                             ", but don't have custody", cid);
+                    log_warn("received BIBE/aggregate custody signal for dest: %s custody id %"  PRIu64
+                             ", but don't have custody", event->dest_eid_.c_str(), cid);
                     // continue processing the other bundle ids
                 } else {
                     // log a notice for each bundle
                     if ( redundant ) {
                         ++stats_.acs_redundant_;
-                        log_info("releasing custody for custody id: %" PRIu64
-                                 " due to redundant reception", cid);
+                        //log_info("releasing custody for custody id: %" PRIu64
+                        //         " due to redundant reception", cid);
                     } else {
                         ++stats_.acs_released_;
-                        log_info("releasing custody for custody id: %" PRIu64
-                                 " due to custody transfer", cid);
+                        //log_info("releasing custody for custody id: %" PRIu64
+                        //         " due to custody transfer", cid);
                     }
 
-#ifdef S10_ENABLED
-                    s10_bundle(S10_RELCUST,bundle,bundle->source().c_str(),0,0,NULL,NULL);  ??
-#endif
-
                     BundleDaemon::instance()->release_custody(bundle);
-                    BundleDaemon::instance()->try_to_delete(bref);
+                    BundleDaemon::instance()->try_to_delete(bref, "ACS CustodyRelease");
                     ++num_acks;
                 }
             }
@@ -1064,7 +1103,7 @@ BundleDaemonACS::process_acs(AggregateCustodySignalEvent* event)
     // AggregateCustodySignal::parse_aggregate_custody_signal()
     delete event->data_.acs_entry_map_;
 
-    log_info("Received ACS - Bundles acked: %" PRIu64 "  not fnd: %" PRIu64, 
+    log_info("Received BIBE/ACS - Bundles acked: %" PRIu64 "  not fnd: %" PRIu64, 
              num_acks, num_not_fnd);
 }
 
@@ -1105,7 +1144,7 @@ BundleDaemonACS::load_pendingacs()
         // reset the flags indicating it is in the datastore
         pacs->set_in_datastore(true);
         pacs->set_queued_for_datastore(true);
-        BundleDaemonStorage::instance()->reloaded_pendingacs();
+        BundleDaemon::instance()->reloaded_pendingacs();
 
         log_info("generating ACS immediately after load from datastore for %s",
                  pacs->durable_key().c_str());
@@ -1133,20 +1172,17 @@ void
 BundleDaemonACS::accept_custody(Bundle* bundle)
 {
     if (bundle->custodyid() > 0) {
-        ASSERT(bundle->custodyid() <= GlobalStore::instance()->last_custodyid());
-
         // this bundle is reloaded from the datastore so we 
         // just add it to the list as is
-        custodyid_list_->insert(bundle->custodyid(), bundle);
+        custody_list_.insert(bundle);
         ++stats_.acs_reloaded_;
         return;
     }
 
     if (acs_enabled_for_endpoint(bundle->dest())) {
         // assign the next custody id to this bundle and 
-        // insert in the custodyid_list_
-        bundle->set_custodyid(GlobalStore::instance()->next_custodyid());
-        custodyid_list_->insert(bundle->custodyid(), bundle);
+        // insert in the custody_list_
+        custody_list_.insert(bundle);
         ++stats_.acs_accepted_;
 
         // prepare flags and data for our CTEB block
@@ -1173,13 +1209,26 @@ BundleDaemonACS::accept_custody(Bundle* bundle)
 
         // add our CTEB as an API block
         // NOTE: received CTEBs will be stripped during transmission
-        u_int16_t block_type = BundleProtocol::CUSTODY_TRANSFER_ENHANCEMENT_BLOCK;
-        BlockProcessor* ctebpr = BundleProtocol::find_processor(block_type);
-        BlockInfo* info = bundle->api_blocks()->append_block(ctebpr);
-        ctebpr->init_block(info, bundle->api_blocks(), NULL, block_type,
-                       flags, scratch.buf(), len);
+        u_int16_t block_type = BundleProtocolVersion6::CUSTODY_TRANSFER_ENHANCEMENT_BLOCK;
+        BlockProcessor* ctebptr = BundleProtocolVersion6::find_processor(block_type);
+        SPtr_BlockInfo sptr_info = bundle->api_blocks()->append_block(ctebptr);
+        SPtr_BlockInfoVec sptr_api_blocks = bundle->api_blocks();
+        ctebptr->init_block(sptr_info.get(), sptr_api_blocks.get(), nullptr, block_type,
+                            flags, scratch.buf(), len);
     }
 }
+
+//----------------------------------------------------------------------
+void
+BundleDaemonACS::erase_from_custodyid_list(Bundle* bundle)
+{
+    if (bundle->custodyid() > 0) {
+        custody_list_.erase(bundle);
+        bundle->set_custodyid(0);
+        ++stats_.total_released_;
+    }
+}
+
 
 
 //----------------------------------------------------------------------
@@ -1191,9 +1240,8 @@ BundleDaemonACS::generate_custody_signal(Bundle* bundle, bool succeeded,
 
     if (acs_enabled_for_endpoint(bundle->custodian())) {
         EndpointID* custody_eid = new EndpointID(bundle->custodian());
-        post(new AddBundleToAcsEvent(custody_eid, succeeded, 
-                                     reason, bundle->cteb_custodyid()));
-	//TODO: new s10 logging here?
+        post_event(new AddBundleToAcsEvent(custody_eid, succeeded, 
+                                     reason, bundle->cteb_custodyid()), false);
         ret = true;
     } 
 
@@ -1203,14 +1251,56 @@ BundleDaemonACS::generate_custody_signal(Bundle* bundle, bool succeeded,
 
 //----------------------------------------------------------------------
 void
-BundleDaemonACS::erase_from_custodyid_list(Bundle* bundle)
+BundleDaemonACS::bibe_accept_custody(Bundle* bundle)
+{
+    ASSERT(bundle->custodyid() == 0);
+
+    // assign the next custody id to this bundle and 
+    // insert in the custody_list_
+    custody_list_.insert(bundle);
+}
+
+//----------------------------------------------------------------------
+void
+BundleDaemonACS::bibe_erase_from_custodyid_list(Bundle* bundle)
 {
     if (bundle->custodyid() > 0) {
-        custodyid_list_->erase(bundle->custodyid());
+        custody_list_.erase(bundle);
         bundle->set_custodyid(0);
-        ++stats_.total_released_;
     }
 }
+
+//----------------------------------------------------------------------
+void
+BundleDaemonACS::bibe_generate_acs(PendingAcs* pacs, bool update_datastore)
+{
+    if (pacs->acs_payload_length() > 0) {
+        log_info("generating BIBE ACS for key: %s",
+                   pacs->durable_key().c_str());
+
+        // Create a new bundle and submit it to be processed
+        Bundle* signal = new Bundle(BundleProtocol::BP_VERSION_7);
+        // Note that the Pending ACS is cleared and unusable after this call
+
+        // Note that the Pending ACS is cleared and unusable after this call
+        if (pacs->custody_eid().scheme() == IPNScheme::instance()) {
+            AggregateCustodySignal::create_bibe_custody_signal(
+                    signal, pacs, BundleDaemon::instance()->local_eid_ipn());
+        } else {
+            AggregateCustodySignal::create_bibe_custody_signal(
+                    signal, pacs, BundleDaemon::instance()->local_eid());
+        }
+
+        BundleDaemon::post(new BundleReceivedEvent(signal, EVENTSRC_ADMIN));
+
+        ++stats_.acs_generated_;
+    }
+
+    if (update_datastore) {
+        update_pending_acs_store(pacs);
+    }
+}
+
 
 
 //----------------------------------------------------------------------
@@ -1266,11 +1356,11 @@ BundleDaemonACS::run()
     event_poll->fd     = eventq_->read_fd();
     event_poll->events = POLLIN;
 
-    int timeout = 1000;
+    int timeout = 100;
 
     while (1) {
         if (should_stop()) {
-            log_info("BundleDaemonACS: stopping - event queue size: %zu",
+            log_always("BundleDaemonACS: stopping - event queue size: %zu",
                       eventq_->size());
             break;
         }
@@ -1291,12 +1381,12 @@ BundleDaemonACS::run()
                 oasys::Time in_queue;
                 in_queue = now - event->posted_time_;
                 if (in_queue.sec_ > 2) {
-                    log_warn_p(LOOP_LOG, "event %s was in queue for %u.%u seconds",
+                    log_warn_p(LOOP_LOG, "event %s was in queue for %" PRIu64 ".%" PRIu64 " seconds",
                                event->type_str(), in_queue.sec_, in_queue.usec_);
                 }
             } else {
                 log_warn_p(LOOP_LOG, "time moved backwards: "
-                           "now %u.%u, event posted_time %u.%u",
+                           "now %" PRIu64 ".%" PRIu64 ", event posted_time %" PRIu64 ".%" PRIu64 "",
                            now.sec_, now.usec_,
                            event->posted_time_.sec_, event->posted_time_.usec_);
             }
@@ -1349,4 +1439,3 @@ BundleDaemonACS::run()
 
 } // namespace dtn
 
-#endif // ACS_ENABLED

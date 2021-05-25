@@ -23,6 +23,7 @@
 
 
 #include "EhsExternalRouter.h"
+#include "bundling/FormatUtils.h"
 
 
 //#define TEST_NON_DTN_APP_MODE
@@ -38,6 +39,8 @@ main(int argc, char** argv)
 {
     (void) argc;
     (void) argv;
+
+    umask(0002); // set deafult mask to prevent world write/delete
 
     printf("Create external router...\n");
 
@@ -64,60 +67,66 @@ main(int argc, char** argv)
     ehs_ext_router_->stop();
     ehs_ext_router_ = NULL;
     sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
-    printf("Stop external router...\n");
-    ehs_ext_router_->stop();
-    ehs_ext_router_ = NULL;
-    sleep(1);
-    printf("Re-Create external router...\n");
-    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
-    ehs_ext_router_->start();
 
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
 
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
+    printf("Stop external router...\n");
+    ehs_ext_router_->stop();
+    ehs_ext_router_ = NULL;
+    sleep(1);
+
+    printf("Re-Create external router...\n");
+    ehs_ext_router_ = new dtn::EhsExternalRouter(&do_log_callback, 1, false);
+    ehs_ext_router_->start();
 
 
     printf("Delete external router and exit...\n");
@@ -129,8 +138,6 @@ main(int argc, char** argv)
 
 #else // ! TEST_NON_DTN_APP_MODE
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) && defined(EHSROUTER_ENABLED)
-
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
@@ -140,11 +147,11 @@ main(int argc, char** argv)
 #include <sys/time.h>
 #include <time.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/io/FileUtils.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/Getopt.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/io/FileUtils.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/Getopt.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "EhsExternalRouter.h"
 #include "test_ehsrouter.h"
@@ -241,6 +248,9 @@ TestEhsExternalRouter::validate_options(int argc, char* const argv[], int remain
 int
 TestEhsExternalRouter::main(int argc, char* argv[])
 {
+
+    umask(0002); // set deafult mask to prevent world write/delete
+
     init_app(argc, argv);
 
     log_info("TestEhsExternalRouter starting up...");
@@ -294,7 +304,7 @@ TestEhsExternalRouter::output_header_provider_mode()
         printf("\n");
         printf("    t = toggle statistics update          z = send/recv stats\n");
         printf("    d = display this header               c = process config: update.cfg\n");
-        printf("    y = toggle show interval stats\n");
+        printf("    y = toggle show interval stats                            \n");
         printf("    x = exit                              h = shutdown DTNME server\n\n");
     }
 
@@ -308,7 +318,7 @@ TestEhsExternalRouter::update_statistics()
 {
     if (ehs_ext_router_->started()) {
         if (!g_show_interval_stats) {
-            printf("\r%-100s", ehs_ext_router_->update_statistics());
+            printf("\r%-150s", ehs_ext_router_->update_statistics3());
         } else {
             int count = 0;
             EhsFwdLinkIntervalStats* stats = NULL;
@@ -380,6 +390,7 @@ TestEhsExternalRouter::run()
     }
     output_header_provider_mode();
 
+    ssize_t read_stat;
     bool done = false;
     while ( !done )
     {
@@ -395,12 +406,14 @@ TestEhsExternalRouter::run()
 
         if( res > 0 )
         {
-            read( fileno( stdin ), &key, 1 );
+            read_stat = read( fileno( stdin ), &key, 1 );
+            if (read_stat < 1) {
+                break;
+            }
+
             switch (key) {
                 case 'x':
                 case 'X':
-                case 'q':
-                case 'Q':
                     send_recv_stats();
                     ehs_ext_router_->stop();
                     // router will delete itself when the thread terminates
@@ -833,11 +846,11 @@ TestEhsExternalRouter::bundle_stats_by_src_dst()
     ehs_ext_router_->bundle_stats_by_src_dst(&count, &stats);
 
     printf("\n\nBundle Stats by Source-Dest:\n");
-    printf("Source  Dest   Received Transmit Pending   Bytes   Custody   ExpRcv   ExpXmt  Deliverd Expired  TTLAbuse Rejected\n");
-    printf("------ ------  -------- -------- -------- -------- -------- -------- -------- -------- -------- -------- --------\n");
+    printf("Source  Dest    Received  Transmittd Pending   Bytes   Custody  ExpdtRcv ExpdtXmt Delivered  Expired  TTLAbuse Rejected\n");
+    printf("------ ------  ---------- ---------- -------- -------- -------- -------- -------- ---------- -------- -------- --------\n");
     for (int ix=0; ix<count; ++ix) {
-        printf("%6" PRIu64 " %6" PRIu64 "  %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8.8s %8" PRIu64
-               " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 "\n",
+        printf("%6" PRIu64 " %6" PRIu64 "  %10" PRIu64 " %10" PRIu64 " %8" PRIu64 " %8.8s %8" PRIu64
+               " %8" PRIu64 " %8" PRIu64 " %10" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 "\n",
                stats[ix].source_node_id_, stats[ix].dest_node_id_,
                stats[ix].total_received_, stats[ix].total_transmitted_, 
                stats[ix].total_pending_, fmt_bytes(stats[ix].total_bytes_).c_str(),
@@ -847,7 +860,6 @@ TestEhsExternalRouter::bundle_stats_by_src_dst()
                stats[ix].total_ttl_abuse_, stats[ix].total_rejected_);
 //        stats[ix].total_pending_bulk_,
 //        stats[ix].total_pending_normal_,
-//        stats[ix].total_pending_expedited_,
 //        stats[ix].total_pending_reserved_,
     }
     printf("\n\n");
@@ -872,6 +884,7 @@ TestEhsExternalRouter::unrouted_bundle_stats_by_src_dst()
 
     do_stats_ = save_do_stats;
 }
+
 
 //----------------------------------------------------------------------
 void
@@ -914,19 +927,6 @@ main(int argc, char** argv)
     return 0;
 }
 
-#else
-
-int
-main(int argc, char** argv)
-{
-    (void) argc;
-    (void) argv;
-    printf("EHS Router not built: \n");
-    printf("  1. Configure oasys with Xerces C 2.8.0 installed on the sytem or using the --with-xerces-c=<dir> option\n");
-    printf("  2. Configure DTNME with the  --with-ehsrouter   option and without the   --disable-edp   option\n");
-    return 0;
-}
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) && defined(EHSROUTER_ENABLED)
-
 #endif // TEST_NON_DTN_APP_MODE
+
+

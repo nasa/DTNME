@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -40,9 +40,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <oasys/storage/BerkeleyDBStore.h>
-#include <oasys/io/FileUtils.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/storage/BerkeleyDBStore.h>
+#include <third_party/oasys/io/FileUtils.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DTNServer.h"
 
@@ -50,24 +50,23 @@
 
 #include "contacts/InterfaceTable.h"
 #include "contacts/ContactManager.h"
+#include "contacts/ContactPlanner.h"
 
 #include "cmd/CompletionNotifier.h"
+#include "cmd/BPCommand.h"
 #include "cmd/BundleCommand.h"
 #include "cmd/InterfaceCommand.h"
 #include "cmd/LinkCommand.h"
 #include "cmd/ParamCommand.h"
 #include "cmd/RegistrationCommand.h"
 #include "cmd/RouteCommand.h"
-#include "cmd/DiscoveryCommand.h"
 #include "cmd/ShutdownCommand.h"
 #include "cmd/StorageCommand.h"
-#include "cmd/ECLACommand.h"
-#include "cmd/SecurityCommand.h"
-#include "cmd/BlockCommand.h"
 #include "cmd/ContactCommand.h"
+#include "cmd/VersionCommand.h"
+
 
 #include "conv_layers/ConvergenceLayer.h"
-#include "discovery/DiscoveryTable.h"
 
 #include "naming/SchemeTable.h"
 
@@ -82,18 +81,8 @@
 #include "storage/RegistrationStore.h"
 #include "storage/DTNStorageConfig.h"
 
-#ifdef S10_ENABLED
-#    include "bundling/S10Logger.h"
-#endif
-
-#ifdef ACS_ENABLED
-#    include "cmd/AcsCommand.h"
-#    include "storage/PendingAcsStore.h"
-#endif // ACS_ENABLED
-
-#ifdef BPQ_ENABLED
-#include "cmd/BPQCommand.h"
-#endif /* BPQ_ENABLED */
+#include "cmd/AcsCommand.h"
+#include "storage/PendingAcsStore.h"
 
 #ifdef DTPC_ENABLED
 #    include "dtpc/DtpcDaemon.h"
@@ -103,9 +92,6 @@
 #    include "dtpc/DtpcDataPduCollectorStore.h"
 #    include "dtpc/DtpcPayloadAggregatorStore.h"
 #endif // DTPC_ENABLED
-
-//#include <oasys/storage/MySQLStore.h>
-//#include <oasys/storage/PostgresqlStore.h>
 
 namespace dtn {
 
@@ -119,9 +105,6 @@ DTNServer::DTNServer(const char* logpath,
 
 DTNServer::~DTNServer()
 {
-#ifdef S10_ENABLED
-    s10_daemon(S10_EXITING);
-#endif
     log_notice("daemon exiting...");
 }
 
@@ -129,7 +112,7 @@ void
 DTNServer::init()
 {
     ASSERT(oasys::Thread::start_barrier_enabled());
-    
+
     init_commands();
     init_components();
 }
@@ -193,13 +176,11 @@ DTNServer::init_datastore()
         return false;
     }
 
-#ifdef ACS_ENABLED
     if (PendingAcsStore::init(*storage_config_, store_)    != 0)  
     {
         log_crit("error initializing Pending ACS data store");
         return false;
     }
-#endif // ACS_ENABLED
 
 #ifdef DTPC_ENABLED
     if ((DtpcProfileStore::init(*storage_config_, store_)    != 0))
@@ -285,7 +266,11 @@ DTNServer::parse_conf_file(std::string& conf_file,
     log_info("parsing configuration file %s...", conf_file.c_str());
     if (oasys::TclCommandInterp::instance()->exec_file(conf_file.c_str()) != 0)
     {
-        return false;
+        // instead of aborting just output a warning
+        fprintf(stderr, "\n\nError processing config file: %s - configuration is probably incomplete\n",  conf_file.c_str());
+        fprintf(stderr, "Check log file for details\n\n");
+        fflush(stdout);
+        //return false;
     }
 
     return true;
@@ -297,37 +282,21 @@ DTNServer::init_commands()
     oasys::TclCommandInterp* interp = oasys::TclCommandInterp::instance();
 
     CompletionNotifier::create();
+    interp->reg(new BPCommand());
     interp->reg(new BundleCommand());
     interp->reg(new InterfaceCommand());
     interp->reg(new LinkCommand());
     interp->reg(new ParamCommand());
+
     interp->reg(new RegistrationCommand());
     interp->reg(new RouteCommand());
-    interp->reg(new DiscoveryCommand());
     interp->reg(new ShutdownCommand(this, "shutdown"));
-    interp->reg(new ShutdownCommand(this, "quit"));
     interp->reg(new StorageCommand(storage_config_));
-    interp->reg(new BlockCommand());
-    interp->reg(new ContactCommand());
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_CL_ENABLED)
-    interp->reg(new ECLACommand());
-#endif
-
-#ifdef BSP_ENABLED
-    interp->reg(new SecurityCommand());
-#endif
-
-#ifdef BPQ_ENABLED
-    interp->reg(new BPQCommand());
-#endif /* BPQ_ENABLED */
-
-#ifdef ACS_ENABLED
     interp->reg(new AcsCommand());
-#endif
+    interp->reg(new ContactCommand());
+    interp->reg(new VersionCommand());
 
 #ifdef DTPC_ENABLED
-    log_info_p("/dtpc/cmd", "Adding Dtpc Command");
     interp->reg(new DtpcCommand());
 #endif
 
@@ -337,11 +306,11 @@ DTNServer::init_commands()
 void
 DTNServer::init_components()
 {
+    ContactPlanner::init();
     SchemeTable::create();
     ConvergenceLayer::init_clayers();
     InterfaceTable::init();
     BundleDaemon::init();
-    DiscoveryTable::init();
 
 #ifdef DTPC_ENABLED
     DtpcDaemon::init();
@@ -361,9 +330,7 @@ DTNServer::close_datastore()
 {
     log_notice("closing persistent data store");
     
-#ifdef ACS_ENABLED
     PendingAcsStore::instance()->close();
-#endif // ACS_ENABLED
 
     RegistrationStore::instance()->close();
     LinkStore::instance()->close();
@@ -377,6 +344,23 @@ DTNServer::close_datastore()
     DtpcPayloadAggregatorStore::instance()->close();
 #endif
     
+    // now delete the singletons
+    delete PendingAcsStore::instance();
+    delete RegistrationStore::instance();
+    delete LinkStore::instance();
+    delete BundleStore::instance();
+    
+#ifdef DTPC_ENABLED
+    delete DtpcProfileStore::instance();
+    delete DtpcTopicStore::instance();
+    delete DtpcDataPduCollectorStore::instance();
+    delete DtpcPayloadAggregatorStore::instance();
+#endif
+    
+//    delete GlobalStore::instance();
+    delete_z(store_);
+
+
     // and this will cause a double delete
     if(!getenv("OASYS_CLEANUP_SINGLETONS")) {
        delete_z(store_);
@@ -400,13 +384,14 @@ DTNServer::shutdown()
     oasys::Notifier done("/dtnserver/shutdown");
     log_info("DTNServer shutdown called, posting shutdown request to daemon");
     BundleDaemon::instance()->post_and_wait(new ShutdownRequest(), &done);
+    BundleDaemon::instance()->cleanup_allocations();
 
-    DiscoveryTable::instance()->shutdown();
-    //dzdebug - InterfaceTable::shutdown();  now shutdown in BundleDaemon
     close_datastore();
 
+    CompletionNotifier::reset();
+
     //dzdebug - close_datastore cancels a timer if Berkeley so do this afterwards
-    oasys::TimerThread::instance()->shutdown();
+    oasys::SharedTimerThread::instance()->shutdown();
 }
 
 void
@@ -424,7 +409,7 @@ DTNServer::init_dir(const char* dirname)
     statret = stat(dirname, &st);
     if (statret == -1 && errno == ENOENT)
     {
-        if (mkdir(dirname, 0700) != 0) {
+        if (mkdir(dirname, 0777) != 0) {
             log_crit("can't create directory %s: %s",
                      dirname, strerror(errno));
             return false;

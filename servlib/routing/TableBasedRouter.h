@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,13 +35,12 @@
 #ifndef _TABLE_BASED_ROUTER_H_
 #define _TABLE_BASED_ROUTER_H_
 
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "BundleRouter.h"
 #include "RouterInfo.h"
 #include "bundling/BundleInfoCache.h"
 #include "reg/Registration.h"
-#include "session/SessionTable.h"
 
 namespace dtn {
 
@@ -92,20 +91,6 @@ protected:
     virtual void handle_registration_expired(RegistrationExpiredEvent* event);
     /// @}
 
-
-    /// @{ Session management helper functions
-    Session* get_session_for_bundle(Bundle* bundle);
-    bool add_bundle_to_session(Bundle* bundle, Session* session);
-    bool subscribe_to_session(int action, Session* session);
-    
-    bool find_session_upstream(Session* session);
-    void reroute_all_sessions();
-
-    bool handle_session_bundle(BundleReceivedEvent* event);
-    void add_subscriber(Session*          session,
-                        const EndpointID& peer,
-                        const SequenceID& known_seqid);
-    /// @}
 
     /**
      * Dump the routing state.
@@ -220,25 +205,24 @@ protected:
     /// The routing table
     RouteTable* route_table_;
 
-    /// Session state management table
-    SessionTable sessions_;
-
-    /// Vector of session custodian registrations
-    RegistrationList session_custodians_;
-
     /// Timer class used to cancel transmission on down links after
     /// waiting for them to potentially reopen
-    class RerouteTimer : public oasys::Timer {
+    class RerouteTimer;
+    typedef std::shared_ptr<RerouteTimer> SPtr_RerouteTimer;
+
+    class RerouteTimer : public oasys::SharedTimer {
     public:
-        RerouteTimer(TableBasedRouter* router, const LinkRef& link)
-            : router_(router), link_(link) {}
-        virtual ~RerouteTimer() {}
-        
-        void timeout(const struct timeval& now);
+        RerouteTimer(TableBasedRouter* router, const LinkRef& link);
+
+        virtual ~RerouteTimer();
+
+        virtual void timeout(const struct timeval& now) override;
 
     protected:
         TableBasedRouter* router_;
         LinkRef link_;
+        oasys::SPtr_Timer sptr_;
+        uint32_t seconds_ = 30;
     };
 
     friend class RerouteTimer;
@@ -247,7 +231,7 @@ protected:
     void reroute_bundles(const LinkRef& link);
     
     /// Table of reroute timers, indexed by the link name
-    typedef oasys::StringMap<RerouteTimer*> RerouteTimerMap;
+    typedef oasys::StringMap<SPtr_RerouteTimer> RerouteTimerMap;
     RerouteTimerMap reroute_timers_;
 
     /// Per-link class used to store deferred transmission bundles
@@ -287,15 +271,6 @@ protected:
     /// Helper accessor to return the deferred queue for a link
     DeferredList* deferred_list(const LinkRef& link);
 
-    /// Timer class used to periodically refresh subscriptions
-    class ResubscribeTimer : public oasys::Timer {
-    public:
-        ResubscribeTimer(TableBasedRouter* router, Session* session);
-        virtual void timeout(const struct timeval& now);
-
-        TableBasedRouter* router_;
-        Session*          session_;
-    };
 };
 
 } // namespace dtn

@@ -27,10 +27,8 @@ namespace dtn {
 */
 class IpnEchoRegistration : public Registration {
 
-    u_int64_t ipn_echo_max_length_;
-
 public:
-    IpnEchoRegistration(const EndpointID& eid, u_int64_t ipn_echo_max_length);
+    IpnEchoRegistration(const EndpointID& eid);
     void deliver_bundle(Bundle* bundle);
 };
 

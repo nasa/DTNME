@@ -34,17 +34,64 @@ DtpcRetransmitTimer::DtpcRetransmitTimer(std::string key)
 }
 
 void
+DtpcRetransmitTimer::set_sptr(SPtr_DtpcRetransmitTimer sptr)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    sptr_ = sptr;
+}
+
+void
+DtpcRetransmitTimer::start(int seconds)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        schedule_in(seconds, sptr_);
+    } else {
+        log_err_p("dtpc/timer/retran", 
+                  "Attempt to start DtpcRetransmitTimer(%s) without a SPtr_Timer defined", 
+                  key_.c_str());
+    }
+}
+
+bool
+DtpcRetransmitTimer::cancel()
+{
+    bool result = false;
+
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        result = oasys::SharedTimer::cancel_timer(sptr_);
+
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
+
+    return result;
+}
+
+void
 DtpcRetransmitTimer::timeout(const struct timeval& now)
 {
     (void)now;
     
-    // post the expiration event
-    log_debug_p("dtpc/timer/retran", "PDU Retransmit timer expired: %s", 
-                key_.c_str());
-    DtpcDaemon::post_at_head(new DtpcRetransmitTimerExpiredEvent(key_));
+    oasys::ScopeLock scoplok(&lock_, __func__);
 
-    // clean ourselves up
-    delete this;
+    if (cancelled() || sptr_ == nullptr) {
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    } else {
+        // post the expiration event
+        log_debug_p("dtpc/timer/retran", "PDU Retransmit timer expired: %s", 
+                    key_.c_str());
+
+        DtpcDaemon::post_at_head(new DtpcRetransmitTimerExpiredEvent(key_));
+
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
 }
 
 } // namespace dtn

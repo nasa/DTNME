@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,7 +35,7 @@
 #ifndef _BUNDLE_EVENT_HANDLER_H_
 #define _BUNDLE_EVENT_HANDLER_H_
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "BundleEvent.h"
 
@@ -212,7 +212,6 @@ protected:
      */
     virtual void handle_store_bundle_delete(StoreBundleDeleteEvent*);
 
-#ifdef ACS_ENABLED 
     /**
      * Default event handler for store pendingacs update events.
      */
@@ -222,10 +221,9 @@ protected:
      * Default event handler for store pendingacs delete events.
      */
     virtual void handle_store_pendingacs_delete(StorePendingAcsDeleteEvent*);
-#endif // ACS_ENABLED 
 
     /**
-     * Default event handler for an External Router ACS -- purposely not in the ACS_ENABLED block
+     * Default event handler for an External Router ACS
      */
     virtual void handle_external_router_acs(ExternalRouterAcsEvent*);
 
@@ -426,7 +424,6 @@ protected:
     virtual void handle_cla_parameters_report(CLAParametersReportEvent*);
 
 
-#ifdef ACS_ENABLED
     /**
      * Default event handler when custody signals are received.
      */
@@ -441,7 +438,6 @@ protected:
      * Default event handler for an aggreage custody signal expiration
      */
     virtual void handle_acs_expired(AcsExpiredEvent* event);
-#endif // ACS_ENABLED
 
 
 #ifdef DTPC_ENABLED

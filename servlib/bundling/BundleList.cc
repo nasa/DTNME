@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -38,7 +38,7 @@
 
 #include <algorithm>
 #include <stdlib.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "Bundle.h"
 #include "BundleList.h"
@@ -67,6 +67,8 @@ BundleList::set_name(const std::string& name)
 //----------------------------------------------------------------------
 BundleList::~BundleList()
 {
+    deleting_ = true;
+
     clear();
 }
 
@@ -271,7 +273,10 @@ BundleList::pop_front(bool used_notifier)
     // Assign the bundle to a temporary reference, then remove the
     // list reference on the bundle and return the temporary
     ret = del_bundle(list_.begin(), used_notifier);
-    ret->del_ref(ltype_.c_str(), name_.c_str()); 
+
+    if (!deleting_) {
+        ret->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return ret;
 }
 
@@ -290,7 +295,10 @@ BundleList::pop_back(bool used_notifier)
     // Assign the bundle to a temporary reference, then remove the
     // list reference on the bundle and return the temporary
     ret = del_bundle(--list_.end(), used_notifier);
-    ret->del_ref(ltype_.c_str(), name_.c_str()); 
+
+    if (!deleting_) {
+        ret->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return ret;
 }
 
@@ -329,7 +337,9 @@ BundleList::erase(Bundle* bundle, bool used_notifier)
     Bundle* b = del_bundle(*itr, used_notifier);
     ASSERT(b == bundle);
     
-    bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    if (!deleting_) {
+        bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return true;
 }
 
@@ -346,7 +356,9 @@ BundleList::erase(iterator& iter, bool used_notifier)
     Bundle* b = del_bundle(iter, used_notifier);
     ASSERT(b == bundle);
     
-    bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    if (!deleting_) {
+        bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
 }
 
 //----------------------------------------------------------------------
@@ -394,7 +406,6 @@ BundleList::find(bundleid_t bundle_id) const
 }
 
 //----------------------------------------------------------------------
-#ifdef ACS_ENABLED
 BundleRef
 BundleList::find_custodyid(bundleid_t custody_id) const
 {
@@ -416,7 +427,6 @@ BundleList::find_custodyid(bundleid_t custody_id) const
 
     return ret;
 }
-#endif // ACS_ENABLED
 
 //----------------------------------------------------------------------
 BundleRef
@@ -530,10 +540,13 @@ BundleList::clear()
 {
     oasys::ScopeLock l(lock_, "BundleList::clear");
     
-    BundleRef b("BundleList::clear temporary");
-    while (!list_.empty()) {
-        b = pop_front();
-    }
+//dzdebug    BundleRef b("BundleList::clear temporary");
+//dzdebug    while (!list_.empty()) {
+//dzdebug        b = pop_front();
+//dzdebug    }
+
+    // empty the list without triggering the Bundle::add_ref and Bundle::del_ref methods
+    list_.clear();
 }
 
 

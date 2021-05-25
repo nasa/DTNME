@@ -20,7 +20,7 @@
 
 #include "bundling/BundleDaemon.h"
 
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/thread/Thread.h>
 
 
 namespace dtn {
@@ -52,17 +52,10 @@ protected:
      */
     virtual void run();
 
-#ifdef PENDING_BUNDLES_IS_MAP
     /**
      * Find bundles to deliver to this registration (map)
      */
     virtual void scan_pending_bundles_map();
-#else
-    /**
-     * Find bundles to deliver to this registration (list)
-     */
-    virtual void scan_pending_bundles_list();
-#endif
 
     /// The Registration being loaded
     Registration* reg_;

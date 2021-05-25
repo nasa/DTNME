@@ -19,6 +19,7 @@
 #define _EHS_EXTERNAL_ROUTER_H_
 
 #include <string>
+#include <vector>
 
 
 // return status definitions
@@ -72,6 +73,7 @@ typedef struct EhsFwdLinkIntervalStats
  * EhsBundleStats - This structure defines the statistics that
  * are kept by Source to Destination node pairs. An array of these 
  * structures is returned by the call to bundle_stats_by_src_dst().
+ * Resurces are freed with the call to bundle_stats_by_src_dst().
  */
 typedef struct EhsBundleStats
 {
@@ -129,6 +131,10 @@ typedef struct EhsBundleStats
 
     EhsFwdLinkIntervalStats* interval_stats_; ///< Interval Stats used internally - will be returned NULL from API calls
 } EhsBundleStats;
+
+
+
+typedef std::vector<std::string> LinkParametersVector;
 
 
 
@@ -212,14 +218,18 @@ public:
      * listen on and use for transmissions
      * > Default: 224.0.0.2
      */
-    virtual bool configure_mc_address(std::string& val);
+    virtual bool configure_remote_address(std::string& val);
+    // depricated - always using TCP
+    virtual bool configure_mc_address(std::string& val) { return configure_remote_address(val); }
 
    /**
      * Configure the Port that the EHS External Router will
      * listen on and use for transmissions
      * > Default: 8001
      */
-    virtual bool configure_mc_port(std::string& val);
+    virtual bool configure_remote_port(std::string& val);
+    // depricated - always using TCP
+    virtual bool configure_mc_port(std::string& val) { return configure_remote_port(val); }
 
     /**
      * Configure the Network Interface that the EHS External Router will
@@ -233,6 +243,8 @@ public:
      * Configure the path to the XML definition file used for messages 
      * between the DTNME server and the EHS External Router.
      * > Default: /etc/router.xsd
+     *
+     *       === DEPRECATED ===
      */
     virtual bool configure_schema_file(std::string& val);
 
@@ -513,12 +525,18 @@ public:
      */
     virtual void fwdlink_interval_stats_free(int count, EhsFwdLinkIntervalStats** stats);
 
+    virtual void send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
+                                   std::string& cl_name,  LinkParametersVector& params);
+    virtual void send_link_del_msg(std::string& link_id);
+
 
 
     /** High level stats displayed by the test program:
      *     Nodes: 1 (AOS) Bundles Rcv: 0 Xmt: 0 Dlv: 0 Rjct: 0 Pend: 0 Cust: 0
      */
     virtual const char* update_statistics();
+    virtual const char* update_statistics2();
+    virtual const char* update_statistics3();
     virtual int num_dtn_nodes();  // Should just be 1 for the forseeable future
 
     virtual void set_link_statistics(bool enabled);
@@ -540,8 +558,8 @@ public:
     /**
      * Get max bytes sent/received over the external router interface in a second
      */
-    uint64_t max_bytes_sent();
-    uint64_t max_bytes_recv();
+    virtual uint64_t max_bytes_sent();
+    virtual uint64_t max_bytes_recv();
 
 protected:
     EhsExternalRouterImpl* ehs_ext_router_;
@@ -550,6 +568,5 @@ protected:
 
 } // namespace dtn
 
-//#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
 
 #endif //_EHS_EXTERNAL_ROUTER_H_

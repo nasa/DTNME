@@ -1,0 +1,4 @@
+dnl set default CFLAGS and CXXFLAGS
+CFLAGS=-std=gnu11
+CXXFLAGS=-std=gnu++1y
+

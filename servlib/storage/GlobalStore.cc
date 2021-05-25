@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,11 +36,11 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/storage/DurableStore.h>
-#include <oasys/storage/StorageConfig.h>
-#include <oasys/serialize/TypeShims.h>
-#include <oasys/thread/Mutex.h>
-#include <oasys/util/MD5.h>
+#include <third_party/oasys/storage/DurableStore.h>
+#include <third_party/oasys/storage/StorageConfig.h>
+#include <third_party/oasys/serialize/TypeShims.h>
+#include <third_party/oasys/thread/Mutex.h>
+#include <third_party/oasys/util/MD5.h>
 
 #include "GlobalStore.h"
 #include "bundling/Bundle.h"
@@ -286,10 +286,6 @@ GlobalStore::next_pacsid()
     oasys::ScopeLock l(lock_, "GlobalStore::next_pacsid");
    
     // NOTE: it is safe to wrap around the pacsid counter 
-    //log_debug("next_pcasid %d -> %d",
-    //          globals_->next_pacsid_,
-    //          globals_->next_pacsid_ + 1);
-
     u_int32_t ret = globals_->next_pacsid_++;
 
     update();
@@ -306,7 +302,6 @@ GlobalStore::calc_digest(u_char* digest)
     // serialized field will change the digest
     Bundle b(oasys::Builder::builder());
     APIRegistration r(oasys::Builder::builder());
-
 
     oasys::StringSerialize s(oasys::Serialize::CONTEXT_LOCAL,
                              oasys::StringSerialize::INCLUDE_NAME |
@@ -435,6 +430,8 @@ GlobalStore::close()
     {
         usleep(2);
     }
+    GlobalStoreDBUpdateThread::reset();
+
     // we prevent the potential for shutdown race crashes by leaving
     // the global store locked after it's been closed so other threads
     // will simply block, not crash due to a null store
@@ -466,6 +463,12 @@ GlobalStore::unlock_db_access()
 
 
 //----------------------------------------------------------------------
+GlobalStoreDBUpdateThread::~GlobalStoreDBUpdateThread()
+{
+    delete globals_copy_;
+}
+
+//----------------------------------------------------------------------
 void
 GlobalStoreDBUpdateThread::run()
 {
@@ -490,9 +493,9 @@ GlobalStoreDBUpdateThread::run()
         }
 
         if (++idle_count >= 10) {
-            usleep(1000);
+            usleep(10000);
         } else {
-            usleep(100);
+            usleep(1000);
             //Thread::spin_yield();
         }
     }

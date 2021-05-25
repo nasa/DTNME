@@ -1,18 +1,12 @@
 #/bin/bash
 
-cd oasys_source
+cd third_party/oasys
+
+chmod +x tools/extract-version
 
 if [ $? -ne 0 ]
 then
 printf "Uh Oh, something went wrong\nAn error occured while trying to change directory to the oasys_source directory\n"
-exit 1
-fi
-
-make clean
-
-if [ $? -ne 0 ]
-then
-printf "Uh Oh, something went wrong\nAn error occured while trying to run a 'make clean' on oasys\n"
 exit 1
 fi
 
@@ -24,7 +18,8 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to run build-
 exit 1
 fi
 
-./configure --disable-debug-locking --with-odbc=no --with-python=no --with-extra-cflags="-O0 -ggdb3 -w" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3 -w"
+# The OASYS default configuration is usually sufficient for DTNME. 
+./configure
 
 if [ $? -ne 0 ]
 then
@@ -40,7 +35,7 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to make oasys
 exit 1
 fi
 
-cd ../
+cd ../../
 
 if [ $? -ne 0 ]
 then
@@ -48,15 +43,7 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to change dir
 exit 1
 fi
 
-make clean
-
-if [ $? -ne 0 ]
-then
-printf "Uh Oh, something went wrong\nAn error occured while trying to run a 'make clean' on dtnme\n"
-exit 1
-fi
-
-sh build-configure.sh ./oasys_source
+sh build-configure.sh
 
 if [ $? -ne 0 ]
 then
@@ -64,7 +51,11 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to run 'build
 exit 1
 fi
 
-./configure --with-acs --with-ecos --with-oasys=./oasys_source --disable-ecl --disable-edp --enable-bid64bit --with-ltpudp --with-odbc=no --with-extra-cflags="-O0 -ggdb3 -w" --with-extra-cxxflags="-std=c++11 -O0 -ggdb3 -w -fpermissive"
+# The DTNME default configuration is usually sufficient for DTNME
+#  add --without-dtpc if you do not want to enable DTPC
+#  add --with-wolfssl if you want to use TLS secourity in TCP CLv4 (and install wolfssl in third_party directory)
+./configure
+
 
 if [ $? -ne 0 ]
 then
@@ -72,15 +63,15 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to configure 
 exit 1
 fi
 
-if [$1 -gt 0]
+if [ $1 -gt 0 ]
 then
-  make -j$1
+  make -j $1
 else
   make
 fi
+
 printf $?
 if [ $? -ne 0 ]
 then
 printf "Uh Oh, something went wrong\nAn error occured while trying to make dtnme\n"
-exit 1
 fi

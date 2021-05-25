@@ -19,7 +19,7 @@
 #endif
 
 #include <time.h>
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "BundleTimestamp.h"
 

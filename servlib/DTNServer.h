@@ -17,9 +17,9 @@
 #ifndef _DTNSERVER_H_
 #define _DTNSERVER_H_
 
-#include <oasys/debug/Logger.h>
-#include <oasys/thread/Atomic.h>
-#include <oasys/storage/DurableStore.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/Atomic.h>
+#include <third_party/oasys/storage/DurableStore.h>
 
 namespace dtn {
 
@@ -35,6 +35,11 @@ public:
     ~DTNServer();
     
     DTNStorageConfig* storage_config() { return storage_config_; }
+
+    /**
+     * Set the console parameters to be passed to the BundleDaemon for use by the ExternalRouter
+     */
+    void set_console_info(in_addr_t console_addr, u_int16_t console_port, bool console_stdio);
 
     /*! Initialize storage, components
      *
@@ -70,6 +75,10 @@ private:
 
     DTNStorageConfig*     storage_config_;
     oasys::DurableStore*  store_;
+
+    in_addr_t console_addr_;    ///< IP address the TCL command server console is listening on
+    u_int16_t console_port_;    ///< Port the TCL command server console is listening on
+    bool console_stdio_;        ///< Whether an interactive TCL console is running
 
     bool init_dir(const char* dirname);
     bool tidy_dir(const char* dirname);

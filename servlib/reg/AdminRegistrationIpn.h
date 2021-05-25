@@ -20,6 +20,8 @@
 
 #include "Registration.h"
 
+#include "bundling/BIBEExtractor.h"
+
 namespace dtn {
 
 /**
@@ -35,6 +37,16 @@ public:
      * Deliver the given bundle.
      */
     void deliver_bundle(Bundle* bundle);
+
+protected:
+    void deliver_bundle_bp6(Bundle* bundle);
+    void deliver_bundle_bp7(Bundle* bundle);
+
+    const char* fld_name() { return fld_name_.c_str(); }
+
+private:
+    std::string fld_name_;
+
 };
 
 } // namespace dtn

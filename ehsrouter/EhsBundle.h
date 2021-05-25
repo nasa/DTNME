@@ -22,20 +22,14 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <map>
 #include <string.h>
-#include <xercesc/framework/MemBufFormatTarget.hpp>
 
-#include <oasys/serialize/XercesXMLSerialize.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "EhsBundleRef.h"
-#include "router-custom.h"
+#include "routing/ExternalRouterIF.h"
 
 
 
@@ -63,10 +57,7 @@ public:
     /**
      * Constructor for the different message types
      */
-    EhsBundle(EhsDtnNode* parent, rtrmessage::bundleType& xbundle);
-
-    EhsBundle(EhsDtnNode* parent, rtrmessage::bundle_received_event& event);
-
+    EhsBundle(EhsDtnNode* parent, ExternalRouterIF::extrtr_bundle_ptr_t& bundleptr);
 
     /**
      * Destructor.
@@ -81,9 +72,9 @@ public:
     /**
      * Message processing methods
      */
-    virtual void process_bundle_report(rtrmessage::bundle_report::bundle::type& xbundle);
-    virtual void process_bundle_received_event(rtrmessage::bundle_received_event& event);
-    virtual void process_bundle_custody_accepted_event(rtrmessage::bundle_custody_accepted_event& event);
+    virtual void process_bundle_report(ExternalRouterIF::extrtr_bundle_ptr_t& bundleptr);
+
+    virtual void process_bundle_custody_accepted_event(uint64_t custody_id);
 
     /**
      * Set/Get flag indicating an exit is in progress 
@@ -148,12 +139,13 @@ public:
      * Getters
      */
     virtual uint64_t bundleid()            { return bundleid_; }
+    virtual uint64_t bp_version()          { return bp_version_; }
     virtual uint64_t custodyid()           { return custodyid_; }
     virtual std::string source()           { return source_; }
     virtual std::string dest()             { return dest_; }
-    virtual std::string replyto()          { return replyto_; }
-    virtual std::string csutodian()        { return custodian_; }
-    virtual std::string gbofid_str()       { return gbofid_str__; }
+//    virtual std::string replyto()          { return replyto_; }
+//    virtual std::string csutodian()        { return custodian_; }
+    virtual std::string gbofid_str()       { return gbofid_str_; }
     virtual std::string prev_hop()         { return prev_hop_; }
     virtual bool is_ipn_dest()             { return is_ipn_dest_; }
     virtual bool is_ipn_source()           { return is_ipn_source_; }
@@ -206,6 +198,9 @@ protected:
     /// Bundle ID
     uint64_t bundleid_;
 
+    /// Bundle Protocol Version
+    uint64_t bp_version_;
+
     /// Custody ID
     uint64_t custodyid_;
 
@@ -213,11 +208,11 @@ protected:
 
     std::string dest_;
 
-    std::string custodian_;
+//    std::string custodian_;
 
-    std::string replyto_;
+//    std::string replyto_;
 
-    std::string gbofid_str__;
+    std::string gbofid_str_;
 
     std::string prev_hop_;
 
@@ -227,9 +222,9 @@ protected:
 
     std::string payload_file_;
 
-    bool is_fragment_;
+//    bool is_fragment_;
 
-    bool is_admin_;
+//    bool is_admin_;
 
     bool do_not_fragment_;
 
@@ -302,9 +297,5 @@ protected:
 };
 
 } // namespace dtn
-
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_BUNDLE_H_ */

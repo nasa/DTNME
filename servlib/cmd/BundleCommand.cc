@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,9 +37,9 @@
 #endif
 
 #include <climits>
-#include <oasys/util/HexDumpBuffer.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/OptParser.h>
+#include <third_party/oasys/util/HexDumpBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/OptParser.h>
 
 #include "BundleCommand.h"
 #include "CompletionNotifier.h"
@@ -62,7 +62,7 @@ BundleCommand::BundleCommand()
                 "            forward_rcpt\n"
                 "            delivery_rcpt\n"
                 "            deletion_rcpt\n"
-                "            expiration=integer\n"
+                "            expiration=seconds\n"
                 "            length=integer\n");
     add_to_help("stats", "get statistics on the bundles");
     add_to_help("daemon_stats", "daemon stats");
@@ -86,6 +86,11 @@ BundleCommand::BundleCommand()
     add_to_help("clear_fwdlog <id>", "clear the forwarding log for a bundle");
     add_to_help("daemon_idle_shutdown <secs>",
                 "shut down the bundle daemon after an idle period");
+
+    bind_var(new oasys::BoolOpt("use_age_block",
+                                &BundleProtocol::params_.use_bundle_age_block_,
+                                "Set creation time to zero and use the BPv7 Bundle Age block for new bundles "
+                                "(default is false)"));
 }
 
 BundleCommand::InjectOpts::InjectOpts()
@@ -102,11 +107,11 @@ BundleCommand::InjectOpts::InjectOpts()
     
 bool
 BundleCommand::parse_inject_options(InjectOpts* options,
-                                    int objc, Tcl_Obj** objv,
+                                    int argc, const char** argv,
                                     const char** invalidp)
 {
     // no options specified:
-    if (objc < 6) {
+    if (argc < 6) {
         return true;
     }
     
@@ -122,9 +127,10 @@ BundleCommand::parse_inject_options(InjectOpts* options,
     p.addopt(new oasys::UIntOpt("length",        &options->length_));
     p.addopt(new oasys::StringOpt("replyto",     &options->replyto_));
 
-    for (int i=5; i<objc; i++) {
-        int len;
-        const char* option_name = Tcl_GetStringFromObj(objv[i], &len);
+    for (int i=5; i<argc; i++) {
+        const char* option_name = argv[i];
+        int len = strlen(option_name);
+
         if (! p.parse_opt(option_name, len)) {
             *invalidp = option_name;
             return false;
@@ -134,28 +140,30 @@ BundleCommand::parse_inject_options(InjectOpts* options,
 }
 
 int
-BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
+BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 {
     // need a subcommand
-    if (objc < 2) {
-        wrong_num_args(objc, objv, 1, 2, INT_MAX);
+    if (argc < 2) {
+        wrong_num_args(argc, argv, 1, 2, INT_MAX);
         return TCL_ERROR;
     }
 
-    const char* cmd = Tcl_GetStringFromObj(objv[1], 0);
+    const char* cmd = argv[1];
 
     if (strcmp(cmd, "inject") == 0) {
         // bundle inject <source> <dest> <payload> <param1<=value1?>?> ... <paramN<=valueN?>?>
-        if (objc < 5) {
-            wrong_num_args(objc, objv, 2, 5, INT_MAX);
+        if (argc < 5) {
+            wrong_num_args(argc, argv, 2, 5, INT_MAX);
             return TCL_ERROR;
         }
         
         bool eids_valid = true;
         Bundle* b = new Bundle();
-        eids_valid &= b->mutable_source()->assign(Tcl_GetStringFromObj(objv[2], 0));
-        eids_valid &= b->mutable_replyto()->assign(Tcl_GetStringFromObj(objv[2], 0));
-        eids_valid &= b->mutable_dest()->assign(Tcl_GetStringFromObj(objv[3], 0));
+        std::string src_eid = argv[2];
+        b->set_source(src_eid);
+        eids_valid &= b->source().valid();
+        eids_valid &= b->mutable_replyto()->assign(argv[2]);
+        eids_valid &= b->mutable_dest()->assign(argv[3]);
         b->mutable_custodian()->assign(EndpointID::NULL_EID());
 
         EndpointID::singleton_info_t info = b->dest().known_scheme() ?
@@ -182,12 +190,13 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         }
         
         int payload_len;
-        u_char* payload_data = Tcl_GetByteArrayFromObj(objv[4], &payload_len);
+        Tcl_Obj** tcl_objs = const_cast<Tcl_Obj**>(reinterpret_cast<const Tcl_Obj**>(argv));
+        u_char* payload_data = Tcl_GetByteArrayFromObj(tcl_objs[4], &payload_len);
 
         // now process any optional parameters:
         InjectOpts options;
         const char* invalid;
-        if (!parse_inject_options(&options, objc, objv, &invalid)) {
+        if (!parse_inject_options(&options, argc, argv, &invalid)) {
             resultf("error parsing bundle inject options: invalid option '%s'",
                     invalid);
             delete b;
@@ -200,7 +209,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         b->set_forward_rcpt(options.forward_rcpt_);
         b->set_delivery_rcpt(options.delivery_rcpt_);
         b->set_deletion_rcpt(options.deletion_rcpt_);
-        b->set_expiration(options.expiration_);
+        b->set_expiration_secs(options.expiration_);
         
         // Bundles with a null source EID are not allowed to request reports or
         // custody transfer, and must not be fragmented.
@@ -277,7 +286,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         return TCL_OK;
         
     } else if (!strcmp(cmd, "stats")) {
-        oasys::StringBuffer buf("Bundle Statistics: ");
+        oasys::StringBuffer buf;
         BundleDaemon::instance()->get_bundle_stats(&buf);
         set_result(buf.c_str());
         return TCL_OK;
@@ -297,7 +306,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         return TCL_OK;
         
     } else if (!strcmp(cmd, "list")) {
-        if (objc > 4) {
+        if (argc > 4) {
             resultf("too many arguments - "
                     "see \"help bundle\" for parameters\n");
             return TCL_ERROR;
@@ -322,12 +331,12 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
 
 
 
-        if (objc >= 3) {
+        if (argc >= 3) {
             list_all = false;
 
-            const char* val = Tcl_GetStringFromObj(objv[2], 0);
+            const char* val = argv[2];
 
-            if ((objc == 3) && (0 == strcmp(val, "all"))) {
+            if ((argc == 3) && (0 == strcmp(val, "all"))) {
                 list_all = true;
                 buf.appendf("All Bundles (%zu): \n", all_bundles->size());
             } else {
@@ -342,10 +351,10 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
                     return TCL_ERROR;
                 }
 
-                if (objc == 4) {
+                if (argc == 4) {
                     start_count = count;
 
-                    val = Tcl_GetStringFromObj(objv[3], 0);
+                    val = argv[3];
 
                     len = strlen(val);
                     count = strtoul(val, &endptr, 0);
@@ -381,11 +390,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         size_t end_count = start_count + count - 1;
 
         for (iter = all_bundles->begin(); iter != all_bundles->end(); ++iter) {
-#ifdef ALL_BUNDLES_IS_MAP
             b = iter->second;  // for <map> lists
-#else
-            b = *iter;  // for <list> lists
-#endif
 
             //if ( b->bundleid() >= (unsigned) startbundleid && b->bundleid() <= (unsigned) endbundleid )
             if ( list_all || ((bundle_count >= start_count) && (bundle_count <= end_count)))
@@ -409,37 +414,24 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
           
             buf.appendf("\nLast bundle:\n");
 
-//            iter = all_bundles->end();
-//            --iter;  // back up to last bundle
+            BundleRef bref = all_bundles->back();
+            if (bref != NULL) {
+                b = bref.object();
 
-
-//            if (iter == all_bundles->end()) {
-//                buf.appendf("?? error trying to access last bundle");
-//            } else {
-//#ifdef ALL_BUNDLES_IS_MAP
-//                b = iter->second;  // for <map> lists
-//#else
-//                b = *iter;  // for <list> lists
-//#endif
-
-                BundleRef bref = all_bundles->back();
-                if (bref != NULL) {
-                    b = bref.object();
-
-                    buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s\n",
-                        b->bundleid(),
-                        b->source().c_str(),
-                        b->dest().c_str(),
-                        b->payload().length(),
-                        pending->contains(b) ? "" : " (NOT PENDING)",
-                        custody->contains(b) ? " (Custodian)" : ""
-                        );
-                }
+                buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s\n",
+                    b->bundleid(),
+                    b->source().c_str(),
+                    b->dest().c_str(),
+                    b->payload().length(),
+                    pending->contains(b) ? "" : " (NOT PENDING)",
+                    custody->contains(b) ? " (Custodian)" : ""
+                    );
+            }
         }
 
 
-        buf.appendf("\nTotal bundles: %zu  pending: %zu  custody: %zu\n\n", 
-                    all_bundles->size(), pending->size(), custody->size());
+        buf.appendf("\nTotal bundles: %zu  pending: %zu  custody: %zu    (max bundles at one time was: %zu)\n\n", 
+                    all_bundles->size(), pending->size(), custody->size(), all_bundles->max_size());
 
         if (default_cmd) {
             buf.appendf("(use command \"bundle list all\" if you really want to list all bundles)");
@@ -456,11 +448,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         oasys::ScopeLock l(all_bundles->lock(), "BundleCommand::exec");
     
         for (iter = all_bundles->begin(); iter != all_bundles->end(); ++iter) {
-            #ifdef ALL_BUNDLES_IS_MAP
-                append_resultf("%" PRIbid " ", (iter->second)->bundleid()); // for <map> lists
-            #else
-                append_resultf("%d ", (*iter)->bundleid()); // for <list> lists
-            #endif
+            append_resultf("%" PRIbid " ", (iter->second)->bundleid()); // for <map> lists
         }
         
         return TCL_OK;
@@ -472,15 +460,19 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
                !strcmp(cmd, "expire"))
     {
         // bundle [info|dump|dump_ascii|expire] <id>
-        if (objc != 3) {
-            wrong_num_args(objc, objv, 2, 3, 3);
+        if (argc != 3) {
+            wrong_num_args(argc, argv, 2, 3, 3);
             return TCL_ERROR;
         }
 
-        int bundleid;
-        if (Tcl_GetIntFromObj(interp, objv[2], &bundleid) != TCL_OK) {
-            resultf("invalid bundle id %s",
-                    Tcl_GetStringFromObj(objv[2], 0));
+        uint64_t bundleid;
+        const char* val = argv[2];
+        size_t len = strlen(val);
+        char* endptr = 0;
+
+        bundleid = strtoul(val, &endptr, 0);
+        if (endptr != (val + len)) {
+            resultf("invalid <bundleid> value '%s'\n", val);
             return TCL_ERROR;
         }
 
@@ -489,7 +481,7 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
         BundleRef bundle = all_bundles->find(bundleid);
 
         if (bundle == NULL) {
-            resultf("no bundle with id %d", bundleid);
+            resultf("no bundle with id %" PRIu64, bundleid);
             return TCL_ERROR;
         }
 
@@ -507,12 +499,13 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
             return ok;
             
         } else if (strcmp(cmd, "dump_ascii") == 0) {
-            size_t len = bundle->payload().length();
-            oasys::StringBuffer buf(len);
+            size_t payload_len = bundle->payload().length();
+            oasys::StringBuffer buf(payload_len);
             const u_char* bp = 
-                bundle->payload().read_data(0, len, (u_char*)buf.data());
-            
-            buf.append((const char*)bp, len);            
+                bundle->payload().read_data(0, payload_len, (u_char*)buf.data());
+
+            size_t length = strlen((const char*)bp);
+            buf.append((const char*)bp, length);
             set_result(buf.c_str());
             
         } else if (strcmp(cmd, "dump") == 0) {
@@ -534,35 +527,35 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
 
     } else if (!strcmp(cmd, "cancel")) {
         // bundle cancel <id> <link>
-        if (objc != 3 && objc != 4) {
-            wrong_num_args(objc, objv, 2, 3, 4);
+        if (argc != 3 && argc != 4) {
+            wrong_num_args(argc, argv, 2, 3, 4);
             return TCL_ERROR;
         }
 
-        int bundleid;
-        if (Tcl_GetIntFromObj(interp, objv[2], &bundleid) != TCL_OK) {
-            resultf("invalid bundle id %s",
-                    Tcl_GetStringFromObj(objv[2], 0));
+        uint64_t bundleid;
+        const char* val = argv[2];
+        size_t len = strlen(val);
+        char* endptr = 0;
+
+        bundleid = strtoul(val, &endptr, 0);
+        if (endptr != (val + len)) {
+            resultf("invalid <bundleid> value '%s'\n", val);
             return TCL_ERROR;
         }
 
         const char* name = "";
-        if (objc == 4) {
-            name = Tcl_GetStringFromObj(objv[3], 0);
+        if (argc == 4) {
+            name = argv[3];
         }
 
         BundleRef bundle
             = BundleDaemon::instance()->all_bundles()->find(bundleid);
         if (bundle != NULL) {
-#ifdef PENDING_BUNDLES_IS_MAP
             bundle = BundleDaemon::instance()->pending_bundles()->find(bundleid);
-#else
-            bundle = BundleDaemon::instance()->pending_bundles()->find(bundle->gbofid_str());
-#endif
         }
 
         if (bundle == NULL) {
-            resultf("no pending bundle with id %d", bundleid);
+            resultf("no pending bundle with id %" PRIu64, bundleid);
             return TCL_ERROR;
         }
 
@@ -573,30 +566,30 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
 
     } else if (!strcmp(cmd, "clear_fwdlog")) {
         // bundle clear_fwdlog <id>
-        if (objc != 3) {
-            wrong_num_args(objc, objv, 2, 3, 3);
+        if (argc != 3) {
+            wrong_num_args(argc, argv, 2, 3, 3);
             return TCL_ERROR;
         }
 
-        int bundleid;
-        if (Tcl_GetIntFromObj(interp, objv[2], &bundleid) != TCL_OK) {
-            resultf("invalid bundle id %s",
-                    Tcl_GetStringFromObj(objv[2], 0));
+        uint64_t bundleid;
+        const char* val = argv[4];
+        size_t len = strlen(val);
+        char* endptr = 0;
+
+        bundleid = strtoul(val, &endptr, 0);
+        if (endptr != (val + len)) {
+            resultf("invalid <bundleid> value '%s'\n", val);
             return TCL_ERROR;
         }
 
         BundleRef bundle
             = BundleDaemon::instance()->all_bundles()->find(bundleid);
         if (bundle != NULL) {
-#ifdef PENDING_BUNDLES_IS_MAP
             bundle = BundleDaemon::instance()->pending_bundles()->find(bundleid);
-#else
-            bundle = BundleDaemon::instance()->pending_bundles()->find(bundle->gbofid_str());
-#endif
         }
 
         if (bundle == NULL) {
-            resultf("no pending bundle with id %d", bundleid);
+            resultf("no pending bundle with id %" PRIu64, bundleid);
             return TCL_ERROR;
         }
 
@@ -607,15 +600,19 @@ BundleCommand::exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp)
     } else if (!strcmp(cmd, "daemon_idle_shutdown")) {
         oasys::StringBuffer buf("Bundle Daemon Statistics: ");
         
-        if (objc != 3) {
-            wrong_num_args(objc, objv, 2, 3, 3);
+        if (argc != 3) {
+            wrong_num_args(argc, argv, 2, 3, 3);
             return TCL_ERROR;
         }
 
         int interval;
-        if (Tcl_GetIntFromObj(interp, objv[2], &interval) != TCL_OK) {
-            resultf("invalid interval %s",
-                    Tcl_GetStringFromObj(objv[2], 0));
+        const char* val = argv[2];
+        size_t len = strlen(val);
+        char* endptr = 0;
+
+        interval = strtoul(val, &endptr, 0);
+        if (endptr != (val + len)) {
+            resultf("invalid <secs> value '%s'\n", val);
             return TCL_ERROR;
         }
 

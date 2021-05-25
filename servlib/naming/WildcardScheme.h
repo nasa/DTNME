@@ -17,7 +17,7 @@
 #ifndef _WILDCARD_SCHEME_H_
 #define _WILDCARD_SCHEME_H_
 
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 #include "Scheme.h"
 

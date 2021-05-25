@@ -19,9 +19,9 @@
 
 #include <string>
 #include <sys/time.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/debug/Log.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/Time.h>
 #include "CustodyTimer.h"
 
 namespace dtn {
@@ -43,7 +43,7 @@ public:
      * The forwarding action type codes.
      */
     typedef enum {
-        INVALID_ACTION = 0,	///< Invalid action
+        INVALID_ACTION = 0,    ///< Invalid action
         FORWARD_ACTION = 1 << 0,///< Forward the bundle to only this next hop
         COPY_ACTION    = 1 << 1,///< Forward a copy of the bundle
     } action_t;
@@ -57,9 +57,9 @@ public:
     static inline const char* action_to_str(action_t action)
     {
         switch(action) {
-        case INVALID_ACTION:	return "INVALID";
-        case FORWARD_ACTION:	return "FORWARD";
-        case COPY_ACTION:	return "COPY";
+        case INVALID_ACTION:  return "INVALID";
+        case FORWARD_ACTION:  return "FORWARD";
+        case COPY_ACTION:     return "COPY";
         default:
             NOTREACHED;
         }
@@ -78,6 +78,7 @@ public:
         PENDING_DELIVERY = 1 << 5,  ///< Pending delivery to local registration
         DELIVERED        = 1 << 6,  ///< Delivered to local registration
         SUPPRESSED       = 1 << 7,  ///< Transmission suppressed
+        REDIRECTED       = 1 << 8,  ///< Redirected to a different link (BIBE)
         RECEIVED         = 1 << 10, ///< Where the bundle came from
     } state_t;
 
@@ -90,16 +91,17 @@ public:
     static const char* state_to_str(state_t state)
     {
         switch(state) {
-        case NONE:      	return "NONE";
-        case QUEUED: 		return "QUEUED";
-        case TRANSMITTED:      	return "TRANSMITTED";
-        case TRANSMIT_FAILED:  	return "TRANSMIT_FAILED";
-        case CANCELLED: 	return "CANCELLED";
-        case CUSTODY_TIMEOUT:	return "CUSTODY_TIMEOUT";
-        case PENDING_DELIVERY: 	return "PENDING_DELIVERY";
-        case DELIVERED:      	return "DELIVERED";
-        case SUPPRESSED:      	return "SUPPRESSED";
-        case RECEIVED:      	return "RECEIVED";
+        case NONE:             return "NONE";
+        case QUEUED:           return "QUEUED";
+        case TRANSMITTED:      return "TRANSMITTED";
+        case TRANSMIT_FAILED:  return "TRANSMIT_FAILED";
+        case CANCELLED:        return "CANCELLED";
+        case CUSTODY_TIMEOUT:  return "CUSTODY_TIMEOUT";
+        case PENDING_DELIVERY: return "PENDING_DELIVERY";
+        case DELIVERED:        return "DELIVERED";
+        case SUPPRESSED:       return "SUPPRESSED";
+        case REDIRECTED:       return "REDIRECTED";
+        case RECEIVED:         return "RECEIVED";
 
         default:
             NOTREACHED;

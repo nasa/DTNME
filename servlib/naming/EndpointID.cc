@@ -20,11 +20,12 @@
 
 #include <ctype.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/util/Glob.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/Glob.h>
 
 #include "applib/dtn_types.h"
 #include "EndpointID.h"
+#include "IPNScheme.h"
 #include "Scheme.h"
 #include "SchemeTable.h"
 #include "bundling/BundleDaemon.h"
@@ -191,6 +192,14 @@ EndpointID::serialize(oasys::SerializeAction* a)
         validate();
     }
 }
+
+//----------------------------------------------------------------------
+bool
+EndpointID::subsume_ipn(const EndpointID& other) const
+{
+    return IPNScheme::instance()->ipn_node_match(*this, other);
+}
+
 
 //----------------------------------------------------------------------
 bool

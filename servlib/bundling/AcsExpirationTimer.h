@@ -18,9 +18,8 @@
 #ifndef _ACS_EXPIRATION_TIMER_H_
 #define _ACS_EXPIRATION_TIMER_H_
 
-#ifdef ACS_ENABLED
 
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Timer.h>
 
 namespace dtn {
 
@@ -32,25 +31,28 @@ namespace dtn {
  * the ACS is sent early due to size considerations.
  *
  */
-class AcsExpirationTimer : public oasys::Timer {
+class AcsExpirationTimer;
+typedef std::shared_ptr<AcsExpirationTimer> SPtr_AcsExpirationTimer;
+
+
+class AcsExpirationTimer : public oasys::SharedTimer {
 public:
     AcsExpirationTimer(std::string key, uint32_t pacs_id);
 
     virtual ~AcsExpirationTimer() {} 
+
+    virtual void timeout(const struct timeval& now);
+
+protected:
 
     /// The key to access the pending acs in the map
     std::string acs_key_;
 
     /// ID of the Pending ACS this timer refers to
     uint32_t pacs_id_;
-    
-protected:
-    void timeout(const struct timeval& now);
-
 };
 
 } // namespace dtn
 
-#endif // ACS_ENABLED
 
 #endif /* _ACS_EXPIRATION_TIMER_H_ */

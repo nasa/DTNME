@@ -22,16 +22,14 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef LTPUDP_ENABLED
-
 #include <map>
 
-#include "LTPUDPCommon.h"
+#include "LTPUDPReplayCommon.h"
 #include "naming/EndpointID.h"
 #include "IPConvergenceLayer.h"
 
-#include <oasys/io/UDPClient.h>
-#include <oasys/io/RateLimitedSocket.h>
+#include <third_party/oasys/io/UDPClient.h>
+#include <third_party/oasys/io/RateLimitedSocket.h>
 
 using namespace std;
 
@@ -118,7 +116,7 @@ public:
     u_int32_t Inactivity_Interval();
 
     void Cleanup_Replay_Session_Receiver(string session_key,int force); 
-    virtual void Post_Timer_To_Process(oasys::Timer* event);
+    virtual void Post_Timer_To_Process(SPtr_InactivityTimer event);
 
     LinkRef* link_ref() { return &link_ref_; }
 
@@ -262,10 +260,10 @@ protected:
         TimerProcessor();
         virtual ~TimerProcessor();
         virtual void run();
-        virtual void post(oasys::Timer* event);
+        virtual void post(SPtr_InactivityTimer event);
     protected:
         /// Message queue for accepting BundleEvents from ExternalRouter
-        oasys::MsgQueue< oasys::Timer* > *eventq_;
+        oasys::MsgQueue< SPtr_InactivityTimer > *eventq_;
     };
 
     TimerProcessor *timer_processor_;
@@ -273,6 +271,4 @@ protected:
 
 } // namespace dtn
 
-#endif // LTPUDP_ENABLED
-
-#endif /* _UDP_CONVERGENCE_LAYER_H_ */
+#endif /* _LTP_UDP_REPLAY_CONVERGENCE_LAYER_H_ */

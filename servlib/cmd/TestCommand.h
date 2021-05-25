@@ -19,7 +19,7 @@
 
 // XXX/demmer this really belongs in the daemon directory...
 
-#include <oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
 
 namespace dtn {
 

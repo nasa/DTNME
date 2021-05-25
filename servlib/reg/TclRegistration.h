@@ -17,9 +17,9 @@
 #ifndef _TCL_REGISTRATION_H_
 #define _TCL_REGISTRATION_H_
 
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/TclCommand.h>
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/thread/Thread.h>
 
 #include "Registration.h"
 #include "bundling/Bundle.h"

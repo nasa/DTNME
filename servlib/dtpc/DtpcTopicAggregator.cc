@@ -107,7 +107,7 @@ DtpcTopicAggregator::send_data_item(DtpcApplicationDataItem* data_item, bool opt
     DtpcTopicTable* toptab = DtpcTopicTable::instance();
     DtpcTopic* topic = toptab->get(data_item->topic_id());
     if (NULL == topic) {
-        log_err("send_data_item: DtpcTopic object not found for topic: %"PRIu32,
+        log_err("send_data_item: DtpcTopic object not found for topic: %" PRIu32,
                 data_item->topic_id());
     } else {
         data_item_list_.push_back(data_item);

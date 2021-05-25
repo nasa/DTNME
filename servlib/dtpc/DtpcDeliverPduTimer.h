@@ -18,7 +18,8 @@
 #ifndef _DTPC_DELIVER_PDU_TIMER_H_
 #define _DTPC_DELIVER_PDU_TIMER_H_
 
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Timer.h>
 
 namespace dtn {
 
@@ -29,13 +30,26 @@ namespace dtn {
  * for missed PDUs and deliver the next PDU
  *
  */
-class DtpcDeliverPduTimer : public oasys::Timer 
+
+
+class DtpcDeliverPduTimer;
+typedef std::shared_ptr<DtpcDeliverPduTimer> SPtr_DtpcDeliverPduTimer;
+
+
+class DtpcDeliverPduTimer : public oasys::SharedTimer 
 {
 public:
     DtpcDeliverPduTimer(std::string key, u_int64_t seq_ctr);
 
     virtual ~DtpcDeliverPduTimer() {} 
 
+    virtual void start(int seconds);
+
+    virtual bool cancel();
+
+    void set_sptr(SPtr_DtpcDeliverPduTimer sptr);
+
+public:
     /// The key to find the DataPduCollector
     std::string key_;
 
@@ -45,6 +59,11 @@ public:
 protected:
     virtual void timeout(const struct timeval& now);
 
+protected:
+
+    oasys::SPtr_Timer sptr_;
+
+    oasys::SpinLock lock_;
 };
 
 } // namespace dtn

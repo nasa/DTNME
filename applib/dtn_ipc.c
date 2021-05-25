@@ -27,8 +27,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <oasys/compat/inet_aton.h>
-#include <oasys/compat/inttypes.h>
+#include <third_party/oasys/compat/inet_aton.h>
+#include <third_party/oasys/compat/inttypes.h>
 
 #include "dtn_ipc.h"
 #include "dtn_errno.h"

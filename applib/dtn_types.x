@@ -37,10 +37,11 @@
 % */
 %#define DTN_MAX_ENDPOINT_ID 256	/* max endpoint_id size (bytes) */
 %#define DTN_MAX_PATH_LEN PATH_MAX	/* max path length */
-%#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+%//#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+%#define DTN_MAX_EXEC_LEN 1050000	/* length of string passed to exec() */
 %#define DTN_MAX_AUTHDATA 1024		/* length of auth/security data*/
 %#define DTN_MAX_REGION_LEN 64		/* 64 chars "should" be long enough */
-%#define DTN_MAX_BUNDLE_MEM 50000	/* biggest in-memory bundle is ~50K*/
+%#define DTN_MAX_BUNDLE_MEM 100000000   /* biggest in-memory bundle is 100MB */
 %#define DTN_MAX_BLOCK_LEN 1024         /* length of block data (currently 1K) */
 %#define DTN_MAX_BLOCKS 256             /* number of blocks in bundle */
 
@@ -375,6 +376,7 @@ struct dtn_bundle_spec_t {
     u_int                   ecos_flags;
     u_int                   ecos_ordinal;
     u_int                   ecos_flow_label;
+    u_int                   bp_version; 
     dtn_extension_block_t   blocks<DTN_MAX_BLOCKS>;
     dtn_extension_block_t   metadata<DTN_MAX_BLOCKS>;
 };
@@ -454,14 +456,21 @@ struct dtn_bundle_status_report_t {
 % * dtn_bundle_status_report_t structure which contains the parsed fields
 % * of the status report.
 % *
-% *     DTN_PAYLOAD_MEM         - payload contents in memory
-% *     DTN_PAYLOAD_FILE        - payload contents in file
-% *     DTN_PAYLOAD_TEMP_FILE   - in file, assume ownership (send only)
+% *     DTN_PAYLOAD_MEM                       - payload contents in memory
+% *     DTN_PAYLOAD_FILE                      - payload contents in file
+% *     DTN_PAYLOAD_TEMP_FILE                 - in file, assume ownership (send only)
+% *     DTN_PAYLOAD_VARIABLE                  - payload contents in memory if up to the max allowed else in file
+% *     DTN_PAYLOAD_RELEASED_DB_FILE          - payload contents as original database file released to the app
+% *     DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE - payload contents in memory if up to the max allowed else as
+% *                                             original database file released to the app
 % */
 enum dtn_bundle_payload_location_t {
     DTN_PAYLOAD_FILE,
     DTN_PAYLOAD_MEM,
-    DTN_PAYLOAD_TEMP_FILE
+    DTN_PAYLOAD_TEMP_FILE,
+    DTN_PAYLOAD_VARIABLE,
+    DTN_PAYLOAD_RELEASED_DB_FILE,
+    DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE
 };
 
 struct dtn_bundle_payload_t
@@ -470,4 +479,5 @@ struct dtn_bundle_payload_t
     opaque                        filename<DTN_MAX_PATH_LEN>;
     opaque                        buf<DTN_MAX_BUNDLE_MEM>;
     dtn_bundle_status_report_t*   status_report;
+    uint64_t                      size_of_payload;
 };

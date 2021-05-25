@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -41,16 +41,26 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/io/FileUtils.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/ScratchBuffer.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/io/FileUtils.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "BundlePayload.h"
 #include "storage/BundleStore.h"
 
+
+#define FILEMODE_ALL (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)
+
+
 namespace dtn {
+
+
+
+oasys::SpinLock BundlePayload::dir_lock_;	///< coordinate attempts to create/remove directories
+
+
 
 //----------------------------------------------------------------------
 bool BundlePayload::test_no_remove_ = false;
@@ -116,24 +126,27 @@ BundlePayload::init(bundleid_t bundleid, location_t location)
     //XXX/dz Deleting the bundle payload now tries to delete the subdirectory as well
     //       which can happen between the mkdir and the file.open below. The workaround
     //       is to try multiple times (testing only ever required one retry)
+    //       dz/ added the dir_lock_ to coordinate after syslog reported a nonfatal oops
     int err = 0;
     int open_errno = 0;
     int ctr = 0;
     while (++ctr < 4) {
         //create the subdirectory if it does not exist
-        mkdir(dir_path_.c_str(), 0755 ); 
+        dir_lock_.lock(__func__);
+        mkdir(dir_path_.c_str(), 0777 ); 
 
         err = 0;
         open_errno = 0;
         err = file_.open(path.c_str(), O_EXCL | O_CREAT | O_RDWR,
-                             S_IRUSR | S_IWUSR, &open_errno);
+                             FILEMODE_ALL, &open_errno);
+        dir_lock_.unlock();
     
         if (err < 0 && open_errno == EEXIST)
         {
             log_err("payload file %s already exists: overwriting and retrying",
                     path.c_str());
 
-            err = file_.open(path.c_str(), O_RDWR, S_IRUSR | S_IWUSR);
+            err = file_.open(path.c_str(), O_RDWR, FILEMODE_ALL);
         }
         
         if (err < 0)
@@ -175,10 +188,13 @@ BundlePayload::sync_payload()
         return;
     }
 
+    oasys::ScopeLock scoplok(lock_, "BundlePayload::sync_payload");
     if (modified_) {
-        oasys::ScopeLock l(lock_, "BundlePayload::sync_payload");
 
         pin_file();
+
+        scoplok.unlock();
+
         fsync(file_.fd());
         unpin_file();
 
@@ -212,9 +228,11 @@ BundlePayload::init_from_store(bundleid_t bundleid)
     file_.logpathf("%s/file", logpath_);
     
     //create the subdirectory if it does not exist
-    mkdir(dir_path_.c_str(), 0755 ); 
+    dir_lock_.lock(__func__);
+    mkdir(dir_path_.c_str(), 0777 ); 
+    dir_lock_.unlock();
 
-    if (file_.open(path.c_str(), O_RDWR, S_IRUSR | S_IWUSR) < 0)
+    if (file_.open(path.c_str(), O_RDWR, FILEMODE_ALL) < 0)
     {
         // if the payload file open fails when trying to initialize,
         // we're in some amount of trouble, so set the location state
@@ -244,7 +262,9 @@ BundlePayload::~BundlePayload()
         {
             file_.unlink();
 
+            dir_lock_.lock(__func__);
             rmdir(dir_path_.c_str());
+            dir_lock_.unlock();
         }
     }
 
@@ -252,11 +272,59 @@ BundlePayload::~BundlePayload()
 }
 
 //----------------------------------------------------------------------
+bool
+BundlePayload::release_file(std::string& filename)
+{
+    bool result = false;
+
+    oasys::ScopeLock scoplok(lock_, __func__);
+
+    modified_ = false;  // prevent the BDStorage from trying to sync to disk
+
+    if (location_ == DISK && file_.is_open()) {
+        // moving the file up one level to the main bundle storage path and renaming it
+
+        release_from_fd_cache();
+
+        BundleStore* bs = BundleStore::instance();
+        oasys::StringBuffer new_filepath("%s/released_bundle_%" PRIbid ".dat",
+                                         bs->payload_dir().c_str(), bundleid_);
+        
+        file_.close();
+
+        int err = rename(file_.path(), new_filepath.c_str());
+
+        if (err != 0) {
+            log_err("Error (%s) releasing and renaming bundle payload file from %s to %s",
+                    strerror(errno), file_.path(), new_filepath.c_str());
+        } else {
+            result = true;
+            filename = new_filepath.c_str();
+        }
+
+         
+    } else {
+        result = false;
+    }
+
+    return result;
+}
+
+//----------------------------------------------------------------------
 void
 BundlePayload::serialize(oasys::SerializeAction* a)
 {
-    a->process("length",      (u_int32_t*)&length_);
-    a->process("base_offset", (u_int32_t*)&base_offset_);
+    u_int64_t u64_len = length_;
+    u_int64_t u64_offset = base_offset_;
+
+    a->process("length",      &u64_len);
+    a->process("base_offset", &u64_offset);
+
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        length_ = u64_len;
+        base_offset_ = u64_offset;
+    }
+    
 }
 
 //----------------------------------------------------------------------
@@ -284,39 +352,39 @@ BundlePayload::pin_file() const
     int fd = bs->payload_fdcache()->get_and_pin(file_.path());
     
     if (fd == -1) {
-        if (file_.reopen(O_RDWR) < 0) {
-            // verify that the directory portion of the file path has not been corrupted
-            if (0 != strncmp(file_.path(), dir_path_.c_str(), dir_path_.length())) {
-                log_err("corrupted file_.path(): %s expected dir: %s  error: %s",
-                        file_.path(), dir_path_.c_str(), strerror(errno));
-
-                // correct the path and try again
-                oasys::StringBuffer path("%s/bundle_%" PRIbid ".dat",
-                                         dir_path_.c_str(), bundleid_);
-
-                file_.set_path(path.c_str());
-
-                if (file_.reopen(O_RDWR) < 0) {
-                    log_err("error reopening file after corruption fix attempt %s: %s",
+        int log_ctr = 49;
+        while (file_.reopen(O_RDWR) < 0) {
+            if ((errno == EMFILE) || (errno == ENFILE)) {
+                // Too many open files - log about once every 5 seconds while problem persists
+                if (++log_ctr >= 50) {
+                    log_err("error reopening payload file but delaying and retrying - %s: %s",
                             file_.path(), strerror(errno));
 
-                    return false;
+                    if (!bs->payload_fdcache()->try_to_evict_one_file()) {
+                        log_err("unable to close any file from the payload fd cache - all are in use");
+                    }
+
+                    log_ctr = 0;
                 }
+
+                usleep(100000);
+                bs->payload_fdcache()->try_to_evict_one_file();
+                errno = 0;
             } else {
+                //XXX/dz removed check for file_path corruption since it has never been seen
                 log_err("error reopening file %s: %s",
                         file_.path(), strerror(errno));
 
                 return false;
             }
         }
-        
+    
         cur_offset_ = 0;
 
         int fd = bs->payload_fdcache()->put_and_pin(file_.path(), file_.fd());
         if (fd != file_.fd()) {
             PANIC("duplicate entry in open fd cache");
         }
-        
     } else {
         ASSERT(fd == file_.fd());
     }
@@ -333,6 +401,17 @@ BundlePayload::unpin_file() const
     }
     
     BundleStore::instance()->payload_fdcache()->unpin(file_.path());
+}
+
+//----------------------------------------------------------------------
+void
+BundlePayload::release_from_fd_cache()
+{
+    if (location_ != DISK) {
+        return;
+    }
+    
+    BundleStore::instance()->payload_fdcache()->try_close(file_.path());
 }
 
 //----------------------------------------------------------------------
@@ -423,7 +502,7 @@ BundlePayload::replace_with_file(const char* path)
         }
         
         file_.set_path(payload_path);
-        if (file_.reopen(O_RDWR | O_CREAT, S_IRUSR | S_IWUSR) < 0) {
+        if (file_.reopen(O_RDWR | O_CREAT, FILEMODE_ALL) < 0) {
             log_err("replace_with_file: error reopening file: %s",
                     strerror(err));
             return false;

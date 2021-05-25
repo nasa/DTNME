@@ -378,6 +378,7 @@ dtn_recv(int handle, unsigned int payload_location, int timeout)
         break;
     default:
         dtn_set_errno(h, DTN_EINVAL);
+        delete bundle;
         return NULL;
     }
 
@@ -455,6 +456,7 @@ dtn_peek(int handle, unsigned int payload_location, int timeout)
         break;
     default:
         dtn_set_errno(h, DTN_EINVAL);
+        delete bundle;
         return NULL;
     }
 

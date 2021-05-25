@@ -20,7 +20,7 @@
 
 #include <list>
 
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "reg/APIRegistration.h"
 

@@ -19,10 +19,11 @@
 #define _DTPC_TOPIC_H_
 
 #include <map>
+#include <memory>
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DtpcTopicCollector.h"
 #include "DtpcTopicCollectorList.h"
@@ -39,6 +40,10 @@ typedef std::map<u_int32_t, DtpcTopic*>    DtpcTopicMap;
 typedef std::pair<u_int32_t, DtpcTopic*>   DtpcTopicPair;
 typedef DtpcTopicMap::iterator             DtpcTopicIterator;
 typedef std::pair<DtpcTopicIterator, bool> DtpcTopicInsertResult;
+
+
+typedef std::shared_ptr<DtpcTopicExpirationTimer> SPtr_DtpcTopicExpirationTimer;
+
 
 
 /**
@@ -149,7 +154,7 @@ private:
     std::string description_;
 
     /// Timestamp when next check for expired data items will occur
-    DtpcTopicExpirationTimer* expiration_timer_;
+    SPtr_DtpcTopicExpirationTimer expiration_timer_;
 
     /// Current active API Registration 
     DtpcRegistration* registration_;

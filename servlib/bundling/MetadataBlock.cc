@@ -23,10 +23,10 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "MetadataBlock.h"
-#include "MetadataBlockProcessor.h"
+//#include "MetadataBlockProcessorBPv6.h"
 
 namespace dtn {
 

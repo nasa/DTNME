@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -39,9 +39,9 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 
-#include <oasys/io/NetUtils.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/serialize/XMLSerialize.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/serialize/XMLSerialize.h>
 
 #include "RouteCommand.h"
 #include "CompletionNotifier.h"
@@ -69,10 +69,7 @@ RouteCommand::RouteCommand()
 		"	valid options:\n"
 		"			static\n"
 		"			flood\n"
-		"			tca_router\n"
-		"			tca_gateway\n"
 		"			external"));
-
     bind_var(new oasys::BoolOpt("add_nexthop_routes",
                                 &BundleRouter::config_.add_nexthop_routes_,
 				"Whether or not to automatically add routes "
@@ -85,6 +82,12 @@ RouteCommand::RouteCommand()
 				"if possible (default is true)\n"
     		"	valid options:	true or false\n"));
     
+    bind_var(new oasys::BoolOpt("auto_deliver_bundles",
+                                &BundleRouter::config_.auto_deliver_bundles_,
+				"Whether or not local bundles should be delivered automatically"
+                "upon receipt or the router will initiate it (default is true)\n"
+    		"	valid options:	true or false\n"));
+    
     add_to_help("add <dest> <link/endpoint> [opts]", "add a route");
 
     add_to_help("add_ipn_range <start_node#> <end_node#> <link/endpoint> [opts]", 
@@ -93,7 +96,7 @@ RouteCommand::RouteCommand()
     add_to_help("recompute_routes", "use after adding routes to force bundles" 
                 " to be re-evaluated for routing purposes");
    
-    add_to_help("del <dest> <link/endpoint>", "delete a route");
+    add_to_help("del <dest>", "delete a route");
     
     add_to_help("dump", "dump all of the static routes");
 
@@ -124,8 +127,15 @@ RouteCommand::RouteCommand()
 				"(default 600)\n"
 		"	valid options:  number\n"));
              
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-    add_to_help("extrtr_multicast", "External Router multicast address (default is INADDR_ALLRTRS_GROUP)");
+    add_to_help("local_eid", "view or set the Endpoint EID for the local node (any known scheme)");
+    add_to_help("local_eid_ipn", "view or set an alternate IPN scheme Endpoint EID for the local node");
+
+    bind_var(new oasys::UInt64Opt("local_ltp_engine_id",
+                                &BundleDaemon::params_.ltp_engine_id_,
+                                "ID number",
+                                "Local LTP Engine ID. If not specified then the node number "
+                                "of the local IPN EID will be used."));
+
     add_to_help("extrtr_interface", "External Router network interface (default is INADDR_LOOPBACK)");
 
     bind_var(new oasys::UInt16Opt("server_port",
@@ -141,33 +151,6 @@ RouteCommand::RouteCommand()
 				"Seconds between hello messages with external router(s)"
 				"(default 30)\n"
 		"	valid options:  number\n"));
-    
-    bind_var(new oasys::StringOpt("schema", &ExternalRouter::schema,
-				"file",
-				"The external router interface "
-				"message schema "
-				"(default /router.xsd)\n"
-		"	valid options:  string\n"));
-
-    bind_var(new oasys::BoolOpt("xml_server_validation",
-                                &ExternalRouter::server_validation,
-                                "Perform xml validation on plug-in "
-                                "interface messages (default is true)\n"
-		"	valid options:  true or false\n"));
-    
-    bind_var(new oasys::BoolOpt("xml_client_validation",
-                                &ExternalRouter::client_validation,
-                                "Include meta-info in xml messages "
-                                "so plug-in routers"
-                                "can perform validation (default is false)\n"
-		"	valid options:  true or false\n"));
-
-    bind_var(new oasys::BoolOpt("extrtr_use_tcp",
-                                &ExternalRouter::use_tcp_interface_,
-                                "use TCP instead of multicast\n"
-		"	valid options:  true or false\n"));
-    
-#endif
 }
 
 int
@@ -393,7 +376,7 @@ RouteCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         if (BundleDaemon::instance()->started()) {
             oasys::Time t = oasys::Time::now();
             BundleDaemon::instance()->router()->recompute_routes();
-            resultf("Elapsed millisecs to recompute: %u", t.elapsed_ms());
+            resultf("Elapsed millisecs to recompute: %" PRIu64, t.elapsed_ms());
         } else {
             BundleDaemon::post(new RouteRecomputeEvent());
             resultf("Recompute event posted to BundleDaemon");
@@ -453,30 +436,31 @@ RouteCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
     }
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
     else if (strcmp(cmd, "extrtr_multicast") == 0) {
-        if (argc == 2) {
-            // route extrtr_multicast
-            set_result(intoa(ExternalRouter::multicast_addr_));
-            return TCL_OK;
-        } else if (argc == 3) {
-             // Assume this is the IP address of one of our interfaces?
-            std::string val = argv[2];
-            if (0 != oasys::gethostbyname(val.c_str(), &ExternalRouter::multicast_addr_)) {
-                resultf("Error in gethostbyname for %s", val.c_str());
-                return TCL_ERROR;
-            }
-            return TCL_OK;
-        } else {
-            wrong_num_args(argc, argv, 2, 2, 3);
-            return TCL_ERROR;
-        }
+        resultf("The parameter \"extrtr_multicast\" is no longer used");
+        return TCL_OK;
     }
-
+    else if (strcmp(cmd, "schema") == 0) {
+        resultf("The parameter \"schema\" is no longer used");
+        return TCL_OK;
+    }
+    else if (strcmp(cmd, "xml_server_validation") == 0) {
+        resultf("The parameter \"xml_server_validation\" is no longer used");
+        return TCL_OK;
+    }
+    else if (strcmp(cmd, "xml_client_validation") == 0) {
+        resultf("The parameter \"xml_client_validation\" is no longer used");
+        return TCL_OK;
+    }
+    else if (strcmp(cmd, "extrtr_use_tcp") == 0) {
+        resultf("The parameter \"extrtr_use_tcp\" is no longer used as the external router interface is now always TCP");
+        return TCL_OK;
+    }
     else if (strcmp(cmd, "extrtr_interface") == 0) {
         if (argc == 2) {
             // route extrtr_interface_
             set_result(intoa(ExternalRouter::network_interface_));
+            ExternalRouter::network_interface_configured_ = true;
             return TCL_OK;
         } else if (argc == 3) {
 
@@ -507,6 +491,7 @@ RouteCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
                 }
             }
 
+            ExternalRouter::network_interface_configured_ = true;
             return TCL_OK;
 
         } else {
@@ -514,13 +499,12 @@ RouteCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             return TCL_ERROR;
         }
     }
-#endif
 
 
 
     else {
         resultf("unimplemented route subcommand %s", cmd);
-        return TCL_ERROR;
+        return TCL_OK;
     }
     
     return TCL_OK;

@@ -18,7 +18,7 @@
 #define _DTN_SCHEME_H_
 
 #include "Scheme.h"
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 

@@ -17,7 +17,7 @@
 #ifndef _ROUTER_INFO_H_
 #define _ROUTER_INFO_H_
 
-#include <oasys/debug/Formatter.h>
+#include <third_party/oasys/debug/Formatter.h>
 
 namespace oasys {
 class StringBuffer;

@@ -27,21 +27,21 @@ BUILDDIR := ..
 endif
 
 DAEMON_SRCS :=			\
-	dtnd.cc
+	dtnme.cc
 
 DAEMON_OBJS := $(DAEMON_SRCS:.cc=.o)
 
 #
 # Default target is to build the daemon
 #
-BINFILES := dtnd
+BINFILES := dtnme
 all: $(BINFILES)
 
 COMPONENT_LIBS := \
 	../applib/libdtnapisrv.a 	\
 	../servlib/libdtnserv.a 	\
 
-dtnd: $(DAEMON_OBJS) $(COMPONENT_LIBS)
+dtnme: $(DAEMON_OBJS) $(COMPONENT_LIBS)
 	$(CXX) $(CXXFLAGS) $(DAEMON_OBJS) $(COMPONENT_LIBS) \
 		-o $@ $(LDFLAGS) $(OASYS_LDFLAGS) $(EXTLIB_LDFLAGS) $(LIBS)
 

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -45,7 +45,6 @@
 #include "contacts/ContactManager.h"
 #include "contacts/Link.h"
 #include "reg/Registration.h"
-#include "session/Session.h"
 
 namespace dtn {
 
@@ -115,7 +114,6 @@ TableBasedRouter::handle_changed_routes()
     // want to send a bundle back where it came from
     reception_cache_.evict_all();
     reroute_all_bundles();
-    reroute_all_sessions();
 }
 
 //----------------------------------------------------------------------
@@ -123,114 +121,6 @@ void
 TableBasedRouter::handle_event(BundleEvent* event)
 {
     dispatch_event(event);
-}
-
-//----------------------------------------------------------------------
-Session*
-TableBasedRouter::get_session_for_bundle(Bundle* bundle)
-{
-    if (bundle->session_flags() != 0)
-    {
-        log_debug("get_session_for_bundle: bundle id %" PRIbid " is a subscription msg",
-                  bundle->bundleid());
-        return NULL;
-    }
-
-    if (bundle->sequence_id().empty()  &&
-        bundle->obsoletes_id().empty() &&
-        bundle->session_eid().length() == 0)
-    {
-        //log_debug("get_session_for_bundle: bundle id %" PRIbid " not a session bundle",
-        //          bundle->bundleid());
-        return NULL;
-    }
-
-    EndpointID session_eid = bundle->session_eid();
-    if (session_eid.length() == 0)
-    {
-        session_eid.assign(std::string("dtn-unicast-session:") +
-                           bundle->source().str() +
-                           "," +
-                           bundle->dest().str());
-        ASSERT(session_eid.valid());
-    }
-
-    Session* session = sessions_.get_session(session_eid);
-    //log_debug("get_session_for_bundle: *%p *%p", bundle, session);
-    return session;
-}
-
-//----------------------------------------------------------------------
-bool
-TableBasedRouter::add_bundle_to_session(Bundle* bundle, Session* session)
-{
-    // XXX/demmer is this the right deletion reason for obsoletes??
-    static BundleProtocol::status_report_reason_t deletion_reason =
-        BundleProtocol::REASON_DEPLETED_STORAGE;
-    
-    log_debug("adding *%p to *%p", bundle, session);
-
-    if (! bundle->sequence_id().empty())
-    {
-        oasys::ScopeLock l(session->bundles()->lock(),
-                           "TableBasedRouter::add_subscriber");
-        BundleList::iterator iter = session->bundles()->begin();
-        while (iter != session->bundles()->end())
-        {
-            Bundle* old_bundle = *iter;
-            ++iter; // in case we remove the bundle from the list
-
-            // make sure the old bundle has a sequence id
-            if (old_bundle->sequence_id().empty()) {
-                continue;
-            }
-
-            // first check if the newly arriving bundle causes an old one
-            // to be obsolete
-            if (bundle->obsoletes_id() >= old_bundle->sequence_id())
-            {
-                log_debug("*%p obsoletes *%p... removing old bundle",
-                          bundle, old_bundle);
-            
-                bool ok = session->bundles()->erase(old_bundle);
-                ASSERT(ok);
-                BundleDaemon::post_at_head(
-                    new BundleDeleteRequest(old_bundle, deletion_reason));
-                continue;
-            }
-
-            // next check if the existing bundle obsoletes this one
-            if (old_bundle->obsoletes_id() >= bundle->sequence_id())
-            {
-                log_debug("*%p obsoletes *%p... ignoring new arrival",
-                          old_bundle, bundle);
-                BundleDaemon::post_at_head(
-                    new BundleDeleteRequest(bundle, deletion_reason));
-                return false;
-            }
-
-            // now check if the new and existing bundles have the same
-            // sequence id, in which case we discard the new arrival as
-            // well
-            if (bundle->sequence_id() == old_bundle->sequence_id())
-            {
-                log_debug("*%p and *%p have same sequence id... "
-                          "ignoring new arrival",
-                          old_bundle, bundle);
-                BundleDaemon::post_at_head(
-                    new BundleDeleteRequest(bundle, deletion_reason));
-                return false;
-            }
-            
-            log_debug("compared *%p and *%p, nothing is obsoleted",
-                      old_bundle, bundle);
-        }
-    }
-
-    session->bundles()->push_back(bundle);
-    session->sequence_id()->update(bundle->sequence_id());
-
-    return true;
 }
 
 //----------------------------------------------------------------------
@@ -250,39 +140,6 @@ TableBasedRouter::handle_bundle_received(BundleReceivedEvent* event)
         remote_eid = event->link_->remote_eid();
     }
 
-/* -- dzdebug - extremely limited value for any decent throughput rate
-    if (! reception_cache_.add_entry(bundle, remote_eid))
-    {
-        log_info("ignoring duplicate bundle: *%p", bundle);
-        BundleDaemon::post_at_head(
-            new BundleDeleteRequest(bundle, BundleProtocol::REASON_NO_ADDTL_INFO));
-        return;
-    }
-*/
-
-    // check if the bundle is part of a session, either because it has
-    // a sequence id and/or obsoletes id, or because it has an
-    // explicit session eid. if it is part of the session, add it to
-    // the session list
-    Session* session = get_session_for_bundle(bundle);
-    if (session != NULL)
-    {
-        // add the bundle to the session list, which checks whether 
-        // it obsoletes any existing bundles on the session, as well
-        // as whether the bundle itself is obsolete on arrival.
-        should_route = add_bundle_to_session(bundle, session);
-        if (! should_route) {
-            log_debug("session bundle %" PRIbid " is DOA", bundle->bundleid());
-            return; // don't route it 
-        }
-    }
-
-    // check if the bundle is a session subscription management bundle
-    // XXX/demmer maybe use a registration instead??
-    if (bundle->session_flags() != 0) {
-        should_route = handle_session_bundle(event);
-    }
-    
     if (should_route) {
         route_bundle(bundle);
     } else {
@@ -364,28 +221,19 @@ TableBasedRouter::can_delete_bundle(const BundleRef& bundle)
 
     // check if we haven't yet done anything with this bundle
     if (bundle->fwdlog()->get_count(ForwardingInfo::TRANSMITTED |
-                                    ForwardingInfo::DELIVERED) == 0)
+                                    ForwardingInfo::DELIVERED)
+                < bundle->expected_delivery_and_transmit_count())
     {
         //log_debug("TableBasedRouter::can_delete_bundle(%" PRIbid "): "
-        //          "not yet transmitted or delivered",
+        //          "not yet transmitted or delivered the expected number of times",
         //          bundle->bundleid());
         return false;
     }
 
     // check if we have local custody
-    if (bundle->local_custody()) {
+    if (bundle->local_custody() || bundle->bibe_custody()) {
         //log_debug("TableBasedRouter::can_delete_bundle(%" PRIbid "): "
         //          "not deleting because we have custody",
-        //          bundle->bundleid());
-        return false;
-    }
-
-    // check if the bundle is part of a session with subscribers
-    Session* session = get_session_for_bundle(bundle.object());
-    if (session && !session->subscribers().empty())
-    {
-        //log_debug("TableBasedRouter::can_delete_bundle(%" PRIbid "): "
-        //          "session has subscribers",
         //          bundle->bundleid());
         return false;
     }
@@ -400,21 +248,6 @@ TableBasedRouter::delete_bundle(const BundleRef& bundle)
     //log_debug("delete *%p", bundle.object());
 
     remove_from_deferred(bundle, ForwardingInfo::ANY_ACTION);
-
-    Session* session = get_session_for_bundle(bundle.object());
-    if (session)
-    {
-        bool ok = session->bundles()->erase(bundle);
-        (void)ok;
-        
-        //log_debug("delete_bundle: removing *%p from *%p: %s",
-        //          bundle.object(), session, ok ? "success" : "not in session list");
-
-        // XXX/demmer adjust sequence id for session??
-    }
-
-
-    // XXX/demmer clean up empty sessions?
 }
 
 //----------------------------------------------------------------------
@@ -539,13 +372,15 @@ TableBasedRouter::handle_contact_up(ContactUpEvent* event)
     // (or part of one), which we don't handle here since we can't
     // distinguish that case from one in which the CL is actually
     // sending data, just taking a long time to do so.
+    oasys::SPtr_Timer base_sptr;
+    SPtr_RerouteTimer t;
 
     RerouteTimerMap::iterator iter = reroute_timers_.find(link->name_str());
     if (iter != reroute_timers_.end()) {
-        log_debug("link %s reopened, cancelling reroute timer", link->name());
-        RerouteTimer* t = iter->second;
+        base_sptr = iter->second;
         reroute_timers_.erase(iter);
-        t->cancel();
+        oasys::SharedTimerSystem::instance()->cancel_timer(base_sptr);
+        base_sptr.reset();
     }
 }
 
@@ -569,20 +404,14 @@ TableBasedRouter::handle_contact_down(ContactDownEvent* event)
                       "scheduling reroute timer in %u seconds",
                       link->name(), num_queued,
                       link->params().potential_downtime_);
-            RerouteTimer* t = new RerouteTimer(this, link);
-            t->schedule_in(link->params().potential_downtime_ * 1000);
+
+            SPtr_RerouteTimer t = std::make_shared<RerouteTimer>(this, link);
+            oasys::SPtr_Timer base_sptr = t;
+            oasys::SharedTimerSystem::instance()->schedule_in(link->params().potential_downtime_ * 1000, base_sptr);
             
             reroute_timers_[link->name_str()] = t;
         }
     }
-}
-
-//----------------------------------------------------------------------
-void
-TableBasedRouter::RerouteTimer::timeout(const struct timeval& now)
-{
-    (void)now;
-    router_->reroute_bundles(link_);
 }
 
 //----------------------------------------------------------------------
@@ -613,12 +442,24 @@ TableBasedRouter::reroute_bundles(const LinkRef& link)
     while (! link->queue()->empty()) {
         bundle = link->queue()->front();
         actions_->cancel_bundle(bundle.object(), link);
-        ASSERT(! bundle->is_queued_on(link->queue()));
+
+        //XXX/dz TCPCL can't guarantee that bundle can be immediately removed from the queue
+        //ASSERT(! bundle->is_queued_on(link->queue()));
     }
 
     // there should never have been any in flight since the link is
     // unavailable
-    ASSERT(link->inflight()->empty());
+    //dz - ION3.6.2 killm and restart did not clear inflight so rerouting them also
+    //ASSERT(link->inflight()->empty());
+
+    while (! link->inflight()->empty()) {
+        bundle = link->inflight()->front();
+        actions_->cancel_bundle(bundle.object(), link);
+
+        //XXX/dz TCPCL can't guarantee that bundle can be immediately removed from the inflight queue
+        //ASSERT(! bundle->is_queued_on(link->inflight()));
+    }
+
 }    
 
 //----------------------------------------------------------------------
@@ -669,9 +510,9 @@ TableBasedRouter::handle_link_deleted(LinkDeletedEvent* event)
     RerouteTimerMap::iterator iter = reroute_timers_.find(link->name_str());
     if (iter != reroute_timers_.end()) {
         log_debug("link %s deleted, cancelling reroute timer", link->name());
-        RerouteTimer* t = iter->second;
+        oasys::SPtr_Timer base_sptr = iter->second;
         reroute_timers_.erase(iter);
-        t->cancel();
+        oasys::SharedTimerSystem::instance()->cancel_timer(base_sptr);
     }
 }
 
@@ -711,26 +552,6 @@ TableBasedRouter::get_routing_state(oasys::StringBuffer* buf)
 {
     buf->appendf("Route table for %s router:\n\n", name_.c_str());
     route_table_->dump(buf);
-
-    if (!sessions_.empty())
-    {
-        buf->appendf("Session table (%zu sessions):\n", sessions_.size());
-        sessions_.dump(buf);
-        buf->appendf("\n");
-    }
-
-    if (!session_custodians_.empty())
-    {
-        buf->appendf("Session custodians (%zu registrations):\n",
-                     session_custodians_.size());
-
-        for (RegistrationList::iterator iter = session_custodians_.begin();
-             iter != session_custodians_.end(); ++iter)
-        {
-            buf->appendf("    *%p\n", *iter);
-        }
-        buf->appendf("\n");
-    }
 }
 
 //----------------------------------------------------------------------
@@ -935,14 +756,15 @@ TableBasedRouter::check_next_hop(const LinkRef& next_hop)
 
     BundleRef bundle("TableBasedRouter::check_next_hop");
 
-    oasys::ScopeLock l(deferred->list()->lock(), 
-                       "TableBasedRouter::check_next_hop");
+    deferred->list()->lock()->lock(__func__);
+
     BundleList::iterator iter = deferred->list()->begin();
     while (iter != deferred->list()->end())
     {
         if (next_hop->queue_is_full()) {
             //log_debug("check_next_hop %s: link queue is full, stopping loop",
             //          next_hop->name());
+            deferred->list()->lock()->unlock();
             break;
         }
         
@@ -976,7 +798,12 @@ TableBasedRouter::check_next_hop(const LinkRef& next_hop)
 
         // remove the bundle from the deferred list
         deferred->del(bundle);
-    
+
+        // release the deferred list lock to prevent possible deadlock if a redirect to BIBE
+        // takes place while queueing the bndle
+        deferred->list()->lock()->unlock();
+
+
         //log_debug("check_next_hop: sending *%p to *%p",
         //          bundle.object(), next_hop.object());
         actions_->queue_bundle(bundle.object() , next_hop,
@@ -988,6 +815,14 @@ TableBasedRouter::check_next_hop(const LinkRef& next_hop)
             //          next_hop->name(), max_to_move);
             break;
         }
+
+        deferred->list()->lock()->lock(__func__);
+
+        iter = deferred->list()->begin();
+    }
+
+    if (deferred->list()->lock()->is_locked_by_me()) {
+        deferred->list()->lock()->unlock();
     }
 }
 
@@ -999,14 +834,6 @@ TableBasedRouter::reroute_all_bundles()
     // process, the lock is now only taken when the iterator is being
     // updated.
  
-#ifdef BDSTATS_ENABLED
-    // useful info if working with BD Stats
-    log_crit("reroute_all_bundles - entered");
-    oasys::Time now;
-    now.get_time();
-#endif
-
-
     log_debug("reroute_all_bundles... %zu bundles on pending list",
               pending_bundles_->size());
 
@@ -1024,11 +851,7 @@ TableBasedRouter::reroute_all_bundles()
     bool skip_check_next_hop = false;
     while (true)
     {
-        #ifdef PENDING_BUNDLES_IS_MAP
-            route_bundle(iter->second, skip_check_next_hop); // for <map> lists
-        #else
-            route_bundle(*iter, skip_check_next_hop); // for <lists> lists
-        #endif
+        route_bundle(iter->second, skip_check_next_hop); // for <map> lists
 
         // only do the check_next_hop for the first bundle which 
         // primes the pump for all of the other bundles
@@ -1044,10 +867,6 @@ TableBasedRouter::reroute_all_bundles()
         }
         pending_bundles_->lock()->unlock();
     }
-
-#ifdef BDSTATS_ENABLED
-    log_crit("reroute_all_bundles - exit - elapsed: %d", now.elapsed_ms());
-#endif // BDSTATS_ENABLED
 }
 
 //----------------------------------------------------------------------
@@ -1162,331 +981,6 @@ TableBasedRouter::handle_registration_added(RegistrationAddedEvent* event)
     if (reg == NULL || reg->session_flags() == 0) {
         return;
     }
-
-    log_debug("got new session registration %u", reg->regid());
-
-    if (reg->session_flags() & Session::CUSTODY) {
-        log_debug("session custodian registration %u", reg->regid());
-        session_custodians_.push_back(reg);
-    }
-
-    else if (reg->session_flags() & Session::SUBSCRIBE) {
-        log_debug("session subscription registration %u", reg->regid());
-        Session* session = sessions_.get_session(reg->endpoint());
-        session->add_subscriber(Subscriber(reg));
-        subscribe_to_session(Session::SUBSCRIBE, session);
-    }
-
-    else if (reg->session_flags() & Session::PUBLISH) {
-        log_debug("session publish registration %u", reg->regid());
-
-        Session* session = sessions_.get_session(reg->endpoint());
-        if (session->upstream().is_null()) {
-            log_debug("unknown upstream for publish registration... "
-                      "trying to find one");
-            find_session_upstream(session);
-        }
-
-        // XXX/demmer do something about publish
-    }
-}
-
-//----------------------------------------------------------------------
-bool
-TableBasedRouter::subscribe_to_session(int mode, Session* session)
-{
-    if (! session->upstream().is_local()) {
-        // XXX/demmer should set replyto to handle upstream nodes that
-        // don't understand the session block
-
-        Bundle* bundle = new TempBundle();
-        bundle->set_do_not_fragment(1);
-        bundle->mutable_source()->assign(BundleDaemon::instance()->local_eid());
-        bundle->mutable_dest()->assign("dtn-session:" + session->eid().str());
-        bundle->mutable_replyto()->assign(EndpointID::NULL_EID());
-        bundle->mutable_custodian()->assign(EndpointID::NULL_EID());
-        bundle->set_expiration(config_.subscription_timeout_);
-        bundle->set_singleton_dest(true);
-        bundle->mutable_session_eid()->assign(session->eid());
-        bundle->set_session_flags(mode);
-        bundle->mutable_sequence_id()->assign(*session->sequence_id());
-
-        log_debug("sending subscribe bundle to session %s (timeout %u seconds)",
-                  session->eid().c_str(), config_.subscription_timeout_);
-        
-        BundleDaemon::post_at_head(
-            new BundleReceivedEvent(bundle, EVENTSRC_ROUTER));
-
-        if (session->resubscribe_timer() != NULL) {
-            log_debug("cancelling old resubscribe timer");
-            session->resubscribe_timer()->cancel();
-        }
-        
-        u_int resubscribe_timeout = config_.subscription_timeout_ * 1000 / 2;
-        log_debug("scheduling resubscribe timer in %u msecs",
-                  resubscribe_timeout);
-        ResubscribeTimer* timer = new ResubscribeTimer(this, session);
-        timer->schedule_in(resubscribe_timeout);
-        session->set_resubscribe_timer(timer);
-        
-    } else {
-        // XXX/demmer todo
-        log_debug("local upstream source: notifying registration");
-    }
-
-    return true;
-}
-
-//----------------------------------------------------------------------
-TableBasedRouter::ResubscribeTimer::ResubscribeTimer(TableBasedRouter* router,
-                                                     Session* session)
-    : router_(router), session_(session)
-{
-}
-
-//----------------------------------------------------------------------
-void
-TableBasedRouter::ResubscribeTimer::timeout(const struct timeval& now)
-{
-    (void)now;
-    router_->logf(oasys::LOG_DEBUG, "resubscribe timer fired for session *%p",
-                  session_);
-    router_->subscribe_to_session(Session::RESUBSCRIBE, session_);
-    session_->set_resubscribe_timer(NULL);
-    delete this;
-}
-
-//----------------------------------------------------------------------
-bool
-TableBasedRouter::handle_session_bundle(BundleReceivedEvent* event)
-{
-    Bundle* bundle = event->bundleref_.object();
-
-    ASSERT(bundle->session_flags() != 0);
-    ASSERT(bundle->session_eid() != EndpointID::NULL_EID());
-    
-    Session* session = sessions_.get_session(bundle->session_eid());
-
-    log_debug("handle_session_bundle: got bundle *%p for session %d",
-              bundle, session->id());
-              
-    // XXX/demmer handle reload from db...
-    if (event->source_ == EVENTSRC_STORE) {
-        log_err("handle_session_bundle: can't handle reload from db yet");
-        return false;
-    }
-
-    bool should_route = true;
-    switch (bundle->session_flags()) {
-    case Session::SUBSCRIBE:
-    case Session::RESUBSCRIBE:
-    {
-        // look for whether we have an upstream route yet. if not,
-        // keep the bundle in queue to forward onwards towards the
-        // session root
-        if (session->upstream().is_null()) {
-            log_debug("handle_session_bundle: "
-                      "unknown upstream... trying to find one");
-            
-            if (find_session_upstream(session))
-            {
-                ASSERT(!session->upstream().is_null());
-                
-                const Subscriber& upstream = session->upstream();
-                if (upstream.is_local())
-                {
-                    log_debug("handle_session_bundle: "
-                              "forwarding %s bundle to upstream registration",
-                              Session::flag_str(bundle->session_flags()));
-                    upstream.reg()->session_notify(bundle);
-                    should_route = false;
-                }
-                else
-                {
-                    log_debug("handle_session_bundle: "
-                              "found upstream *%p... routing bundle",
-                              &upstream);
-                }
-            }
-            else
-            {
-                // XXX/demmer what to do here? maybe if we add
-                // something to ack the subscription then this should
-                // defer the ack?
-                log_info("can't find an upstream for session %s... "
-                         "waiting until route arrives",
-                         session->eid().c_str());
-            }
-        }
-        else
-        {
-            const Subscriber& upstream = session->upstream();
-            (void) upstream;  // prevent unused message if debug loggin is disabled
-            log_debug("handle_session_bundle: "
-                      "already subscribed to session through upstream *%p... "
-                      "suppressing subscription bundle %" PRIbid,
-                      &upstream, bundle->bundleid());
-
-            bundle->fwdlog()->add_entry(EndpointIDPattern::WILDCARD_EID(),
-                                        ForwardingInfo::FORWARD_ACTION,
-                                        ForwardingInfo::SUPPRESSED);
-            should_route = false;
-        }
-        
-        // add the new subscriber to the session. if the downstream is
-        // already subscribed, then add_subscriber doesn't do
-        // anything. XXX/demmer it should reset the stale subscription
-        // timer...
-        if (event->source_ == EVENTSRC_PEER)
-        {
-            if (bundle->prevhop().str() != "" &&
-                bundle->prevhop()       != EndpointID::NULL_EID())
-            {
-                log_debug("handle_session_bundle: "
-                          "adding downstream subscriber %s (seqid *%p)",
-                          bundle->prevhop().c_str(), &bundle->sequence_id());
-                
-                add_subscriber(session, bundle->prevhop(), bundle->sequence_id());
-            }
-            else
-            {
-                // XXX/demmer what to do here??
-                log_err("handle_session_bundle: "
-                        "downstream subscriber with no prevhop!!!!");
-            }
-        }
-        break;
-    }
-
-    default:
-    {
-        log_err("session flags %x not implemented", bundle->session_flags());
-    }
-    }
-
-    return should_route;
-}
-
-//----------------------------------------------------------------------
-void
-TableBasedRouter::reroute_all_sessions()
-{
-    log_debug("reroute_all_sessions... %zu sessions",
-              sessions_.size());
-
-    for (SessionTable::iterator iter = sessions_.begin();
-         iter != sessions_.end(); ++iter)
-    {
-        find_session_upstream(iter->second);
-    }
-}
-
-//----------------------------------------------------------------------
-bool
-TableBasedRouter::find_session_upstream(Session* session)
-{
-    // first look for a local custody registration
-    for (RegistrationList::iterator iter = session_custodians_.begin();
-         iter != session_custodians_.end(); ++iter)
-    {
-        Registration* reg = *iter;
-        if (reg->endpoint().match(session->eid())) {
-            Subscriber new_upstream(reg);
-            if (session->upstream() == new_upstream) {
-                log_debug("find_session_upstream: "
-                          "session %s upstream custody registration %d unchanged",
-                          session->eid().c_str(), reg->regid());
-            } else {
-                log_debug("find_session_upstream: "
-                          "session %s found new custody registration %d",
-                          session->eid().c_str(), reg->regid());
-                session->set_upstream(new_upstream);
-            }
-            return true;
-        }
-    }
-
-    // XXX/demmer for now this just looks up the route for the
-    // bundle destination (which should be in the dtn-session: scheme)
-    // and extracts the next hop from that
-    RouteEntryVec matches;
-    RouteEntryVec::iterator iter;
-    
-    EndpointID subscribe_eid("dtn-session:" + session->eid().str());
-    route_table_->get_matching(subscribe_eid, &matches);
-
-    // XXX/demmer do something about this...
-    // sort_routes(bundle, &matches);
-
-    for (iter = matches.begin(); iter != matches.end(); ++iter)
-    {
-        const LinkRef& link = (*iter)->link();
-        if (link->remote_eid().str() == "" ||
-            link->remote_eid() == EndpointID::NULL_EID())
-        {
-            log_warn("find_session_upstream: "
-                     "got route match with no remote eid");
-            // XXX/demmer uh...
-            continue;
-        }
-
-        Subscriber new_upstream(link->remote_eid());
-        if (session->upstream() == new_upstream) {
-            log_debug("find_session_upstream: "
-                      "session %s found existing upstream %s",
-                      session->eid().c_str(), link->remote_eid().c_str());
-        } else {
-            log_debug("find_session_upstream: session %s new upstream %s",
-                      session->eid().c_str(), link->remote_eid().c_str());
-            session->set_upstream(Subscriber(link->remote_eid()));
-            add_subscriber(session, link->remote_eid(), SequenceID());
-        }
-        return true;
-    }
-
-    log_warn("find_session_upstream: can't find upstream for session %s",
-             session->eid().c_str());
-    return false;
-}
-
-//----------------------------------------------------------------------
-void
-TableBasedRouter::add_subscriber(Session*          session,
-                                 const EndpointID& peer,
-                                 const SequenceID& known_seqid)
-{
-    log_debug("adding new subscriber for session %s -> %s",
-              session->eid().c_str(), peer.c_str());
-    
-    session->add_subscriber(Subscriber(peer));
-
-    // XXX/demmer check for duplicates?
-    
-    RouteEntry *entry = new RouteEntry(session->eid(), peer);
-    entry->set_action(ForwardingInfo::COPY_ACTION);
-    route_table_->add_entry(entry);
-
-    log_debug("routing %zu session bundles", session->bundles()->size());
-    oasys::ScopeLock l(session->bundles()->lock(),
-                       "TableBasedRouter::add_subscriber");
-    for (BundleList::iterator iter = session->bundles()->begin();
-         iter != session->bundles()->end(); ++iter)
-    {
-        Bundle* bundle = *iter;
-        if (! bundle->sequence_id().empty() &&
-            bundle->sequence_id() <= known_seqid)
-        {
-            log_debug("suppressing transmission of bundle %" PRIbid " (seqid *%p) "
-                      "to subscriber %s since covered by seqid *%p",
-                      bundle->bundleid(), &bundle->sequence_id(),
-                      peer.c_str(), &known_seqid);
-            bundle->fwdlog()->add_entry(peer, ForwardingInfo::COPY_ACTION,
-                                        ForwardingInfo::SUPPRESSED);
-            continue;
-        }
-
-        route_bundle(*iter);
-    }
 }
 
 //----------------------------------------------------------------------
@@ -1503,6 +997,25 @@ TableBasedRouter::handle_registration_expired(RegistrationExpiredEvent* event)
     // XXX/demmer lookup session and remove reg from subscribers
     // and/or remove the whole session if reg is the custodian
     (void)event;
+}
+
+//----------------------------------------------------------------------
+TableBasedRouter::RerouteTimer::RerouteTimer(TableBasedRouter* router, const LinkRef& link)
+            : router_(router), link_(link)
+{
+}
+
+//----------------------------------------------------------------------
+TableBasedRouter::RerouteTimer::~RerouteTimer()
+{
+}
+
+//----------------------------------------------------------------------
+void
+TableBasedRouter::RerouteTimer::timeout(const struct timeval& now)
+{
+    (void)now;
+    router_->reroute_bundles(link_);
 }
 
 

@@ -23,7 +23,7 @@
 
 #include <algorithm>
 #include <stdlib.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DtpcTopicAggregator.h"
 #include "DtpcTopicAggregatorList.h"
@@ -132,9 +132,8 @@ DtpcTopicAggregatorList::clear()
 {
     oasys::ScopeLock l(lock_, "clear");
     
-    DtpcTopicAggregator* aggregator;
     while (!list_.empty()) {
-        aggregator = pop_front();
+        pop_front();
         //this is not the master list so do not delete the aggregator
     }
     list_size_ = 0;

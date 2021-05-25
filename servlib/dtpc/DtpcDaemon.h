@@ -24,15 +24,15 @@
 
 #ifdef DTPC_ENABLED
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/IdleTclExit.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/IdleTclExit.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleEventHandler.h"
@@ -107,7 +107,7 @@ public:
      * Queues the event at the tail of the queue for processing by the
      * daemon thread.
      */
-    static void post(BundleEvent* event);
+    static void post(BundleEvent* event, bool at_back=true);
  
     /**
      * Queues the event at the head of the queue for processing by the

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -41,7 +41,6 @@
 #include "bundling/Bundle.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleList.h"
-#include "session/Session.h"
 #include "storage/GlobalStore.h"
 
 namespace dtn {
@@ -52,8 +51,8 @@ Registration::failure_action_toa(failure_action_t action)
 {
     switch(action) {
     case DROP:  return "DROP";
-    case DEFER:	return "DEFER";
-    case EXEC:  return "EXEC";
+    case DEFER:    return "DEFER";
+//dzdebug    case EXEC:  return "EXEC";
     }
 
     return "__INVALID__";
@@ -65,7 +64,7 @@ Registration::replay_action_toa(replay_action_t action)
 {
     switch(action) {
     case NEW:  return "NEW";
-    case NONE:	return "NONE";
+    case NONE: return "NONE";
     case ALL:  return "ALL";
     }
 
@@ -91,14 +90,14 @@ Registration::Registration(u_int32_t regid,
       delivery_acking_(delivery_acking),
       script_(script),
       expiration_(expiration),
-      expiration_timer_(NULL),
+      expiration_timer_(nullptr),
       active_(false),
       expired_(false),
       in_datastore_(false),
       add_to_datastore_(false),
       in_storage_queue_(false),
       delivery_cache_(std::string(logpath()) + "/delivery_cache", 1024),
-      initial_load_thread_(NULL)
+      initial_load_thread_(nullptr)
       
 {
     struct timeval now;
@@ -120,14 +119,14 @@ Registration::Registration(const oasys::Builder&)
       script_(),
       expiration_(0),
       creation_time_(0),
-      expiration_timer_(NULL),
+      expiration_timer_(nullptr),
       active_(false),
       expired_(false),
       in_datastore_(false),
       add_to_datastore_(false),
       in_storage_queue_(false),
       delivery_cache_(std::string(logpath()) + "/delivery_cache", 1024),
-      initial_load_thread_(NULL)
+      initial_load_thread_(nullptr)
 {
 }
 
@@ -135,18 +134,25 @@ Registration::Registration(const oasys::Builder&)
 Registration::~Registration()
 {
     cleanup_expiration_timer();
+
+    delivery_cache_.evict_all();
 }
 
 //----------------------------------------------------------------------
 bool
 Registration::deliver_if_not_duplicate(Bundle* bundle)
 {
-    if (! delivery_cache_.add_entry(bundle, EndpointID::NULL_EID())) {
-        log_debug("suppressing duplicate delivery of bundle *%p", bundle);
-        return false;
+
+    if (BundleDaemon::params_.dzdebug_reg_delivery_cache_enabled_) {
+        if (! delivery_cache_.add_entry(bundle, EndpointID::NULL_EID())) {
+            //dzdebug log_debug("suppressing duplicate delivery of bundle *%p", bundle);
+            log_crit("suppressing duplicate delivery of bundle *%p - %s", bundle, bundle->gbofid_str().c_str());
+            return false;
+        }
     }
-    
-    log_debug("delivering bundle *%p", bundle);
+
+    log_debug("delivering bundle *%p - %s", bundle, bundle->gbofid_str().c_str());
+
     deliver_bundle(bundle);
     return true;
 }
@@ -173,19 +179,19 @@ Registration::force_expire()
 void
 Registration::cleanup_expiration_timer()
 {
-    if (expiration_timer_) {
+    if (expiration_timer_ != nullptr) {
         // try to cancel the expiration timer. if it is still pending,
         // then the timer will clean itself up when it eventually
         // fires. otherwise, assert that we have actually expired and
         // delete the timer itself.
-        bool pending = expiration_timer_->cancel();
+        oasys::SPtr_Timer base_sptr = expiration_timer_;
+        bool pending = expiration_timer_->cancel_timer(base_sptr);
         
         if (! pending) {
             ASSERT(expired_);
-            delete expiration_timer_;
         }
         
-        expiration_timer_ = NULL;
+        expiration_timer_ = nullptr;
     }
 }
 
@@ -217,20 +223,19 @@ int
 Registration::format(char* buf, size_t sz) const
 {
     return snprintf(buf, sz,
-                    "id %u: %s %s (%s%s %s %s) [expiration %d%s%s%s%s]",
+                    "id %u: %s %s (%s%s %s %s) [expiration %d]",
                     regid(),
                     active() ? "active" : "passive",
                     endpoint().c_str(),
                     failure_action_toa(failure_action()),
-                    failure_action() == Registration::EXEC ?
-                      script().c_str() : "",
+
+                    "",
+//dzdebug                    failure_action() == Registration::EXEC ?
+//dzdebug                      script().c_str() : "",
+
                     replay_action_toa(replay_action()),
                     delivery_acking_ ? "ACK_Bndl_Dlvry" : "Auto-ACK_Bndl_Dlvry",
-                    expiration(),
-                    session_flags() != 0 ? " session:" : "",
-                    (session_flags() & Session::CUSTODY) ? " custody" : "",
-                    (session_flags() & Session::PUBLISH) ? " publish" : "",
-                    (session_flags() & Session::SUBSCRIBE) ? " subscribe" : ""
+                    expiration()
         );
 }
 
@@ -257,8 +262,9 @@ Registration::init_expiration_timer()
                       in_how_long / 1000);
         }
         
-        expiration_timer_ = new ExpirationTimer(this);
-        expiration_timer_->schedule_at(&when);
+        expiration_timer_ = std::make_shared<ExpirationTimer>(this);
+        oasys::SPtr_Timer base_sptr = expiration_timer_;
+        expiration_timer_->schedule_at(&when, base_sptr);
 
     } else {
         set_expired(true);
@@ -290,7 +296,7 @@ void
 Registration::clear_initial_load_thread(RegistrationInitialLoadThread* loader)
 {
     if ( initial_load_thread_ == loader ) {
-        initial_load_thread_ = NULL;
+        initial_load_thread_ = nullptr;
     }
 }
 
@@ -298,9 +304,9 @@ Registration::clear_initial_load_thread(RegistrationInitialLoadThread* loader)
 void 
 Registration::stop_initial_load_thread()
 {
-    if ( NULL != initial_load_thread_ ) {
+    if ( nullptr != initial_load_thread_ ) {
         initial_load_thread_->set_should_stop();
-        initial_load_thread_ = NULL;
+        initial_load_thread_ = nullptr;
     }
 }
 

@@ -54,7 +54,6 @@ DtpcPayloadAggregator::DtpcPayloadAggregator(std::string key,
       profile_id_(profile_id),
       seq_ctr_(1),
       size_(0),
-      timer_(NULL),
       in_datastore_(false),
       queued_for_datastore_(false),
       reloaded_from_ds_(false),
@@ -78,7 +77,6 @@ DtpcPayloadAggregator::DtpcPayloadAggregator(const oasys::Builder&)
       profile_id_(0),
       seq_ctr_(1),
       size_(0),
-      timer_(NULL),
       in_datastore_(false),
       queued_for_datastore_(false),
       reloaded_from_ds_(false),
@@ -103,6 +101,8 @@ DtpcPayloadAggregator::~DtpcPayloadAggregator ()
     }
 
     delete eventq_;
+
+    timer_ = nullptr;
 }
 
 
@@ -195,9 +195,12 @@ DtpcPayloadAggregator::ds_reload_post_processing()
         gettimeofday(&curr_time, 0);
         log_debug("Starting expiration timer for reloaded PayAgg - Secs: %ld   (Current: %ld)",
                   expiration_time_.tv_sec, curr_time.tv_sec);
+
         // start a timer ticking for this payload if reloaded from datastore
-        timer_ = new DtpcPayloadAggregationTimer(key_, seq_ctr_);
-        timer_->schedule_at(&expiration_time_);
+        timer_ = std::make_shared<DtpcPayloadAggregationTimer>(key_, seq_ctr_);
+        timer_->set_sptr(timer_);
+        oasys::SPtr_Timer otimer = timer_;
+        timer_->schedule_at( &expiration_time_, otimer);
     }
 }
 
@@ -232,12 +235,12 @@ DtpcPayloadAggregator::send_data_item(u_int32_t topic_id, DtpcApplicationDataIte
 {
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
-        log_err("send_data_item(%"PRIu32", %"PRIu32"): Profile definition was deleted?",
+        log_err("send_data_item(%" PRIu32 ", %" PRIu32 "): Profile definition was deleted?",
                 profile_id_, topic_id);
         return -3;  //XXX/dz need formal definitions for these error codes
     }
 
-    log_debug("send_data_item for Dest: %s Profile: %d -- Topic: %d Len: %"PRIu64,
+    log_debug("send_data_item for Dest: %s Profile: %d -- Topic: %d Len: %" PRIu64,
               dest_eid_.c_str(), profile_id_, topic_id, data_item->size());
 
     oasys::ScopeLock l (&lock_, "send_data_item");
@@ -257,24 +260,26 @@ DtpcPayloadAggregator::send_data_item(u_int32_t topic_id, DtpcApplicationDataIte
     size_ += topic_agg->send_data_item(data_item, optimize, &wait_for_elision_func_);
 
     if (!wait_for_elision_func_ && (size_ > profile->aggregation_size_limit())) {
-        log_debug("send_data_item for Dest: %s Profile: %d -- size limit reached (%"PRIu64") - sending payload",
+        log_debug("send_data_item for Dest: %s Profile: %d -- size limit reached (%" PRIu64 ") - sending payload",
                   dest_eid_.c_str(), profile_id_, size_);
 
         // cancel any pending timer
-        if (NULL != timer_) {
+        if (timer_ != nullptr) {
             timer_->cancel();
-            timer_ = NULL;
+            timer_ = nullptr;
             memset(&expiration_time_, 0, sizeof(expiration_time_));
         }
 
         send_payload();
-    } else if (NULL == timer_ && profile->aggregation_time_limit() > 0) {
+    } else if ((timer_ == nullptr) && (profile->aggregation_time_limit() > 0)) {
         gettimeofday(&expiration_time_, 0);
         expiration_time_.tv_sec += profile->aggregation_time_limit();
 
         // start a timer ticking for this payload
-        timer_ = new DtpcPayloadAggregationTimer(key_, seq_ctr_);
-        timer_->schedule_at(&expiration_time_);
+        timer_ = std::make_shared<DtpcPayloadAggregationTimer>(key_, seq_ctr_);
+        timer_->set_sptr(timer_);
+        oasys::SPtr_Timer otimer = timer_;
+        timer_->schedule_at( &expiration_time_, otimer);
     }
 
     DtpcPayloadAggregatorStore::instance()->update(this);
@@ -292,7 +297,7 @@ DtpcPayloadAggregator::elision_func_response(u_int32_t topic_id, bool modified,
 {
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
-        log_err("elision_func_response(%"PRIu32", %"PRIu32"): Profile definition was deleted?",
+        log_err("elision_func_response(%" PRIu32 ", %" PRIu32 "): Profile definition was deleted?",
                 profile_id_, topic_id);
         return;  //XXX/dz PANIC??
     }
@@ -301,7 +306,7 @@ DtpcPayloadAggregator::elision_func_response(u_int32_t topic_id, bool modified,
 
     DtpcTopicAggregatorIterator iter = topic_agg_map_.find(topic_id);
     if (iter == topic_agg_map_.end()) {
-        log_err("elision_func_response - Topic (%"PRIu32") Aggregator not found",
+        log_err("elision_func_response - Topic (%" PRIu32 ") Aggregator not found",
                 topic_id);
     } else {
         DtpcTopicAggregator* topic_agg = NULL;
@@ -312,25 +317,27 @@ DtpcPayloadAggregator::elision_func_response(u_int32_t topic_id, bool modified,
 
         if (size_ > profile->aggregation_size_limit()) {
             log_debug("elision_func_response for Dest: %s Profile: %d -- size limit reached "
-                      "after elision func (%"PRIu64") - sending payload",
+                      "after elision func (%" PRIu64 ") - sending payload",
                       dest_eid_.c_str(), profile_id_, size_);
 
             // cancel any pending timer
-            if (NULL != timer_) {
+            if (timer_ != nullptr) {
                 timer_->cancel();
-                timer_ = NULL;
+                timer_ = nullptr;
                 memset(&expiration_time_, 0, sizeof(expiration_time_));
             }
 
             send_payload();
-        } else if (NULL == timer_ && profile->aggregation_time_limit() > 0) {
+        } else if ((timer_ == nullptr) && (profile->aggregation_time_limit() > 0)) {
             // we really shouldn't reach this condition
             gettimeofday(&expiration_time_, 0);
             expiration_time_.tv_sec += profile->aggregation_time_limit();
 
             // start a timer ticking for this payload
-            timer_ = new DtpcPayloadAggregationTimer(key_, seq_ctr_);
-            timer_->schedule_at(&expiration_time_);
+            timer_ = std::make_shared<DtpcPayloadAggregationTimer>(key_, seq_ctr_);
+            timer_->set_sptr(timer_);
+            oasys::SPtr_Timer otimer = timer_;
+            timer_->schedule_at( &expiration_time_, otimer);
         }
     }
 
@@ -352,15 +359,15 @@ DtpcPayloadAggregator::timer_expired(u_int64_t seq_ctr)
     oasys::ScopeLock l(&lock_, "timer_expired");
 
     if (seq_ctr != seq_ctr_) {
-        log_debug("timer_expired for Dest: %s Profile: %d -- SeqCtr: %"PRIu64" - ignore: current SeqCtr: %"PRIu64,
+        log_debug("timer_expired for Dest: %s Profile: %d -- SeqCtr: %" PRIu64 " - ignore: current SeqCtr: %" PRIu64,
               dest_eid_.c_str(), profile_id_, seq_ctr, seq_ctr_);  
     } else {
-        log_debug("timer_expired for Dest: %s Profile: %d -- SeqCtr: %"PRIu64" - sending payload",
+        log_debug("timer_expired for Dest: %s Profile: %d -- SeqCtr: %" PRIu64 " - sending payload",
                   dest_eid_.c_str(), profile_id_, seq_ctr);  
 
-        if (NULL != timer_) {
+        if (timer_ != nullptr) {
             // timer deletes itself on expiration
-            timer_ = NULL;
+            timer_ = nullptr;
             memset(&expiration_time_, 0, sizeof(expiration_time_));
         }
 
@@ -387,7 +394,7 @@ DtpcPayloadAggregator::send_payload()
 
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
-        log_err("send_payload did not find Profile ID: %"PRIu32" - aborting payload", profile_id_);
+        log_err("send_payload did not find Profile ID: %" PRIu32 " - aborting payload", profile_id_);
         ASSERT(NULL != profile);
     }
 
@@ -441,7 +448,7 @@ DtpcPayloadAggregator::send_payload()
 
     if (actual_size > header_size) {
         // actually need to send the payload
-        log_debug("Send payload - Dest: %s Profile: %"PRIu32" size: %"PRIu64, 
+        log_debug("Send payload - Dest: %s Profile: %" PRIu32 " size: %" PRIu64, 
                   dest_eid_.c_str(), profile_id_, actual_size);
 
         // transmit the payload
@@ -456,13 +463,15 @@ DtpcPayloadAggregator::send_payload()
     }
 
     if (profile->aggregation_time_limit() > 0) {
-      // start a new timer
-      gettimeofday(&expiration_time_, 0);
-      expiration_time_.tv_sec += profile->aggregation_time_limit();
+        // start a new timer
+        gettimeofday(&expiration_time_, 0);
+        expiration_time_.tv_sec += profile->aggregation_time_limit();
 
-      // start a timer ticking for this payload
-      timer_ = new DtpcPayloadAggregationTimer(key_, seq_ctr_);
-      timer_->schedule_at(&expiration_time_);
+        // start a timer ticking for this payload
+        timer_ = std::make_shared<DtpcPayloadAggregationTimer>(key_, seq_ctr_);
+        timer_->set_sptr(timer_);
+        oasys::SPtr_Timer otimer = timer_;
+        timer_->schedule_at( &expiration_time_, otimer);
     }
 
     return result;
@@ -477,15 +486,21 @@ DtpcPayloadAggregator::init_bundle()
 {
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
-        log_err("init_bundle did not find Profile ID: %"PRIu32" - aborting payload", profile_id_);
+        log_err("init_bundle did not find Profile ID: %" PRIu32 " - aborting payload", profile_id_);
         ASSERT(NULL != profile);
     }
 
-    Bundle* bundle = new Bundle();
+    Bundle* bundle = nullptr;
+    
+    if (BundleDaemon::params_.api_send_bp_version7_) {
+        bundle = new Bundle();
+    } else {
+        bundle = new Bundle(BundleProtocol::BP_VERSION_6);
+    }
 
 
     // load the EIDs
-    bundle->mutable_source()->assign(DtpcDaemon::instance()->local_eid());
+    bundle->set_source(DtpcDaemon::instance()->local_eid());
     bundle->mutable_dest()->assign(dest_eid());
     bundle->mutable_replyto()->assign(profile->replyto());
     bundle->mutable_custodian()->assign(EndpointID::NULL_EID());
@@ -498,8 +513,8 @@ DtpcPayloadAggregator::init_bundle()
         case 2: bundle->set_priority(Bundle::COS_EXPEDITED); break;
         case 3: bundle->set_priority(Bundle::COS_RESERVED); break;
     default:
-        log_err("invalid priority level %d", (int)profile->priority());
-        return false;
+        log_err("invalid priority level %d - setting to BULK", (int)profile->priority());
+        bundle->set_priority(Bundle::COS_BULK);
     };   
 
     //XXX/dz need to set the ECOS priority
@@ -518,7 +533,7 @@ DtpcPayloadAggregator::init_bundle()
     bundle->set_deletion_rcpt(profile->rpt_deletion());
 
     // assume full expiration time which may be overridden on retransmit
-    bundle->set_expiration(profile->expiration());
+    bundle->set_expiration_secs(profile->expiration());
 
     return bundle;
 }
@@ -532,7 +547,7 @@ DtpcPayloadAggregator::transmit_pdu()
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
         log_err("transmit_pdu did not find Profile ID:"
-                " %"PRIu32" - aborting payload", profile_id_);
+                " %" PRIu32 " - aborting payload", profile_id_);
         ASSERT(NULL != profile);
     }
 
@@ -544,7 +559,7 @@ DtpcPayloadAggregator::transmit_pdu()
     bref->mutable_payload()->set_length(buf_->len());
     bref->mutable_payload()->set_data(buf_->buf(), buf_->len());
 
-    log_debug("transmit_pdu - posting bundle to send (%s~%"PRIi32"~%"PRIu64") - length: %ld", 
+    log_debug("transmit_pdu - posting bundle to send (%s~%" PRIi32 "~%" PRIu64 ") - length: %ld", 
               dest_eid().c_str(), profile_id_, seq_ctr_, buf_->len());
 
     BundleDaemon::post(new BundleReceivedEvent(bref.object(), EVENTSRC_APP));
@@ -578,7 +593,7 @@ DtpcPayloadAggregator::retransmit_pdu(DtpcProtocolDataUnit* pdu)
     DtpcProfile* profile = DtpcProfileTable::instance()->get(profile_id_);
     if (NULL == profile) {
         log_err("retransmit_payload did not find Profile ID: "
-                "%"PRIu32" - aborting payload", profile_id_);
+                "%" PRIu32 " - aborting payload", profile_id_);
         ASSERT(NULL != profile);
     }
 
@@ -611,7 +626,7 @@ DtpcPayloadAggregator::retransmit_pdu(DtpcProtocolDataUnit* pdu)
     bref->mutable_payload()->set_data(pdu->buf()->buf(), pdu->size());
 
     // override the expiration on retransmits
-    bref->set_expiration(expiration_remaining);
+    bref->set_expiration_secs(expiration_remaining);
 
     log_debug("retransmit_payload for Dest: %s Profile: %d -- posting bundle to send",
               dest_eid_.c_str(), profile_id_);
@@ -632,7 +647,7 @@ DtpcPayloadAggregator::retransmit_pdu(DtpcProtocolDataUnit* pdu)
 void 
 DtpcPayloadAggregator::handle_dtpc_send_data_item(DtpcSendDataItemEvent* event)
 {
-    log_debug("DTPC Send Data Item event received for Topic ID: %"PRIu32,
+    log_debug("DTPC Send Data Item event received for Topic ID: %" PRIu32,
               event->topic_id_);
 
     ASSERT(NULL != event->result_);
@@ -694,6 +709,9 @@ DtpcPayloadAggregator::handle_event(BundleEvent* event, bool closeTransaction)
 void
 DtpcPayloadAggregator::run()
 {
+    char threadname[16] = "DtpcPayldAggtr";
+    pthread_setname_np(pthread_self(), threadname);
+   
     static const char* LOOP_LOG = "/dtpc/payload/agg/loop";
     
     if (!reloaded_from_ds_) {
@@ -730,40 +748,12 @@ DtpcPayloadAggregator::run()
             bool ok = eventq_->try_pop(&event);
             ASSERT(ok);
             
-            oasys::Time now;
-            now.get_time();
-
-            if (now >= event->posted_time_) {
-                oasys::Time in_queue;
-                in_queue = now - event->posted_time_;
-                if (in_queue.sec_ > 2) {
-                    log_warn_p(LOOP_LOG, "event %s was in queue for %u.%u seconds",
-                               event->type_str(), in_queue.sec_, in_queue.usec_);
-                }
-            } else {
-                log_warn_p(LOOP_LOG, "time moved backwards: "
-                           "now %u.%u, event posted_time %u.%u",
-                           now.sec_, now.usec_,
-                           event->posted_time_.sec_, event->posted_time_.usec_);
-            }
-            
-            
-            log_debug_p(LOOP_LOG, "DtpcPayloadAggregator: handling event %s",
-                        event->type_str());
             // handle the event
             handle_event(event);
-
-            int elapsed = now.elapsed_ms();
-            if (elapsed > 2000) {
-                log_warn_p(LOOP_LOG, "event %s took %u ms to process",
-                           event->type_str(), elapsed);
-            }
 
             // record the last event time
             last_event_.get_time();
 
-            log_debug_p(LOOP_LOG, "DtpcPayloadAggregator: deleting event %s",
-                        event->type_str());
             // clean up the event
             delete event;
             
@@ -788,9 +778,6 @@ DtpcPayloadAggregator::run()
 
         // if the event poll fired, we just go back to the top of the
         // loop to drain the queue
-        if (event_poll->revents != 0) {
-            log_debug_p(LOOP_LOG, "poll returned new event to handle");
-        }
     }
 }
 

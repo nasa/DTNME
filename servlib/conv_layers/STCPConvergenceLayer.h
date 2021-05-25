@@ -17,9 +17,9 @@
 #ifndef _STCP_CONVERGENCE_LAYER_H_
 #define _STCP_CONVERGENCE_LAYER_H_
 
-#include <oasys/io/TCPClient.h>
-#include <oasys/io/TCPServer.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/io/TCPServer.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "StreamConvergenceLayer.h"
 
@@ -46,10 +46,11 @@ public:
     STCPConvergenceLayer();
 
     /// @{ Virtual from ConvergenceLayer
-    bool interface_up(Interface* iface, int argc, const char* argv[]);
-    void interface_activate(Interface* iface);
-    bool interface_down(Interface* iface);
-    void dump_interface(Interface* iface, oasys::StringBuffer* buf);
+    bool interface_up(Interface* iface, int argc, const char* argv[]) override;
+    void interface_activate(Interface* iface) override;
+    bool interface_down(Interface* iface) override;
+    void dump_interface(Interface* iface, oasys::StringBuffer* buf) override;
+    void list_interface_opts(oasys::StringBuffer& buf) override;
     /// @}
 
     /**
@@ -62,8 +63,9 @@ public:
          */
         void serialize( oasys::SerializeAction *);
 
-        bool      hexdump_;		///< Log a hexdump of all traffic
+        bool      hexdump_;		    ///< Log a hexdump of all traffic
         in_addr_t local_addr_;		///< Local address to bind to
+        uint16_t  local_port_;      ///< Local port to bind to
         in_addr_t remote_addr_;		///< Peer address used for rcvr-connect
         u_int16_t remote_port_;		///< Peer port used for rcvr-connect
 
@@ -80,20 +82,21 @@ public:
 
 protected:
     /// @{ Virtual from ConvergenceLayer
-    bool init_link(const LinkRef& link, int argc, const char* argv[]);
+    bool init_link(const LinkRef& link, int argc, const char* argv[]) override;
     bool set_link_defaults(int argc, const char* argv[],
-                           const char** invalidp);
-    void dump_link(const LinkRef& link, oasys::StringBuffer* buf);
+                           const char** invalidp) override;
+    void dump_link(const LinkRef& link, oasys::StringBuffer* buf) override;
+    void list_link_opts(oasys::StringBuffer& buf) override;
     /// @}
     
     /// @{ Virtual from ConvergenceLayer
-    virtual CLInfo* new_link_params();
+    virtual CLInfo* new_link_params() override;
     virtual bool parse_link_params(LinkParams* params,
                                    int argc, const char** argv,
-                                   const char** invalidp);
-    virtual bool parse_nexthop(const LinkRef& link, LinkParams* params);
+                                   const char** invalidp) override;
+    virtual bool parse_nexthop(const LinkRef& link, LinkParams* params) override;
     virtual CLConnection* new_connection(const LinkRef& link,
-                                         LinkParams* params);
+                                         LinkParams* params) override;
     /// @}
 
     /**
@@ -102,11 +105,16 @@ protected:
      */
     class Listener : public CLInfo, public oasys::TCPServerThread {
     public:
-        Listener(STCPConvergenceLayer* cl);
+        Listener(STCPConvergenceLayer* cl, STCPLinkParams* params);
+        virtual ~Listener();
+
         void accepted(int fd, in_addr_t addr, u_int16_t port);
 
         /// The STCPCL instance
         STCPConvergenceLayer* cl_;
+
+        /// The configured parameters for incoming connections
+        STCPLinkParams* params_;
     };
 
     /**
@@ -136,30 +144,36 @@ protected:
          */
         virtual ~Connection();
 
+
+        /**
+         * Wrapper for the CLConnection::run method to allow setting the name of the thread
+         */
+        virtual void run() override;
+
         /**
          * Virtual from SerializableObject
          */
-        virtual void serialize(oasys::SerializeAction *a);
+        virtual void serialize(oasys::SerializeAction *a) override;
 
     protected:
         friend class STCPConvergenceLayer;
 
         /// @{ Virtual from CLConnection
-        virtual void connect();
-        virtual void accept();
-        virtual void disconnect();
-        virtual void initialize_pollfds();
-        virtual void handle_poll_activity();
+        virtual void connect() override;
+        virtual void accept() override;
+        virtual void disconnect() override;
+        virtual void initialize_pollfds() override;
+        virtual void handle_poll_activity() override;
         /// @}
 
         /// @{ virtual from StreamConvergenceLayer::Connection
-        virtual void send_data();
-        virtual void process_data();
-        virtual void send_keepalive();
+        virtual void send_data() override;
+        virtual void process_data() override;
+        virtual void send_keepalive() override;
 
-        virtual void initiate_contact();
-        virtual void handle_contact_initiation();
-        virtual bool handle_data_segment(u_int8_t flags);
+        virtual void initiate_contact() override;
+        virtual void handle_contact_initiation() override;
+        virtual bool handle_data_segment(u_int8_t flags) override;
         /// @}
         
         /// Hook for handle_poll_activity to receive data
@@ -180,7 +194,7 @@ protected:
         struct pollfd*	  sock_pollfd_;	///< Poll structure for the socket
 
     private:
-        virtual bool send_next_segment(InFlightBundle* inflight);
+        virtual bool send_next_segment(InFlightBundle* inflight) override;
     };
 };
 

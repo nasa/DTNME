@@ -19,8 +19,8 @@
 #endif
 
 #include <ctype.h>
-#include <oasys/debug/Log.h>
-#include <oasys/util/Glob.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/Glob.h>
 
 #include "DTNScheme.h"
 #include "EndpointID.h"
@@ -168,17 +168,25 @@ DTNScheme::remove_service_tag(URI* uri)
 Scheme::singleton_info_t
 DTNScheme::is_singleton(const URI& uri)
 {
+    // BPv7 - multinode indicated by path starting with "/~"
+    if (0 ==  strncmp(uri.path().c_str(), "/~", 2)) {
+        log_debug_p("/dtn/scheme/dtn",
+                    "URI path (%s) starts with a tilda so is BP7 MULTINODE",
+                    uri.path().c_str());
+        return EndpointID::MULTINODE;
+    }
+
     // if there's a * in the hostname part of the URI, then it's not a
     // singleton endpoint
     if (uri.host().find('*') != std::string::npos) {
         log_debug_p("/dtn/scheme/dtn",
-                    "URI host %s contains a wildcard, so is MULTINODE",
+                    "URI host %s contains a wildcard, so is BP6 MULTINODE",
                     uri.host().c_str());
         return EndpointID::MULTINODE;
     }
     
     log_debug_p("/dtn/scheme/dtn",
-                "URI host %s does not contain a wildcard, so is SINGLETON",
+                "URI host %s does not contain a BP6 wildcard or BP7 tilde, so is SINGLETON",
                 uri.host().c_str());
     return EndpointID::SINGLETON;
 }

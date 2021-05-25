@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,16 +36,21 @@
 #  include <dtn-config.h>
 #endif
 
+#include <malloc.h>
+
 #include "StorageCommand.h"
 #include "bundling/BundlePayload.h"
+#include "bundling/BundleDaemon.h"
 #include "bundling/BundleDaemonStorage.h"
+#include "bundling/FormatUtils.h"
 #include "storage/BundleStore.h"
 #include "storage/DTNStorageConfig.h"
 
 namespace dtn {
 
 StorageCommand::StorageCommand(DTNStorageConfig* cfg)
-    : TclCommand(cfg->cmd_.c_str())
+    : TclCommand(cfg->cmd_.c_str()),
+      config_(cfg)
 {
     inited_ = false;
     
@@ -54,11 +59,7 @@ StorageCommand::StorageCommand(DTNStorageConfig* cfg)
 				"(default is berkeleydb).\n"
 		"	valid options:\n"
 		"			berkeleydb\n"
-		"			odbc-mysql\n"
-		"			odbc-sqlite\n"
-		"			external\n"
-		"			memorydb\n"
-		"			filesysdb"));    
+		"			external"));
 
     bind_var(new oasys::StringOpt("dbname", &cfg->dbname_,
 				"name", "The database name (default "
@@ -162,11 +163,11 @@ StorageCommand::StorageCommand(DTNStorageConfig* cfg)
 		    		"transit (default is /var/dtn/bundles)\n"
 		"	valid options:	directory"));
     
-    bind_var(new oasys::UInt64Opt("payload_quota",
+    bind_var(new oasys::SizeOpt("payload_quota",
                                   &cfg->payload_quota_,
                                   "bytes", "storage quota in bytes for bundle "
-				"payloads (default 0 - is unlimited)\n"
-		"	valid options:	number"));
+				"payloads (default 0 - is unlimited; magnitude chars allowed)\n"
+		"	valid options:	number[K | M | G]"));
     
     bind_var(new oasys::UIntOpt("payload_fd_cache_size",
                                 &cfg->payload_fd_cache_size_,
@@ -224,8 +225,14 @@ StorageCommand::StorageCommand(DTNStorageConfig* cfg)
                 "        (payload still written to disk)\n"
                 "	valid options:	true or false"));
 
+    bind_var(new oasys::BoolOpt("db_force_sync_to_disk",
+                                &BundleDaemonStorage::params_.db_force_sync_to_disk_,
+				"whether to force payload files to sync to disk (default true)\n"
+        		"	valid options:	true or false"));
+
     add_to_help("usage", "print the current storage usage");
     add_to_help("stats", "print storage statistics");
+    add_to_help("heap", "print heap statistics");
 }
 
 //----------------------------------------------------------------------
@@ -243,14 +250,31 @@ StorageCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
     if (!strcmp(cmd, "usage")) {
         // storage usage
-        resultf("bundles %llu", U64FMT(BundleStore::instance()->total_size()));
+        size_t total_size = BundleStore::instance()->total_size();
+
+        resultf("payload bytes: %14" PRIu64 "  (%s)\n"
+                "        quota: %14" PRIu64 "  (%s)\n"
+                "          max: %14" PRIu64 "  (%s)", 
+                total_size,
+                FORMAT_WITH_MAG(total_size).c_str(),
+                config_->payload_quota_,
+                FORMAT_WITH_MAG(config_->payload_quota_).c_str(),
+                BundleStore::instance()->max_size(),
+                FORMAT_WITH_MAG(BundleStore::instance()->max_size()).c_str());
         return TCL_OK;
     }
     else if (!strcmp(cmd, "stats")) {
         // storage statistics
         oasys::StringBuffer buf("Storage Statistics: ");
-        BundleDaemonStorage::instance()->get_stats(&buf);
+        BundleDaemon::instance()->storage_get_stats(&buf);
         set_result(buf.c_str());
+        return TCL_OK;
+    }
+    else if (!strcmp(cmd, "heap")) {
+        // heap statistics
+        malloc_stats();
+        malloc_info(0, stdout);
+        oasys::StringBuffer buf("Heap statistics should have been written to stdout");
         return TCL_OK;
     }
 

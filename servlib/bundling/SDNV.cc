@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -43,8 +43,8 @@
 
 #ifdef __cplusplus
 #include "SDNV.h"
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Log.h>
 
 #define SDNV_FN(_what) SDNV::_what
 
@@ -54,7 +54,7 @@ namespace dtn {
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <oasys/compat/inttypes.h>
+#include <third_party/oasys/compat/inttypes.h>
 
 #define SDNV_FN(_what) sdnv_##_what
 
@@ -75,6 +75,18 @@ do {                                                            \
 
 #endif // __cplusplus
             
+// dzdebug - for compiling with clang
+#ifndef u_int
+    typedef __u_char u_char;
+    typedef __u_short u_short;
+    typedef __u_int u_int;
+    typedef __u_long u_long;
+    typedef __quad_t quad_t;
+    typedef __u_quad_t u_quad_t;
+    typedef __fsid_t fsid_t;
+    #
+#endif
+
 //----------------------------------------------------------------------
 int
 SDNV_FN(encode)(u_int64_t val, u_char* bp, size_t len)

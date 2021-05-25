@@ -19,7 +19,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 #include "IpnEchoRegistration.h"
 #include "RegistrationTable.h"
@@ -27,13 +27,11 @@
 
 namespace dtn {
 
-IpnEchoRegistration::IpnEchoRegistration(const EndpointID& eid, 
-                                         u_int64_t ipn_echo_max_length)
+IpnEchoRegistration::IpnEchoRegistration(const EndpointID& eid)
     : Registration(IPN_ECHO_REGID, eid, Registration::DEFER, Registration::NONE, 0, 0) 
 {
     logpathf("/dtn/reg/ipnecho");
     set_active(true);
-    ipn_echo_max_length_     = ipn_echo_max_length;
 }
 
 void
@@ -43,16 +41,19 @@ IpnEchoRegistration::deliver_bundle(Bundle* bundle)
     log_debug("%zu byte ping from %s",
               payload_len, bundle->source().c_str());
     
+    size_t ipn_echo_max_length = BundleDaemon::params_.ipn_echo_max_return_length_;
+
     Bundle* reply = new Bundle();
-    reply->mutable_source()->assign(endpoint_);
+    reply->set_source(endpoint_);
+    reply->set_bp_version(bundle->bp_version());
     reply->mutable_dest()->assign(bundle->source());
     reply->mutable_replyto()->assign(EndpointID::NULL_EID());
     reply->mutable_custodian()->assign(EndpointID::NULL_EID());
-    reply->set_expiration(bundle->expiration());
+    reply->set_expiration_millis(bundle->expiration_millis());
 
-    if (payload_len > ipn_echo_max_length_) {
-        reply->mutable_payload()->set_length(ipn_echo_max_length_);
-        reply->mutable_payload()->write_data(bundle->payload(), 0, ipn_echo_max_length_, 0);
+    if ((ipn_echo_max_length > 0) && (payload_len > ipn_echo_max_length)) {
+        reply->mutable_payload()->set_length(ipn_echo_max_length);
+        reply->mutable_payload()->write_data(bundle->payload(), 0, ipn_echo_max_length, 0);
     } else {
         reply->mutable_payload()->set_length(payload_len);
         reply->mutable_payload()->write_data(bundle->payload(), 0, payload_len, 0);

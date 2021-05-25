@@ -19,7 +19,7 @@
 
 #include <vector>
 
-#include <oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
 #include "ForwardingInfo.h"
 #include "contacts/Link.h"
 

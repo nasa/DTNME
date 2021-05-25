@@ -18,7 +18,7 @@
 #ifndef _DTPC_RETRANSMIT_TIMER_H_
 #define _DTPC_RETRANSMIT_TIMER_H_
 
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Timer.h>
 
 namespace dtn {
 
@@ -29,17 +29,35 @@ namespace dtn {
  * and is cancelled when the payload is sent.
  *
  */
-class DtpcRetransmitTimer : public oasys::Timer {
+class DtpcRetransmitTimer;
+typedef std::shared_ptr<DtpcRetransmitTimer> SPtr_DtpcRetransmitTimer;
+
+
+
+class DtpcRetransmitTimer : public oasys::SharedTimer {
 public:
     DtpcRetransmitTimer(std::string key);
 
     virtual ~DtpcRetransmitTimer() {} 
 
+    virtual void start(int seconds);
+
+    virtual bool cancel();
+
+    void set_sptr(SPtr_DtpcRetransmitTimer sptr);
+
+public:
     /// The key to find the Payload Aggregator
     std::string key_;
+
 protected:
     virtual void timeout(const struct timeval& now);
 
+protected:
+
+    oasys::SPtr_Timer sptr_;
+
+    oasys::SpinLock lock_;
 };
 
 } // namespace dtn

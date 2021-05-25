@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -159,7 +159,6 @@ BundleEventHandler::dispatch_event(BundleEvent* e)
         handle_store_bundle_delete((StoreBundleDeleteEvent*)e);
         break;
 
-#ifdef ACS_ENABLED 
     case STORE_PENDINGACS_UPDATE:
         handle_store_pendingacs_update((StorePendingAcsUpdateEvent*)e);
         break;
@@ -167,7 +166,6 @@ BundleEventHandler::dispatch_event(BundleEvent* e)
     case STORE_PENDINGACS_DELETE:
         handle_store_pendingacs_delete((StorePendingAcsDeleteEvent*)e);
         break;
-#endif // ACS_ENABLED 
 
     case STORE_REGISTRATION_UPDATE:
         handle_store_registration_update((StoreRegistrationUpdateEvent*)e);
@@ -353,7 +351,6 @@ BundleEventHandler::dispatch_event(BundleEvent* e)
         handle_cla_parameters_report((CLAParametersReportEvent*)e);
         break;
 
-#ifdef ACS_ENABLED
     case AGGREGATE_CUSTODY_SIGNAL:
         handle_aggregate_custody_signal((AggregateCustodySignalEvent*)e);
         break;
@@ -365,9 +362,8 @@ BundleEventHandler::dispatch_event(BundleEvent* e)
     case ACS_EXPIRED_EVENT:
         handle_acs_expired((AcsExpiredEvent*)e);
         break;
-#endif // ACS_ENABLED
 
-    case EXTERNAL_ROUTER_ACS:  // purposely not inside the ACS_ENABLED block
+    case EXTERNAL_ROUTER_ACS:
         handle_external_router_acs((ExternalRouterAcsEvent*)e);
         break;
 
@@ -646,7 +642,6 @@ BundleEventHandler::handle_store_bundle_delete(StoreBundleDeleteEvent*)
 {
 }
 
-#ifdef ACS_ENABLED 
 /**
  * Default event handler for store pendingacs update events.
  */
@@ -662,7 +657,6 @@ void
 BundleEventHandler::handle_store_pendingacs_delete(StorePendingAcsDeleteEvent*)
 {
 }
-#endif // ACS_ENABLED 
 
 /**
  * Default event handler for store registration update events.
@@ -1007,7 +1001,6 @@ BundleEventHandler::handle_cla_parameters_report(CLAParametersReportEvent*)
 {
 }
 
-#ifdef ACS_ENABLED
 /**
  * Default event handler when custody signals are received.
  */
@@ -1031,10 +1024,9 @@ void
 BundleEventHandler::handle_acs_expired(AcsExpiredEvent*)
 {
 }
-#endif // ACS_ENABLED
 
 /**
- * Default event handler for an External Router ACS -- purposely not in the ACS_ENABLED block
+ * Default event handler for an External Router ACS
  */
 void
 BundleEventHandler::handle_external_router_acs(ExternalRouterAcsEvent*)
@@ -1140,5 +1132,4 @@ BundleEventHandler::handle_dtpc_elision_func_response(DtpcElisionFuncResponse*)
 }
 
 #endif // DTPC_ENABLED
-
 } // namespace dtn

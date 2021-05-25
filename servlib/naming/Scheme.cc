@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/DebugUtils.h>
 
 #include "Scheme.h"
 #include "EndpointID.h"

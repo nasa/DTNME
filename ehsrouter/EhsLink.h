@@ -22,25 +22,21 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <map>
 #include <string.h>
-#include <xercesc/framework/MemBufFormatTarget.hpp>
 
-#include <oasys/debug/Logger.h>
-#include <oasys/serialize/XercesXMLSerialize.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/TokenBucketLeaky.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/TokenBucketLeaky.h>
 
 #include "EhsEventHandler.h"
 #include "EhsBundleTree.h"
-#include "router-custom.h"
+
+#include "routing/ExternalRouterClientIF.h"
+
 
 namespace dtn {
 
@@ -114,14 +110,14 @@ typedef EhsLinkCfgMap::iterator EhsLinkCfgIterator;
 
 
 class EhsLink: public EhsEventHandler,
-               public oasys::Thread
+               public oasys::Thread,
+               public ExternalRouterClientIF
 {
 public:
     /**
      * Constructor for the different message types
      */
-    EhsLink(rtrmessage::link_report::link::type& xlink, EhsRouter* parent, bool fwdlnk_aos);
-    EhsLink(rtrmessage::link_opened_event& xlink, EhsRouter* parent, bool fwdlnk_aos);
+    EhsLink(ExternalRouterIF::extrtr_link_ptr_t& linkptr, EhsRouter* parent, bool fwdlnk_aos);
 
 
     /**
@@ -137,8 +133,16 @@ public:
     /**
      * Main event handling function.
      */
-    virtual void handle_event(EhsEvent* event);
+    virtual void handle_event(EhsEvent* event) override;
     virtual void event_handlers_completed(EhsEvent* event);
+
+
+    /** 
+     ** override pure virtual from ExternalRouterClientIF
+     **/
+    virtual void send_msg(std::string* msg) override; 
+
+    virtual void send_transmit_bundle_req(uint64_t bundleid);
 
     /**
      * Report/Status methods
@@ -153,12 +157,11 @@ public:
     /**
      * Parse info from the link opened event message
      */
-    virtual void process_link_report(rtrmessage::link_report::link::type& xlink);
-    virtual void process_link_available_event(rtrmessage::link_available_event& event);
-    virtual void process_link_opened_event(rtrmessage::link_opened_event& event);
-    virtual void process_link_unavailable_event(rtrmessage::link_unavailable_event& event);
-    virtual void process_link_busy_event(rtrmessage::link_busy_event& event);
-    virtual void process_link_closed_event(rtrmessage::link_closed_event& event);
+    virtual void process_link_report(ExternalRouterIF::extrtr_link_ptr_t& linkptr);
+    virtual void process_link_available_event();
+    virtual void process_link_opened_event(ExternalRouterIF::extrtr_link_ptr_t& linkptr);
+    virtual void process_link_closed_event();
+    virtual void process_link_unavailable_event();
 
     /**
      * Apply EHS Link configuration to the link
@@ -249,7 +252,7 @@ protected:
     /**
      * Thread run method
      */
-    virtual void run();
+    virtual void run() override;
 
     /**
      * Check to see if the Link can currently send bundles
@@ -267,16 +270,11 @@ protected:
     virtual void send_reconfigure_link_comm_aos_msg();
 
     /**
-     * Pass through to send a message to the DTN Server
-     */
-    virtual void send_msg(rtrmessage::bpa& msg);
-
-    /**
      * Event handler methods
      */
-    virtual void handle_route_bundle_req(EhsRouteBundleReq* event);
-    virtual void handle_route_bundle_list_req(EhsRouteBundleListReq* event);
-    virtual void handle_reconfigure_link_req(EhsReconfigureLinkReq* event);
+    virtual void handle_route_bundle_req(EhsRouteBundleReq* event) override;
+    virtual void handle_route_bundle_list_req(EhsRouteBundleListReq* event) override;
+    virtual void handle_reconfigure_link_req(EhsReconfigureLinkReq* event) override;
 
     /**
      * Log message method for internal use - passes log info to parent
@@ -362,6 +360,11 @@ protected:
          */
         void get_stats(uint64_t* bundles_sent, uint64_t* bytes_sent, uint64_t* send_waits);
 
+        /**
+         * Get the current running totals stats
+         */
+        void get_totals(uint64_t* bundles_sent, uint64_t* send_waits);
+
     protected:
         /**
          * Main processing loop
@@ -391,6 +394,9 @@ protected:
         uint64_t stats_bundles_sent_;
         uint64_t stats_bytes_sent_;
         uint64_t send_waits_;
+
+        uint64_t totals_bundles_sent_ = 0;
+        uint64_t totals_send_waits_ = 0;
     };
 
 
@@ -501,12 +507,10 @@ protected:
     bool stats_enabled_;
     uint64_t stats_bundles_received_;
     uint64_t stats_bytes_received_;
+
+    uint64_t totals_bundles_rcvd_ = 0;
 };
 
 } // namespace dtn
-
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_LINK_H_ */

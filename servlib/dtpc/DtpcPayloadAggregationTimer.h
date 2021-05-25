@@ -18,7 +18,7 @@
 #ifndef _DTPC_PAYLOAD_AGGREGATION_TIMER_H_
 #define _DTPC_PAYLOAD_AGGREGATION_TIMER_H_
 
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Timer.h>
 
 namespace dtn {
 
@@ -29,12 +29,24 @@ namespace dtn {
  * and is cancelled when the payload is sent.
  *
  */
-class DtpcPayloadAggregationTimer : public oasys::Timer {
+class DtpcPayloadAggregationTimer;
+typedef std::shared_ptr<DtpcPayloadAggregationTimer> SPtr_DtpcPayloadAggregationTimer;
+
+
+
+class DtpcPayloadAggregationTimer : public oasys::SharedTimer {
 public:
     DtpcPayloadAggregationTimer(std::string key, u_int64_t seq_ctr);
 
     virtual ~DtpcPayloadAggregationTimer() {} 
 
+    virtual void start(int seconds);
+
+    virtual bool cancel();
+
+    void set_sptr(SPtr_DtpcPayloadAggregationTimer sptr);
+
+public:
     /// The key to find the Payload Aggregator
     std::string key_;
 
@@ -44,6 +56,11 @@ public:
 protected:
     virtual void timeout(const struct timeval& now);
 
+protected:
+
+    oasys::SPtr_Timer sptr_;
+
+    oasys::SpinLock lock_;
 };
 
 } // namespace dtn

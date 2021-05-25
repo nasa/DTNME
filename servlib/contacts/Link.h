@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,12 +36,13 @@
 #define _LINK_H_
 
 #include <set>
-#include <oasys/debug/Formatter.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/Ref.h>
-#include <oasys/util/RefCountedObject.h>
+#include <sstream>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/Ref.h>
+#include <third_party/oasys/util/RefCountedObject.h>
 
 #include "bundling/BundleList.h"
 #include "naming/EndpointID.h"
@@ -298,6 +299,10 @@ public:
      */
     virtual void set_initial_state();
 
+    bool get_contact_state();
+    void set_contact_state(bool state);
+    void set_contact_state(bool state, Contact* contact);
+
     /**
      * Return the type of the link.
      */
@@ -370,12 +375,7 @@ public:
     /**
      * Set the contact information.
      */
-    void set_contact(Contact* contact)
-    {
-        // XXX/demmer check this invariant
-        ASSERT(contact_ == NULL);
-        contact_ = contact;
-    }
+    void set_contact(Contact* contact);
 
     /**
      * Store convergence layer state associated with the link.
@@ -384,7 +384,6 @@ public:
     {
         ASSERT((cl_info_ == NULL && cl_info != NULL) ||
                (cl_info_ != NULL && cl_info == NULL));
-        
         cl_info_ = cl_info;
     }
 
@@ -393,6 +392,30 @@ public:
      */
     CLInfo* cl_info() const { return cl_info_; }
     
+    /**
+     * Store the convergence layer state associated with the contact as a shared pointer.
+     */
+    void set_sptr_cl_info(SPtr_CLInfo sptr_cl_info)
+    {
+        ASSERT((sptr_cl_info_ == NULL && sptr_cl_info != NULL) ||
+               (sptr_cl_info_ != NULL && sptr_cl_info == NULL));
+        
+        sptr_cl_info_ = sptr_cl_info;
+    }
+    
+    /**
+     * Clear the shared pointer to the convergence layer state associated with the contact.
+     */
+    void release_sptr_cl_info()
+    {
+        sptr_cl_info_.reset();
+    }
+    
+    /**
+     * Accessor to the convergence layer info shared pointer variant
+     */
+    SPtr_CLInfo sptr_cl_info() { return sptr_cl_info_; }
+
     /**
      * Store router state associated with the link.
      */
@@ -452,7 +475,13 @@ public:
     /**
      * Override for the next hop string.
      */
-    void set_nexthop(const std::string& nexthop) { nexthop_.assign(nexthop); }
+    void set_nexthop(const std::string& nexthop) { 
+        //dzdebug
+        if (nexthop.length() > 30) {
+            log_crit("set_nexthop - nexthop set to humungous length!");
+        }
+        nexthop_.assign(nexthop); 
+    }
 
     /**
      * Accessor to the reliability bit.
@@ -552,10 +581,10 @@ public:
      * and inflight list, keeping the statistics in-sync with the
      * state of the lists.
      */
-    bool add_to_queue(const BundleRef& bundle, size_t total_len);
-    bool del_from_queue(const BundleRef& bundle, size_t total_len);
-    bool add_to_inflight(const BundleRef& bundle, size_t total_len);
-    bool del_from_inflight(const BundleRef& bundle, size_t total_len);
+    bool add_to_queue(const BundleRef& bundle);
+    bool del_from_queue(const BundleRef& bundle);
+    bool add_to_inflight(const BundleRef& bundle);
+    bool del_from_inflight(const BundleRef& bundle);
     /// @}
     
     /**
@@ -567,6 +596,9 @@ public:
      * Debugging printout.
      */
     void dump(oasys::StringBuffer* buf);
+
+    virtual void get_cla_stats(oasys::StringBuffer& buf);
+
 
     /**************************************************************
      * Link Parameters
@@ -580,7 +612,7 @@ public:
         /**
          * MTU of the link, used to control proactive fragmentation.
          */
-        u_int mtu_;
+        uint64_t mtu_;
         /**
          * Minimum amount to wait between attempts to re-open the link
          * (in seconds).
@@ -612,7 +644,7 @@ public:
          * Conservative estimate of the maximum amount of time that
          * the link may be down during "normal" operation. Used by
          * routing algorithms to determine how long to leave bundles
-         * queued on the down link before rerouting them. Fefault is
+         * queued on the down link before rerouting them. default is
          * 30 seconds.
          */
         u_int potential_downtime_;
@@ -629,7 +661,7 @@ public:
          */
         u_int cost_;
 
-        /** @{
+        /**
          *
          * Configurable high / low limits on the number of
          * bundles/bytes that should be queued on the link.
@@ -646,7 +678,20 @@ public:
         size_t qlimit_bytes_high_;
         size_t qlimit_bundles_low_;
         size_t qlimit_bytes_low_;
-        /// @}
+
+        /**
+         * Specifies a convergence layer adaptor to which bundles of
+         * type BP version 6 should be redirected. (Typically used for 
+         * Bundle In Bundle Encapsulation)
+         */
+        std::string bp6_redirect_;
+
+        /**
+         * Specifies a convergence layer adaptor to which bundles of
+         * type BP version 7 should be redirected. (Typically used for 
+         * Bundle In Bundle Encapsulation)
+         */
+        std::string bp7_redirect_;
     };
     
     /**
@@ -833,6 +878,8 @@ protected:
     /// Current contact. contact_ != null iff link is open
     ContactRef contact_;
 
+    ContactRef planner_contact_;
+
     /// Pointer to convergence layer
     ConvergenceLayer* clayer_;
 
@@ -841,6 +888,8 @@ protected:
 
     /// Convergence layer specific info, if needed
     CLInfo* cl_info_;
+
+    SPtr_CLInfo sptr_cl_info_;  ///< shared pointer to convergence layer specific info (only one or the other should be used)
 
     /// Router specific info, if needed
     RouterInfo* router_info_;
@@ -867,7 +916,8 @@ protected:
     /// Flag indicating if the Link is in the persistent store
     bool in_datastore_;
 
-    class LinkDeferredTimer : public oasys::Timer,
+
+    class LinkDeferredTimer : public oasys::SharedTimer,
                               public oasys::Logger 
     {
     public:
@@ -887,12 +937,37 @@ protected:
         LinkRef  linkref_;
     };
 
+    typedef std::shared_ptr<LinkDeferredTimer> SPtr_LinkDeferredTimer;
 
     /// Number of bundles deferred 
     size_t deferred_bundle_count_;
 
     /// Timer to generate a BundleCheckDeferredEvent
-    LinkDeferredTimer* deferred_timer_;
+    SPtr_LinkDeferredTimer deferred_timer_;
+
+    class ContactTimer : public oasys::SharedTimer 
+    {
+    public:
+        ContactTimer( Link* link )
+        {
+            linkref_ = link;
+        }
+
+        /**
+         * Timer callback function
+         */
+        void timeout(const struct timeval &now);
+
+    public:
+        LinkRef  linkref_;
+    };
+
+    typedef std::shared_ptr<ContactTimer> SPtr_ContactTimer;
+
+    /// Timer to generate a BundleCheckDeferredEvent
+    SPtr_ContactTimer contact_timer_;
+
+    bool contact_state_;
 
     /// Destructor -- protected since links shouldn't be deleted
     //virtual ~Link();

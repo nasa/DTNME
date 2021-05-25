@@ -19,10 +19,9 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef ACS_ENABLED
 
 #include "AcsExpirationTimer.h"
-#include "BundleDaemonACS.h"
+#include "BundleDaemon.h"
 #include "BundleEvent.h"
 
 namespace dtn {
@@ -38,12 +37,8 @@ AcsExpirationTimer::timeout(const struct timeval& now)
     (void)now;
 
     // post the expiration event
-    BundleDaemonACS::post_at_head(new AcsExpiredEvent(acs_key_, pacs_id_));
-
-    // clean ourselves up
-    delete this;
+    BundleDaemon::instance()->acs_post_at_head(new AcsExpiredEvent(acs_key_, pacs_id_));
 }
 
 } // namespace dtn
 
-#endif // ACS_ENABLED

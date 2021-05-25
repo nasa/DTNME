@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,10 +35,7 @@
 #ifndef _BUNDLE_EVENT_H_
 #define _BUNDLE_EVENT_H_
 
-#ifdef ACS_ENABLED
 #include "AggregateCustodySignal.h"
-#endif // ACS_ENABLED
-
 #include "Bundle.h"
 #include "BundleProtocol.h"
 #include "BundleRef.h"
@@ -54,7 +51,6 @@
 #    include "dtpc/DtpcProtocolDataUnit.h"
 #    include "dtpc/DtpcRegistration.h"
 #endif // DTPC_ENABLED
-
 
 namespace dtn {
 
@@ -79,7 +75,8 @@ typedef enum {
   EVENT_PROCESSOR_STORAGE,
   EVENT_PROCESSOR_ACS,
   EVENT_PROCESSOR_DTPC,
-  EVENT_PROCESSOR_OUTPUT
+  EVENT_PROCESSOR_OUTPUT,
+  EVENT_PROCESSOR_CLEANUP
 
 } event_processor_t;
 /**
@@ -96,6 +93,7 @@ event_processor_to_str(event_processor_t proc)
     case EVENT_PROCESSOR_ACS:        return "EVENT_PROCESSOR_ACS";
     case EVENT_PROCESSOR_DTPC:       return "EVENT_PROCESSOR_DTPC";
     case EVENT_PROCESSOR_OUTPUT:     return "EVENT_PROCESSOR_OUTPUT";
+    case EVENT_PROCESSOR_CLEANUP:    return "EVENT_PROCESSOR_CLEANUP";
 
     default:                   return "(invalid event processor)";
         
@@ -140,7 +138,6 @@ typedef enum {
     LINK_DELETED,               ///< Link is deleted from the system
     LINK_AVAILABLE,             ///< Link is available
     LINK_UNAVAILABLE,           ///< Link is unavailable
-    LINK_BUSY,                  ///< Link is busy 
     LINK_CREATE,                ///< Create and open a new link
     LINK_DELETE,                ///< Delete a link
     LINK_RECONFIGURE,           ///< Reconfigure a link
@@ -218,6 +215,7 @@ typedef enum {
     DTPC_DELIVER_PDU_TIMER_EXPIRED, ///<DTPC Deliver PDU Timer Expired
     DTPC_TOPIC_EXPIRATION_CHECK, ///<DTPC Topic Expiration Timer Expired
     DTPC_ELISION_FUNC_RESPONSE,  ///<DTPC Elision Function Response 
+
 } event_type_t;
 
 /**
@@ -261,7 +259,6 @@ event_to_str(event_type_t event)
     case LINK_DELETED:          return "LINK_DELETED";
     case LINK_AVAILABLE:        return "LINK_AVAILABLE";
     case LINK_UNAVAILABLE:      return "LINK_UNAVAILABLE";
-    case LINK_BUSY:             return "LINK_BUSY";
     case LINK_CREATE:           return "LINK_CREATE";
     case LINK_DELETE:           return "LINK_DELETE";
     case LINK_RECONFIGURE:      return "LINK_RECONFIGURE";
@@ -354,7 +351,6 @@ typedef enum {
     EVENTSRC_ADMIN  = 4,        ///< the admin logic
     EVENTSRC_FRAGMENTATION = 5, ///< the fragmentation engine
     EVENTSRC_ROUTER = 6,        ///< the routing logic
-    EVENTSRC_CACHE  = 7         ///< the BPQ cache
 } event_source_t;
 
 /**
@@ -372,7 +368,6 @@ source_to_str(event_source_t source)
     case EVENTSRC_ADMIN:            return "admin";
     case EVENTSRC_FRAGMENTATION:    return "fragmentation";
     case EVENTSRC_ROUTER:           return "router";
-    case EVENTSRC_CACHE:            return "cache";
 
     default:                        return "(invalid source type)";
     }
@@ -474,7 +469,8 @@ public:
           prevhop_(prevhop),
           registration_(NULL)
     {
-        ASSERT(source == EVENTSRC_PEER);
+        ASSERT((source == EVENTSRC_PEER));
+        daemon_only_ = true;
     }
 
     /*
@@ -492,6 +488,7 @@ public:
           prevhop_(EndpointID::NULL_EID()),
           registration_(registration)
     {
+        daemon_only_ = true;
     }
 
     /*
@@ -508,16 +505,17 @@ public:
           prevhop_(EndpointID::NULL_EID()),
           registration_(NULL)
     {
+        daemon_only_ = true;
     }
 
     /// The newly arrived bundle
     BundleRef bundleref_;
 
     /// The source of the bundle
-    int source_;
+    int source_ = 0;
 
     /// The total bytes actually received
-    uint64_t bytes_received_;
+    uint64_t bytes_received_ = 0;
 
     /// Link from which bundle was received, if applicable
     LinkRef link_;
@@ -526,84 +524,20 @@ public:
     EndpointID prevhop_;
 
     /// Registration where the bundle arrived
-    Registration* registration_;
+    Registration* registration_ = nullptr;
+
+    /// Flag indicating it expired before we received it
+    bool expired_in_transit_ = false;
 
     /// Duplicate Bundle
-    Bundle* duplicate_;
+    Bundle* duplicate_ = nullptr;
 };
 
-// This variant of the class is processed by the BundleDaemonOutput
-class BundleReceivedEvent_OutputProcessor : public BundleReceivedEvent {
-public:
-    /*
-     * Constructor for bundles arriving from a peer, named by the
-     * prevhop and optionally marked with the link it arrived on.
-     */
-    BundleReceivedEvent_OutputProcessor(Bundle*           bundle,
-                                        event_source_t    source,
-                                        uint64_t         bytes_received,
-                                        const EndpointID& prevhop,
-                                        Link*             originator = NULL)
 
-        : BundleReceivedEvent(bundle, source, bytes_received, prevhop, originator)
-    {
-        event_processor_ = EVENT_PROCESSOR_OUTPUT;
-    }
-
-    /*
-     * Constructor for bundles arriving from a local application
-     * identified by the given Registration.
-     */
-    BundleReceivedEvent_OutputProcessor(Bundle*           bundle,
-                                        event_source_t    source,
-                                        Registration*     registration)
-        : BundleReceivedEvent(bundle, source, registration)
-    {
-        event_processor_ = EVENT_PROCESSOR_OUTPUT;
-    }
-
-    /*
-     * Constructor for other "arriving" bundles, including reloading
-     * from storage and generated signals.
-     */
-    BundleReceivedEvent_OutputProcessor(Bundle*        bundle,
-                                        event_source_t source)
-        : BundleReceivedEvent(bundle, source)
-    {
-        event_processor_ = EVENT_PROCESSOR_OUTPUT;
-    }
-};
-
-// This variant of the class is processed by the BundleDaemon
+// This variant of the class is processed by the BundleDaemon to allow
+// it to see if the bundle can be deleted
 class BundleReceivedEvent_MainProcessor : public BundleReceivedEvent {
 public:
-    /*
-     * Constructor for bundles arriving from a peer, named by the
-     * prevhop and optionally marked with the link it arrived on.
-     */
-    BundleReceivedEvent_MainProcessor(Bundle*           bundle,
-                                      event_source_t    source,
-                                      uint64_t         bytes_received,
-                                      const EndpointID& prevhop,
-                                      Link*             originator = NULL)
-
-        : BundleReceivedEvent(bundle, source, bytes_received, prevhop, originator)
-    {
-        event_processor_ = EVENT_PROCESSOR_MAIN;
-    }
-
-    /*
-     * Constructor for bundles arriving from a local application
-     * identified by the given Registration.
-     */
-    BundleReceivedEvent_MainProcessor(Bundle*           bundle,
-                                      event_source_t    source,
-                                      Registration*     registration)
-        : BundleReceivedEvent(bundle, source, registration)
-    {
-        event_processor_ = EVENT_PROCESSOR_MAIN;
-    }
-
     /*
      * Constructor for other "arriving" bundles, including reloading
      * from storage and generated signals.
@@ -628,14 +562,15 @@ public:
     BundleTransmittedEvent(Bundle* bundle, const ContactRef& contact,
                            const LinkRef& link, uint64_t  bytes_sent,
                            uint64_t  reliably_sent,
-                           bool success=true)
+                           bool success, bool blocks_deleted)
         : BundleEvent(BUNDLE_TRANSMITTED, EVENT_PROCESSOR_OUTPUT),
           bundleref_(bundle, "BundleTransmittedEvent"),
           contact_(contact.object(), "BundleTransmittedEvent"),
           bytes_sent_(bytes_sent),
           reliably_sent_(reliably_sent),
           link_(link.object(), "BundleTransmittedEvent"),
-          success_(success) {}
+          success_(success),
+          blocks_deleted_(blocks_deleted) {}
 
     /// The transmitted bundle
     BundleRef bundleref_;
@@ -658,6 +593,8 @@ public:
     /// Flag indicating success or failure
     bool success_;
 
+    /// Flag indicating if the xmits blocks have been deleted from the bundle
+    bool blocks_deleted_;
 };
 
 // This variant of the class is processed by the BundleDaemon
@@ -670,9 +607,9 @@ public:
     BundleTransmittedEvent_MainProcessor(Bundle* bundle, const ContactRef& contact,
                            const LinkRef& link, uint64_t bytes_sent,
                            uint64_t  reliably_sent,
-                           bool success=true)
+                           bool success, bool blocks_deleted)
 
-        : BundleTransmittedEvent(bundle, contact, link, bytes_sent, reliably_sent, success)
+        : BundleTransmittedEvent(bundle, contact, link, bytes_sent, reliably_sent, success, blocks_deleted)
     {
         event_processor_ = EVENT_PROCESSOR_MAIN;
     }
@@ -750,8 +687,9 @@ public:
 class BundleFreeEvent : public BundleEvent {
 public:
     BundleFreeEvent(Bundle* bundle)
-        : BundleEvent(BUNDLE_FREE, EVENT_PROCESSOR_MAIN),
-          bundle_(bundle)
+        : BundleEvent(BUNDLE_FREE, EVENT_PROCESSOR_CLEANUP),
+          bundle_(bundle),
+          bundleid_(bundle->bundleid())
     {
         // should be processed only by the daemon
         daemon_only_ = true;
@@ -759,6 +697,8 @@ public:
 
     /// The freed bundle
     Bundle* bundle_;
+
+    bundleid_t bundleid_;
 };
 
 /**
@@ -1072,7 +1012,6 @@ class StoreBundleUpdateEvent: public BundleEvent {
 public:
     StoreBundleUpdateEvent(Bundle* bundle)
         : BundleEvent(STORE_BUNDLE_UPDATE, EVENT_PROCESSOR_STORAGE),
-//dz debug          bundleref_(bundle, "StoreBundleUpdateEvent")
           bundleid_(bundle->bundleid())
     {
         // should be processed only by the daemon
@@ -1108,7 +1047,6 @@ public:
     int64_t size_and_flag_;
 };
 
-#ifdef ACS_ENABLED
 /**
  * Event class for adding/updating a pending ACS in the PendingAcsStore
  */
@@ -1142,7 +1080,6 @@ public:
     /// The freed bundle
     PendingAcs* pacs_;
 };
-#endif // ACS_ENABLED 
 
 /**
  * Event class for adding/updating a registration in the RegistrationStore
@@ -1325,20 +1262,6 @@ public:
     LinkRef link_;
 };
 
-//dz debug class CustodyTimeoutEvent : public BundleEvent {
-//dz debug public:
-//dz debug     CustodyTimeoutEvent(Bundle* bundle, const LinkRef& link)
-//dz debug         : BundleEvent(CUSTODY_TIMEOUT, EVENT_PROCESSOR_MAIN),
-//dz debug           bundle_(bundle, "CustodyTimeoutEvent"),
-//dz debug           link_(link.object(), "CustodyTimeoutEvent") {}
-//dz debug 
-//dz debug     ///< The bundle whose timer fired
-//dz debug     BundleRef bundle_;
-//dz debug 
-//dz debug     ///< The link it was sent on
-//dz debug     LinkRef link_;
-//dz debug };
-
 
 
 /**
@@ -1390,60 +1313,18 @@ public:
     }
  
 
-    // Used internally by LTPConvergenceLayer
-    BundleSendRequest(const BundleRef& bundle,
-                      const LinkRef& linkref)
-        : BundleEvent(BUNDLE_SEND, EVENT_PROCESSOR_OUTPUT),
-          bundle_(bundle.object(), "BundleSendRequest"),
-          link_(""),
-          link_ref_(linkref),
-          action_(0)
-    {
-        // should be processed only by the daemon
-        daemon_only_ = true;
-    }
- 
-    ///< Bundle to be sent
+    /// Bundle to be sent
     BundleRef bundle_;
 
-    ///< Link on which to send the bundle
+    /// Link on which to send the bundle
     std::string link_;
 
-    ///< Link on which to send the bundle
+    /// Link on which to send the bundle
     LinkRef link_ref_;
 
-    ///< Forwarding action to use when sending bundle
+    /// Forwarding action to use when sending bundle
     int action_;
 };
-
-//dz class BundleSendRequest_MainProcessor: public BundleSendRequest {
-//dz public:
-//dz     BundleSendRequest_MainProcessor()
-//dz     {
-//dz         // should be processed only by the daemon
-//dz         daemon_only_ = true;
-//dz     }
-//dz 
-//dz     // Used by External Router 
-//dz     BundleSendRequest_MainProcessor(const BundleRef& bundle,
-//dz                       const std::string& link,
-//dz                       int action)
-//dz         : BundleSendRequest(bundle, link, action)
-//dz     {
-//dz         // should be processed only by the daemon
-//dz         daemon_only_ = true;
-//dz     }
-//dz  
-//dz 
-//dz     // Used internally by LTPConvergenceLayer
-//dz     BundleSendRequest_MainProcessor(const BundleRef& bundle,
-//dz                                     const LinkRef& linkref)
-//dz         : BundleSendRequest(bundle, linkref)
-//dz     {
-//dz         // should be processed only by the daemon
-//dz         daemon_only_ = true;
-//dz     }
-//dz };
 
 /**
  * Event class for canceling a bundle transmission
@@ -1553,7 +1434,8 @@ public:
  */
 class BundleDeleteRequest: public BundleEvent {
 public:
-    BundleDeleteRequest() : BundleEvent(BUNDLE_DELETE, EVENT_PROCESSOR_MAIN)
+    BundleDeleteRequest()
+        : BundleEvent(BUNDLE_DELETE, EVENT_PROCESSOR_MAIN)
     {
         // should be processed only by the daemon
         daemon_only_ = true;
@@ -1563,7 +1445,8 @@ public:
                         BundleProtocol::status_report_reason_t reason)
         : BundleEvent(BUNDLE_DELETE, EVENT_PROCESSOR_MAIN),
           bundle_(bundle, "BundleDeleteRequest"),
-          reason_(reason)
+          reason_(reason),
+          delete_all_(false)
     {
         // should be processed only by the daemon
         daemon_only_ = true;
@@ -1573,17 +1456,31 @@ public:
                         BundleProtocol::status_report_reason_t reason)
         : BundleEvent(BUNDLE_DELETE, EVENT_PROCESSOR_MAIN),
           bundle_(bundle.object(), "BundleDeleteRequest"),
-          reason_(reason)
+          reason_(reason),
+          delete_all_(false)
     {
         // should be processed only by the daemon
         daemon_only_ = true;
     }
 
-    ///< Bundle to be deleted
+    BundleDeleteRequest(bool delete_all,
+                        BundleProtocol::status_report_reason_t reason)
+        : BundleEvent(BUNDLE_DELETE, EVENT_PROCESSOR_MAIN),
+          reason_(reason),
+          delete_all_(delete_all)
+    {
+        // should be processed only by the daemon
+        daemon_only_ = true;
+    }
+
+    /// Bundle to be deleted
     BundleRef bundle_;
 
     /// The reason code
     BundleProtocol::status_report_reason_t reason_;
+
+    /// Whether to delete all bundles
+    bool delete_all_;
 };
 
 /**
@@ -2088,20 +1985,24 @@ public:
     AttributeVector parameters_;
 };
 
-#ifdef ACS_ENABLED
 /**
  * Event class for aggregate custody transfer signal arrivals.
  * (processed by BundleDaemon)
  */
 class AggregateCustodySignalEvent : public BundleEvent {
 public:
-    AggregateCustodySignalEvent(const AggregateCustodySignal::data_t& data)
-        : BundleEvent(AGGREGATE_CUSTODY_SIGNAL, EVENT_PROCESSOR_MAIN), data_(data)
+    AggregateCustodySignalEvent(const std::string& dest_eid, AggregateCustodySignal::data_t& data)
+        : BundleEvent(AGGREGATE_CUSTODY_SIGNAL, EVENT_PROCESSOR_MAIN), 
+          dest_eid_(dest_eid), 
+          data_(data)
     {
         // should be processed only by the daemon
         daemon_only_ = true;
     }
-    
+
+    /// The destination EID associated with these custody IDs
+    std::string dest_eid_;
+
     /// The parsed data from the custody transfer signal
     AggregateCustodySignal::data_t data_;
 };
@@ -2159,15 +2060,11 @@ public:
     /// Unique Pending ACS ID
     u_int32_t pacs_id_;
 };
-#endif // ACS_ENABLED
 
 /**
  * Event class for external routers to receive a copy of the
  * Aggregate Custody Signal Data
  * (processed by BundleDaemon - passed through to the router)
- *
- * NOTE: Not in the ACS_ENABLED ifdef since it is not dependent
- *       on any ACS headers and won't be used unless enabled
  */
 class ExternalRouterAcsEvent : public BundleEvent {
 public:

@@ -25,6 +25,7 @@
 #    define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include <memory.h>
 
 #include "DtpcTopic.h"
 #include "DtpcTopicStore.h"
@@ -39,7 +40,6 @@ DtpcTopic::DtpcTopic(u_int32_t topic_id)
       topic_id_(topic_id),
       user_defined_(false),
       description_(""),
-      expiration_timer_(NULL),
       registration_(NULL),
       in_datastore_(false),
       queued_for_datastore_(false),
@@ -55,7 +55,6 @@ DtpcTopic::DtpcTopic(const oasys::Builder&)
       topic_id_(0),
       user_defined_(false),
       description_(""),
-      expiration_timer_(NULL),
       registration_(NULL),
       in_datastore_(false),
       queued_for_datastore_(false),
@@ -68,9 +67,9 @@ DtpcTopic::DtpcTopic(const oasys::Builder&)
 DtpcTopic::~DtpcTopic () 
 {
     oasys::ScopeLock l(&lock_, "destructor");
-    if (NULL != expiration_timer_) {
+    if (expiration_timer_ != nullptr) {
         expiration_timer_->cancel();
-        expiration_timer_ = NULL;
+        expiration_timer_ = nullptr;
     }
 
     delete collector_list_;
@@ -96,7 +95,7 @@ DtpcTopic::format_for_list(oasys::StringBuffer* buf)
 
     oasys::ScopeLock l(&lock_, "format_for_list");
 
-    buf->appendf("%7"PRIu32"  %5s %s\n",
+    buf->appendf("%7" PRIu32 "  %5s %s\n",
                  topic_id_, bool_to_str(user_defined_), description_.c_str());
 }
 
@@ -108,7 +107,7 @@ DtpcTopic::format_verbose(oasys::StringBuffer* buf)
 
     oasys::ScopeLock l(&lock_, "format_verbose");
 
-    buf->appendf("topic id %"PRIu32":\n", topic_id_);
+    buf->appendf("topic id %" PRIu32 ":\n", topic_id_);
     buf->appendf("     user defined: %s\n", bool_to_str(user_defined_));
     buf->appendf("      description: %s\n", description_.c_str());
 }
@@ -120,11 +119,11 @@ DtpcTopic::deliver_topic_collector(DtpcTopicCollector* collector)
     oasys::ScopeLock l(&lock_, "deliver_topic_collector");
 
     if (NULL != registration_) {
-        log_debug("deliver TopicCollector[%"PRIu32"] to DTPC Registration", 
+        log_debug("deliver TopicCollector[%" PRIu32 "] to DTPC Registration", 
                   topic_id_);
         registration_->deliver_topic_collector(collector);
     } else {
-        log_debug("queue TopicCollector[%"PRIu32"] for next DTPC Registration",
+        log_debug("queue TopicCollector[%" PRIu32 "] for next DTPC Registration",
                   topic_id_);
         collector_list_->push_back(collector);
 
@@ -138,15 +137,12 @@ DtpcTopic::deliver_topic_collector(DtpcTopicCollector* collector)
 void 
 DtpcTopic::start_expiration_timer()
 {
-    if (NULL == expiration_timer_) {
-        expiration_timer_ = new DtpcTopicExpirationTimer(topic_id_);
+    if (expiration_timer_ == nullptr) {
+        expiration_timer_ = std::make_shared<DtpcTopicExpirationTimer>(topic_id_);
+        expiration_timer_->set_sptr(expiration_timer_);
 
         // arbitrarily chose to check every hour instead of getting elaborate
-        struct timeval exp_time;
-        gettimeofday(&exp_time, NULL);
-        exp_time.tv_sec += 3600;
-
-        expiration_timer_->schedule_at(&exp_time);
+        expiration_timer_->start(3600);
     }
 }
 
@@ -166,7 +162,7 @@ DtpcTopic::remove_expired_items()
     }
 
     // start a new timer if there are data items queued    
-    expiration_timer_ = NULL;
+    expiration_timer_ = nullptr;
     if (size > 0) {
         start_expiration_timer();
     }

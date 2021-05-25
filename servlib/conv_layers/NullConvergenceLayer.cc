@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
+#include <third_party/oasys/util/OptParser.h>
 #include "NullConvergenceLayer.h"
 #include "bundling/BundleDaemon.h"
 
@@ -165,18 +165,22 @@ NullConvergenceLayer::bundle_queued(const LinkRef& link, const BundleRef& bundle
         return;
     }
     
-    const BlockInfoVec* blocks = bundle->xmit_blocks()->find_blocks(link);
-    ASSERT(blocks != NULL);
-    size_t total_len = BundleProtocol::total_length(blocks);
-    
+    oasys::ScopeLock scoplok(bundle->lock(), __func__);
+
+    const SPtr_BlockInfoVec sptr_blocks = bundle->xmit_blocks()->find_blocks(link);
+    ASSERT(sptr_blocks != NULL);
+    size_t total_len = BundleProtocol::total_length(bundle.object(), sptr_blocks.get());
+
+    scoplok.unlock();
+
     log_debug("send_bundle *%p to *%p (total len %zu)",
               bundle.object(), link.object(), total_len);
     
-    link->del_from_queue(bundle, total_len);
-    link->add_to_inflight(bundle, total_len);
+    link->del_from_queue(bundle);
+    link->add_to_inflight(bundle);
     
     BundleDaemon::post(
-        new BundleTransmittedEvent(bundle.object(), link->contact(), link, total_len, 0));
+        new BundleTransmittedEvent(bundle.object(), link->contact(), link, total_len, 0, true, false));
 }
 
 //----------------------------------------------------------------------

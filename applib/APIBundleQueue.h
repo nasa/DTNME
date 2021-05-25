@@ -19,8 +19,8 @@
 
 #include <vector>
 #include "dtn_types.h"
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 namespace dtn {
 

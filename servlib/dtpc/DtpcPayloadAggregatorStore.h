@@ -20,10 +20,10 @@
 
 #ifdef DTPC_ENABLED
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/serialize/TypeShims.h>
-#include <oasys/storage/InternalKeyDurableTable.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/serialize/TypeShims.h>
+#include <third_party/oasys/storage/InternalKeyDurableTable.h>
+#include <third_party/oasys/util/Singleton.h>
 
 #include "DtpcPayloadAggregator.h"
 
@@ -47,14 +47,7 @@ public:
      * configuration to use.
      */
     static int init(const oasys::StorageConfig& cfg,
-                    oasys::DurableStore*        store) 
-    {
-        if (instance_ != NULL) {
-            PANIC("DtpcPayloadAggregatorStore::init called multiple times");
-        }
-        instance_ = new DtpcPayloadAggregatorStore();
-        return instance_->do_init(cfg, store);
-    }
+                    oasys::DurableStore*        store) ;
     
     /**
      * Constructor.
@@ -64,7 +57,7 @@ public:
     /**
      * Return true if initialization has completed.
      */
-    static bool initialized() { return (instance() != NULL); }
+    static bool initialized() { return (instance() != nullptr); }
 };
 
 } // namespace dtn

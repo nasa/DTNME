@@ -183,7 +183,7 @@ DtpcProtocolDataUnit::set_key()
 {
     if (!key_is_set_) {
         char tmp[80];
-        snprintf(tmp, sizeof(tmp), "~%"PRIi32"~%"PRIu64, profile_id_, seq_ctr_);
+        snprintf(tmp, sizeof(tmp), "~%" PRIi32 "~%" PRIu64, profile_id_, seq_ctr_);
 
         key_.clear();
         key_.append(remote_eid_.c_str());
@@ -213,7 +213,7 @@ DtpcProtocolDataUnit::set_key()
             has_ion_alt_key_ = false;
         }
 
-        snprintf(tmp, sizeof(tmp), "~%"PRIi32, profile_id_);
+        snprintf(tmp, sizeof(tmp), "~%" PRIi32, profile_id_);
         collector_key_.clear();
         collector_key_.append(remote_eid_.c_str());
         collector_key_.append(tmp);

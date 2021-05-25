@@ -19,11 +19,7 @@
 #define _EHS_EVENT_HANDLER_H_
 
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "EhsEvent.h"
 
@@ -67,7 +63,7 @@ protected:
     /**
      * Default event handlers
      */
-    virtual void handle_bpa_received(EhsBpaReceivedEvent* event);
+    virtual void handle_cbor_received(EhsCborReceivedEvent* event);
     virtual void handle_free_bundle_req(EhsFreeBundleReq* event);
     virtual void handle_route_bundle_req(EhsRouteBundleReq* event);
     virtual void handle_route_bundle_list_req(EhsRouteBundleListReq* event);
@@ -79,9 +75,5 @@ protected:
 
 } // namespace dtn
 
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_EVENT_HANDLER_H_ */

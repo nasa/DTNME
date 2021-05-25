@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -45,7 +45,6 @@
 #include "storage/BundleStore.h"
 
 #include "StaticBundleRouter.h"
-#include "FloodBundleRouter.h"
 #include "ExternalRouter.h"
 
 namespace dtn {
@@ -59,7 +58,8 @@ BundleRouter::Config::Config()
       max_route_to_chain_(10),
       storage_quota_(0),
       subscription_timeout_(600),
-      static_router_prefer_always_on_(true)
+      static_router_prefer_always_on_(true),
+      auto_deliver_bundles_(true)
 {}
 
 BundleRouter::Config BundleRouter::config_;
@@ -71,14 +71,9 @@ BundleRouter::create_router(const char* type)
     if (strcmp(type, "static") == 0) {
         return new StaticBundleRouter();
     }
-    else if (strcmp(type, "flood") == 0) {
-        return new FloodBundleRouter();
-    }
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
     else if (strcmp(type, "external") == 0) {
         return new ExternalRouter();
     }    
-#endif
     else {
         PANIC("unknown type %s for router", type);
     }

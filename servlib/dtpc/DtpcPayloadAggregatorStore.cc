@@ -24,7 +24,7 @@
 #include "DtpcPayloadAggregatorStore.h"
 
 template <>
-dtn::DtpcPayloadAggregatorStore* oasys::Singleton<dtn::DtpcPayloadAggregatorStore, false>::instance_ = 0;
+dtn::DtpcPayloadAggregatorStore* oasys::Singleton<dtn::DtpcPayloadAggregatorStore, false>::instance_ = nullptr;
 
 namespace dtn {
 
@@ -35,6 +35,18 @@ DtpcPayloadAggregatorStore::DtpcPayloadAggregatorStore()
 }
 
 
+
+int
+DtpcPayloadAggregatorStore::init(const oasys::StorageConfig& cfg,
+                                 oasys::DurableStore*        store)
+{
+    if (instance_ != nullptr) {
+        PANIC("DtpcPayloadAggregatorStore::init called multiple times");
+    }
+    instance_ = new DtpcPayloadAggregatorStore();
+    return instance_->do_init(cfg, store);
+}
+    
 } // namespace dtn
 
 #endif // DTPC_ENABLED

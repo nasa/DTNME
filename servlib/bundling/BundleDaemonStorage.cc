@@ -21,8 +21,8 @@
 
 #include <db.h>
 
-#include <oasys/io/IO.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/io/IO.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "Bundle.h"
 #include "BundleActions.h"
@@ -33,19 +33,9 @@
 #include "storage/GlobalStore.h"
 #include "storage/RegistrationStore.h"
 #include "storage/LinkStore.h"
-
-#ifdef ACS_ENABLED 
-#  include "storage/PendingAcsStore.h"
-#endif // ACS_ENABLED 
+#include "storage/PendingAcsStore.h"
 
 #include "ExpirationTimer.h"
-
-#ifdef BSP_ENABLED
-#  include "security/Ciphersuite.h"
-#  include "security/SPD.h"
-#  include "security/KeyDB.h"
-#endif
-
 
 
 // enable or disable debug level logging in this file
@@ -54,40 +44,23 @@
 
 
 
-namespace oasys {
-    template <> dtn::BundleDaemonStorage* oasys::Singleton<dtn::BundleDaemonStorage, false>::instance_ = NULL;
-}
-
 namespace dtn {
 
 BundleDaemonStorage::Params::Params()
     : db_storage_ms_interval_(10),
       db_log_auto_removal_(false),
-      db_storage_enabled_(true) 
+      db_storage_enabled_(true),
+      db_force_sync_to_disk_(true)
 {}
 
 BundleDaemonStorage::Params BundleDaemonStorage::params_;
 
 //----------------------------------------------------------------------
-void
-BundleDaemonStorage::init()
-{       
-    if (instance_ != NULL) 
-    {
-        PANIC("BundleDaemonStorage already initialized");
-    }
-
-    instance_ = new BundleDaemonStorage();
-    instance_->do_init();
-}
-    
-//----------------------------------------------------------------------
-BundleDaemonStorage::BundleDaemonStorage()
+BundleDaemonStorage::BundleDaemonStorage(BundleDaemon* parent)
     : BundleEventHandler("BundleDaemonStorage", "/dtn/bundle/daemon/storage"),
-      Thread("BundleDaemonStorage", CREATE_JOINABLE)
+      Thread("BundleDaemonStorage")
 {
-    daemon_ = NULL;
-    eventq_ = NULL;
+    daemon_ = parent;
     
     memset(&stats_, 0, sizeof(stats_));
 
@@ -106,16 +79,17 @@ BundleDaemonStorage::BundleDaemonStorage()
     add_update_links_ = new LinkMap();
     delete_links_ = new LinkMap();
 
-#ifdef ACS_ENABLED 
     add_update_pendingacs_ = new PendingAcsMap();
     delete_pendingacs_ = new PendingAcsMap();
-#endif // ACS_ENABLED 
+
+    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
+    eventq_->notify_when_empty();
 }
 
 //----------------------------------------------------------------------
 BundleDaemonStorage::~BundleDaemonStorage()
 {
-    commit_all_updates();
+    log_always("BDStorage destructor - run_loop_terminated_ = %s", run_loop_terminated_ ? "true" : "false");
 
     delete eventq_;
 
@@ -127,28 +101,9 @@ BundleDaemonStorage::~BundleDaemonStorage()
 
     delete add_update_links_;
     delete delete_links_;
-}
 
-//----------------------------------------------------------------------
-void
-BundleDaemonStorage::do_init()
-{
-    eventq_ = new oasys::MsgQueue<BundleEvent*>(logpath_);
-    eventq_->notify_when_empty();
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonStorage::post(BundleEvent* event)
-{
-    instance_->post_event(event);
-}
-
-//----------------------------------------------------------------------
-void
-BundleDaemonStorage::post_at_head(BundleEvent* event)
-{
-    instance_->post_event(event, false);
+    delete add_update_pendingacs_;
+    delete delete_pendingacs_;
 }
 
 //----------------------------------------------------------------------
@@ -161,29 +116,6 @@ BundleDaemonStorage::post_event(BundleEvent* event, bool at_back)
 #endif
     event->posted_time_.get_time();
     eventq_->push(event, at_back);
-}
-
-//----------------------------------------------------------------------
-bool 
-BundleDaemonStorage::post_and_wait(BundleEvent* event,
-                               oasys::Notifier* notifier,
-                               int timeout, bool at_back)
-{
-    /*
-     * Make sure that we're either already started up or are about to
-     * start. Otherwise the wait call below would block indefinitely.
-     */
-    ASSERT(! oasys::Thread::start_barrier_enabled());
-
-
-    ASSERT(event->processed_notifier_ == NULL);
-    event->processed_notifier_ = notifier;
-    if (at_back) {
-        post(event);
-    } else {
-        post_at_head(event);
-    }
-    return notifier->wait(NULL, timeout);
 }
 
 //----------------------------------------------------------------------
@@ -244,7 +176,6 @@ BundleDaemonStorage::get_stats(oasys::StringBuffer* buf)
                  stats_.links_delupdates_,
                  stats_.links_reloaded_);
 
-#ifdef ACS_ENABLED 
     buf->appendf("Pending ACS Storage: %" PRIu64 " instore -- "
                  "%" PRIu64 " added -- "
                  "%" PRIu64 " updated -- "
@@ -259,16 +190,16 @@ BundleDaemonStorage::get_stats(oasys::StringBuffer* buf)
                  stats_.pacs_deleted_,
                  stats_.pacs_delupdates_,
                  stats_.pacs_reloaded_);
-#endif
 }
 
 //----------------------------------------------------------------------
 void
 BundleDaemonStorage::get_daemon_stats(oasys::StringBuffer* buf)
 {
-    buf->appendf("BundleDaemonStorage: %zu pending_events -- "
+    buf->appendf("BundleDaemonStorage: %zu pending_events (max: %zu) -- "
                  "%" PRIu64 " processed_events \n",
-                 event_queue_size(),
+    	         eventq_->size(),
+    	         eventq_->max_size(),
                  stats_.events_processed_);
 }
 
@@ -299,7 +230,7 @@ BundleDaemonStorage::bundle_add_update(const BundleRef& bref)
     if ( ! bundle->in_storage_queue() ) {
         BundleStore::instance()->reserve_payload_space(bundle);
         bundle->set_in_storage_queue(true);
-        post(new StoreBundleUpdateEvent(bundle));
+        post_event(new StoreBundleUpdateEvent(bundle));
     } else {
         ++stats_.bundles_combinedupdates_;
     }
@@ -326,7 +257,7 @@ BundleDaemonStorage::bundle_add_update(Bundle* bundle)
 
         StoreBundleUpdateEvent* event = new StoreBundleUpdateEvent(bundle);
         ASSERT(NULL == event->processed_notifier_);
-        post(event);
+        post_event(event);
     } else {
         ++stats_.bundles_combinedupdates_;
     }
@@ -341,6 +272,7 @@ BundleDaemonStorage::bundle_delete(Bundle* bundle)
     if (!params_.db_storage_enabled_) return;
 
     bundle->lock()->lock("BundleDaemonStorage::bundle_add_update - check in storage queue");
+
     bundle->set_deleting(true);
     bool in_queue = bundle->in_storage_queue();
     bool in_datastore = bundle->in_datastore();
@@ -352,7 +284,7 @@ BundleDaemonStorage::bundle_delete(Bundle* bundle)
 
         StoreBundleDeleteEvent* event = new StoreBundleDeleteEvent(bundle->bundleid(), size_and_flag);
         ASSERT(NULL == event->processed_notifier_);
-        post(event);
+        post_event(event);
     } else {
         ++stats_.bundles_deletesskipped_;   // # deletes not posted because not in datastore yet
     }
@@ -366,7 +298,7 @@ BundleDaemonStorage::registration_add_update(APIRegistration* reg)
 
     reg->lock()->lock("BundleDaemonStorage::registration_add_update - check in storage queue");
     if ( ! reg->in_storage_queue() ) {
-        post(new StoreRegistrationUpdateEvent(reg));
+        post_event(new StoreRegistrationUpdateEvent(reg));
         reg->set_in_storage_queue(true);
     } else {
         ++stats_.regs_combinedupdates_;
@@ -395,7 +327,6 @@ BundleDaemonStorage::handle_store_bundle_delete(StoreBundleDeleteEvent* event)
     delete_bundles_->insert(DeleteBundleMapPair(event->bundleid_, event->size_and_flag_));
 }
 
-#ifdef ACS_ENABLED 
 //----------------------------------------------------------------------
 void
 BundleDaemonStorage::handle_store_pendingacs_update(StorePendingAcsUpdateEvent* event)
@@ -425,7 +356,6 @@ BundleDaemonStorage::handle_store_pendingacs_delete(StorePendingAcsDeleteEvent* 
     delete_pendingacs_->insert(PendingAcsPair(pacs->durable_key(), pacs));
     pendingacs_lock_.unlock();
 }
-#endif // ACS_ENABLED 
 
 //----------------------------------------------------------------------
 void
@@ -495,10 +425,7 @@ BundleDaemonStorage::update_database()
     update_database_registrations();
     update_database_bundles();
     update_database_links();
-
-#ifdef ACS_ENABLED 
     update_database_pendingacs();
-#endif // ACS_ENABLED 
 }
 
 //----------------------------------------------------------------------
@@ -641,6 +568,7 @@ BundleDaemonStorage::update_database_bundles()
     bdel_itr = delete_bundles_->begin();
     while (bdel_itr != delete_bundles_->end()) {
         bundleid = bdel_itr->first;
+
         if (bdel_itr->second < 0) {
             in_db = false;
             durable_size = -bdel_itr->second;
@@ -667,7 +595,7 @@ BundleDaemonStorage::update_database_bundles()
             GlobalStore::instance()->unlock_db_access();
         } else {
             // release the memory that was reserved
-            BundleStore::instance()->release_payload_space(durable_size, 0);
+            BundleStore::instance()->release_payload_space(durable_size);
         }
 
 
@@ -687,7 +615,7 @@ BundleDaemonStorage::update_database_bundles()
         bref = all_bundles_->find_for_storage(bundleid);
         bundle = bref.object();
 
-        if (NULL != bundle) {
+        if (bundle != nullptr ) {
             if (first_trans) {
                 first_trans = false;
                 store->begin_transaction();
@@ -721,17 +649,19 @@ BundleDaemonStorage::update_database_bundles()
                         // flush the payload to disk
                         bundle->lock()->unlock();
 
+                        if (params_.db_force_sync_to_disk_) {
 #ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-                        sync_payload_timer_.get_time();
+                            sync_payload_timer_.get_time();
 #endif
 
-                        bundle->mutable_payload()->sync_payload();
+                            bundle->mutable_payload()->sync_payload();
 
 #ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-                        if (sync_payload_timer_.elapsed_ms() > 20) {
-                            log_warn("Sync payload took %u ms", sync_payload_timer_.elapsed_ms());
+                            if (sync_payload_timer_.elapsed_ms() > 20) {
+                                log_warn("Sync payload took %u ms", sync_payload_timer_.elapsed_ms());
+                            }
+#endif
                         }
-#endif
 
                         GlobalStore::instance()->lock_db_access("BundleDaemonStorage::update_database_bundles - add");
 
@@ -748,6 +678,7 @@ BundleDaemonStorage::update_database_bundles()
                         GlobalStore::instance()->unlock_db_access();
 
                         bundle->set_in_datastore(true);
+
                         ++stats_.bundles_added_;
                         ++stats_.bundles_in_db_;
                     } else {
@@ -878,7 +809,6 @@ BundleDaemonStorage::update_database_links()
     }
 }
 
-#ifdef ACS_ENABLED 
 //----------------------------------------------------------------------
 void
 BundleDaemonStorage::update_database_pendingacs()
@@ -986,7 +916,6 @@ BundleDaemonStorage::update_database_pendingacs()
         store->end_transaction();
     }
 }
-#endif // ACS_ENABLED 
 
     
 //----------------------------------------------------------------------
@@ -1038,11 +967,9 @@ BundleDaemonStorage::run()
     
     char threadname[16] = "BD-Storage";
     pthread_setname_np(pthread_self(), threadname);
-   
 
     BundleEvent* event;
 
-    daemon_ = BundleDaemon::instance();
     all_bundles_ = daemon_->all_bundles();
 
     // XXX/dz incorporate log removal and transaction checkpoint into oasys?
@@ -1103,11 +1030,6 @@ BundleDaemonStorage::run()
             update_database();
             last_db_update_.get_time();
 
-#ifdef BDSTATS_ENABLED
-            // this keeps the BD Stats working if there are no new events coming
-            // in but storage processing is backlogged
-//            daemon_->bdstats_update(NULL, NULL);
-#endif // BDSTATS_ENABLED
         }
 
         // update the log removal mode if it has changed (& is Berkeley DB)
@@ -1147,22 +1069,18 @@ BundleDaemonStorage::run()
                 oasys::Time in_queue;
                 in_queue = now - event->posted_time_;
                 if (in_queue.sec_ > 2) {
-                    log_warn_p(LOOP_LOG, "event %s was in queue for %u.%u seconds",
+                    log_warn_p(LOOP_LOG, "event %s was in queue for %" PRIu64 ".%" PRIu64 " seconds",
                                event->type_str(), in_queue.sec_, in_queue.usec_);
                 }
 #endif
             } else {
                 log_warn_p(LOOP_LOG, "time moved backwards: "
-                           "now %u.%u, event posted_time %u.%u",
+                           "now %" PRIu64 ".%" PRIu64 ", event posted_time %" PRIu64 ".%" PRIu64 "",
                            now.sec_, now.usec_,
                            event->posted_time_.sec_, event->posted_time_.usec_);
             }
             
             
-#ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "BundleDaemonStorage: handling event %s",
-                        event->type_str());
-#endif
             // handle the event
             handle_event(event);
 
@@ -1185,19 +1103,9 @@ BundleDaemonStorage::run()
         
         pollfds[0].revents = 0;
 
-#ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-        log_debug_p(LOOP_LOG, "BundleDaemonStorage: poll_multiple waiting for %d ms", 
-                    timeout);
-#endif
         cc = oasys::IO::poll_multiple(pollfds, 1, timeout);
-#ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-        log_debug_p(LOOP_LOG, "poll returned %d", cc);
-#endif
 
         if (cc == oasys::IOTIMEOUT) {
-#ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "poll timeout");
-#endif
             continue;
 
         } else if (cc <= 0) {
@@ -1207,11 +1115,6 @@ BundleDaemonStorage::run()
 
         // if the event poll fired, we just go back to the top of the
         // loop to drain the queue
-        if (event_poll->revents != 0) {
-#ifdef BDSTORAGE_LOG_DEBUG_ENABLED
-            log_debug_p(LOOP_LOG, "poll returned new event to handle");
-#endif
-        }
     }
 
     run_loop_terminated_ = true;
@@ -1232,7 +1135,10 @@ BundleDaemonStorage::commit_all_updates()
     }
 
     if (!last_commit_completed_) {
-        log_info("commit_all_updates - event queue size = %zu", eventq_->size());
+        log_always("commit_all_updates - event queue size = %zu", eventq_->size());
+
+        oasys::Time timer;
+        timer.get_time();
 
         // clean out the event queue
         BundleEvent* event;
@@ -1244,6 +1150,11 @@ BundleDaemonStorage::commit_all_updates()
             handle_event(event);
             // clean up the event
             delete event;
+
+            if (timer.elapsed_ms() > 1000) {
+                log_always("Committing storage to disk... pending events: %zu", eventq_->size());
+                timer.get_time();
+            }
         }
 
         // one final update to the databse

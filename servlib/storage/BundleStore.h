@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,12 +35,12 @@
 #ifndef _BUNDLE_STORE_H_
 #define _BUNDLE_STORE_H_
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/serialize/TypeShims.h>
-#include <oasys/storage/DurableStore.h>
-#include <oasys/storage/InternalKeyDurableTable.h>
-#include <oasys/util/OpenFdCache.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/serialize/TypeShims.h>
+#include <third_party/oasys/storage/DurableStore.h>
+#include <third_party/oasys/storage/InternalKeyDurableTable.h>
+#include <third_party/oasys/util/OpenFdCache.h>
+#include <third_party/oasys/util/Singleton.h>
 #include "DTNStorageConfig.h"
 #include "bundling/BundleDetail.h"
 
@@ -106,13 +106,14 @@ public:
     bool try_reserve_payload_space(u_int64_t durable_size);
 
     /// Decrement the total size in use
-    void release_payload_space(u_int64_t payload_size, bundleid_t bundleid);
+    void release_payload_space(u_int64_t payload_size);
 
     /// @{ Accessors
     const std::string& payload_dir()     { return cfg_.payload_dir_; }
     u_int64_t          payload_quota()   { return cfg_.payload_quota_; }
     FdCache*           payload_fdcache() { return &payload_fdcache_; }
     u_int64_t          total_size()      { return total_size_; }
+    u_int64_t          max_size()        { return max_size_; }
     oasys::Lock*       lock()            const { return &lock_; }
     /// @}
     
@@ -124,13 +125,14 @@ protected:
     void set_total_size(u_int64_t sz) { total_size_ = sz; }
     
     const DTNStorageConfig& cfg_;        ///< Storage configuration
-    BundleTable bundles_;	         ///< Bundle metabundle table
-    FdCache payload_fdcache_;	         ///< File descriptor cache
-    static bool using_aux_table_;	 ///< True when an auxiliary info table is configured and in use.
+    BundleTable bundles_;                ///< Bundle metabundle table
+    FdCache payload_fdcache_;            ///< File descriptor cache
+    static bool using_aux_table_;        ///< True when an auxiliary info table is configured and in use.
 #ifdef LIBODBC_ENABLED
     BundleDetailTable bundle_details_;   ///< Auxiliary table for bundle unserialized details
 #endif
-    u_int64_t total_size_;	         ///M Total size in the data store
+    u_int64_t total_size_;               ///M Total size in the data store
+    u_int64_t max_size_;                 ///M Maxsize in the data store
     mutable oasys::SpinLock lock_;       ///< Lock for bundle data that can be
 
 

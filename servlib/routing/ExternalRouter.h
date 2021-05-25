@@ -20,7 +20,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -45,18 +45,16 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
 
-#include "router-custom.h"
 #include "BundleRouter.h"
 #include "RouteTable.h"
+#include "ExternalRouterServerIF.h"
 #include <reg/Registration.h>
-#include <oasys/serialize/XercesXMLSerialize.h>
-#include <oasys/io/UDPClient.h>
-#include <oasys/util/Time.h>
-#include <oasys/util/TokenBucket.h>
-#include <oasys/io/TCPClient.h>
-#include <oasys/io/TCPServer.h>
+#include <third_party/oasys/io/UDPClient.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/util/TokenBucket.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/io/TCPServer.h>
 
 #define EXTERNAL_ROUTER_SERVICE_TAG "/ext.rtr/*"
 
@@ -71,7 +69,8 @@ namespace dtn {
  * XML actions received on the interface are validated, transformed
  * into events, and placed on the global event queue.
  */
-class ExternalRouter : public BundleRouter {
+class ExternalRouter : public BundleRouter,
+                       public ExternalRouterServerIF {
 public:
     /// UDP port for IPC with external routers
     static u_int16_t server_port;
@@ -79,26 +78,9 @@ public:
     /// Seconds between hello messages
     static u_int16_t hello_interval;
 
-    /// Validate incoming XML messages
-    static bool server_validation;
-
-    /// XML schema required for XML validation
-    static std::string schema;
-
-    /// Include meta info in xml necessary for client validation 
-    static bool client_validation;
-
-    /// The static routing table
-    static RouteTable *route_table;
-
-    /// The multicast address to use for communication
-    static in_addr_t multicast_addr_;
-
     /// The network interface to use for communication
     static in_addr_t network_interface_;
-
-    /// flag to use TCP or multicast 
-    static bool use_tcp_interface_;
+    static bool network_interface_configured_;
 
     ExternalRouter();
     virtual ~ExternalRouter();
@@ -106,12 +88,12 @@ public:
     /**
      * Called after all global data structures are set up.
      */
-    virtual void initialize();
+    virtual void initialize() override;
 
     /**
      * External router clean shutdown
      */
-    virtual void shutdown();
+    virtual void shutdown() override;
 
     /**
      * Synchronous probe indicating whether or not custody of this bundle 
@@ -125,75 +107,82 @@ public:
      *
      * @return true if okay to accept custody of the bundle.
      */
-    virtual bool accept_custody(Bundle* bundle);
+    virtual bool accept_custody(Bundle* bundle) override;
 
     /**
      * Hook to ask the router if the bundle can be deleted.
      */
-    bool can_delete_bundle(const BundleRef& bundle);
+    bool can_delete_bundle(const BundleRef& bundle) override;
     
     /**
      * seconds a connection should delay after contact up to allow router time
      * to reject the connection before reading bundles
      */
-    virtual int delay_after_contact_up() { return 3; } 
+    virtual int delay_after_contact_up()  override { return 3; } 
     
     /**
      * Format the given StringBuffer with static routing info.
      * @param buf buffer to fill with the static routing table
      */
-    virtual void get_routing_state(oasys::StringBuffer* buf);
+    virtual void get_routing_state(oasys::StringBuffer* buf) override;
 
     /**
      * Serialize events and UDP multicast to external routers.
      * @param event BundleEvent to process
      */
-    virtual void handle_event(BundleEvent *event);
-    virtual void handle_bundle_received(BundleReceivedEvent *event);
-    virtual void handle_bundle_transmitted(BundleTransmittedEvent* event);
-    virtual void handle_bundle_delivered(BundleDeliveredEvent* event);
-    virtual void handle_bundle_expired(BundleExpiredEvent* event);
-    virtual void handle_bundle_cancelled(BundleSendCancelledEvent* event);
-    virtual void handle_bundle_injected(BundleInjectedEvent* event);
-    virtual void handle_bundle_custody_accepted(BundleCustodyAcceptedEvent* event);
-    virtual void handle_contact_up(ContactUpEvent* event);
-    virtual void handle_contact_down(ContactDownEvent* event);
-    virtual void handle_link_created(LinkCreatedEvent *event);
-    virtual void handle_link_deleted(LinkDeletedEvent *event);
-    virtual void handle_link_available(LinkAvailableEvent *event);
-    virtual void handle_link_unavailable(LinkUnavailableEvent *event);
-    virtual void handle_link_attribute_changed(LinkAttributeChangedEvent *event);
-    virtual void handle_contact_attribute_changed(ContactAttributeChangedEvent *event);
-//    virtual void handle_link_busy(LinkBusyEvent *event);
-    virtual void handle_new_eid_reachable(NewEIDReachableEvent* event);
-    virtual void handle_registration_added(RegistrationAddedEvent* event);
-    virtual void handle_registration_removed(RegistrationRemovedEvent* event);
-    virtual void handle_registration_expired(RegistrationExpiredEvent* event);
-    virtual void handle_route_add(RouteAddEvent* event);
-    virtual void handle_route_del(RouteDelEvent* event);
-    virtual void handle_custody_signal(CustodySignalEvent* event);
-    virtual void handle_external_router_acs(ExternalRouterAcsEvent* event);
-    virtual void handle_custody_timeout(CustodyTimeoutEvent* event);
-    virtual void handle_link_report(LinkReportEvent *event);
-    virtual void handle_link_attributes_report(LinkAttributesReportEvent *event);
-    virtual void handle_contact_report(ContactReportEvent* event);
-    virtual void handle_bundle_report(BundleReportEvent *event);
-    virtual void handle_bundle_attributes_report(BundleAttributesReportEvent *event);
-    virtual void handle_route_report(RouteReportEvent* event);
+    virtual void handle_event(BundleEvent *event) override;
+    virtual void handle_bundle_received(BundleReceivedEvent *event) override;
+    virtual void handle_bundle_transmitted(BundleTransmittedEvent* event) override;
+    virtual void handle_bundle_delivered(BundleDeliveredEvent* event) override;
+    virtual void handle_bundle_expired(BundleExpiredEvent* event) override;
+    virtual void handle_bundle_free(BundleFreeEvent* event) override;
+    virtual void handle_bundle_cancelled(BundleSendCancelledEvent* event) override;
+    virtual void handle_bundle_injected(BundleInjectedEvent* event) override;
+    virtual void handle_bundle_custody_accepted(BundleCustodyAcceptedEvent* event) override;
+    virtual void handle_contact_up(ContactUpEvent* event) override;
+    virtual void handle_contact_down(ContactDownEvent* event) override;
+    virtual void handle_link_created(LinkCreatedEvent *event) override;
+    virtual void handle_link_deleted(LinkDeletedEvent *event) override;
+    virtual void handle_link_available(LinkAvailableEvent *event) override;
+    virtual void handle_link_unavailable(LinkUnavailableEvent *event) override;
+    virtual void handle_link_attribute_changed(LinkAttributeChangedEvent *event) override;
+    virtual void handle_contact_attribute_changed(ContactAttributeChangedEvent *event) override;
+    virtual void handle_new_eid_reachable(NewEIDReachableEvent* event) override;
+    virtual void handle_registration_added(RegistrationAddedEvent* event) override;
+    virtual void handle_registration_removed(RegistrationRemovedEvent* event) override;
+    virtual void handle_registration_expired(RegistrationExpiredEvent* event) override;
+    virtual void handle_route_add(RouteAddEvent* event) override;
+    virtual void handle_route_del(RouteDelEvent* event) override;
+    virtual void handle_custody_signal(CustodySignalEvent* event) override;
+    virtual void handle_external_router_acs(ExternalRouterAcsEvent* event) override;
+    virtual void handle_custody_timeout(CustodyTimeoutEvent* event) override;
+    virtual void handle_link_report(LinkReportEvent *event) override;
+    virtual void handle_link_attributes_report(LinkAttributesReportEvent *event) override;
+    virtual void handle_contact_report(ContactReportEvent* event) override;
+    virtual void handle_bundle_report(BundleReportEvent *event) override;
+    virtual void handle_bundle_attributes_report(BundleAttributesReportEvent *event) override;
+    virtual void handle_route_report(RouteReportEvent* event) override;
 
-    virtual void send(rtrmessage::bpa &message, const char* type_str);
 
-protected:
-#ifdef PENDING_BUNDLES_IS_MAP
-    virtual void generate_bundle_report_from_map();
-#else
-    virtual void generate_bundle_report_from_list();
-#endif
+    // for handling ACS and BIBE custody releases on individual bundles
+    virtual void handle_custody_released(uint64_t bundleid, bool succeeded, int reason) override;
+
+    /**
+     * override pure virtual from ExternalRouterServerIF
+     */
+    virtual void send_msg(std::string* msg) override;
+
+    virtual std::string lowercase(const char *c_str);
+
 
 protected:
     class ModuleServer;
     class HelloTimer;
     class ERRegistration;
+
+    typedef std::unique_ptr<ExternalRouter::ModuleServer> QPtr_ModuleServer;
+    typedef std::shared_ptr<ExternalRouter::HelloTimer> SPtr_HelloTimer;
+
 
     // XXX This function should really go in ContactEvent
     //     but ExternalRouter needs a less verbose version
@@ -203,7 +192,7 @@ protected:
     bool shutting_down_;
 
     /// UDP server thread
-    ModuleServer *srv_;
+   QPtr_ModuleServer srv_;
 
     /// The route table
     RouteTable *route_table_;
@@ -212,7 +201,7 @@ protected:
     ERRegistration *reg_;
 
     /// Hello timer
-    HelloTimer *hello_;
+    SPtr_HelloTimer hello_;
 
     /// Sequence Counter for sending messages
     uint64_t send_seq_ctr_;
@@ -229,9 +218,10 @@ protected:
  * with external routers
  */
 class ExternalRouter::ModuleServer : public oasys::Thread,
-                                     public oasys::Logger {
+                                     public oasys::Logger,
+                                     public ExternalRouterServerIF {
 public:
-    ModuleServer();
+    ModuleServer(ExternalRouter* parent);
     virtual ~ModuleServer();
     virtual void do_shutdown();
 
@@ -245,58 +235,47 @@ public:
      */
     virtual void post_to_send(std::string* event);
 
+
     /**
      * The main thread loop
      */
-    virtual void run();
+    virtual void run() override;
+
+    /**
+     * Parse incoming actions and place them on the
+     * global event queue
+     * @param msg the incoming CBOR encoded message
+     */
+    int process_action(std::string* msg);
+    void process_transmit_bundle_req_msg_v0(CborValue& cvElement);
+    void process_link_reconfigure_req_msg_v0(CborValue& cvElement);
+    void process_link_close_req_msg_v0(CborValue& cvElement);
+    void process_link_add_req_msg_v0(CborValue& cvElement);
+    void process_link_del_req_msg_v0(CborValue& cvElement);
+    void process_take_custody_req_msg_v0(CborValue& cvElement);
+    void process_delete_bundle_req_msg_v0(CborValue& cvElement);
+    void process_delete_all_bundles_req_msg_v0(CborValue& cvElement);
+    void process_shutdown_req_msg_v0(CborValue& cvElement);
+
 
     /**
      * Parse incoming actions and place them on the
      * global event queue
      * @param payload the incoming XML document payload
      */
-    void process_action(const char *payload);
+    void process_action_xml(const char *payload);
+
+    /**
+     * override pure virtual from ExternalRouterServerIF
+     */
+    virtual void send_msg(std::string* msg) override { (void) msg; }
+
 
     /// Message queue for accepting BundleEvents from ExternalRouter
-    oasys::MsgQueue< std::string * > *eventq_;
+    oasys::MsgQueue< std::string * > eventq_;
 
-    /// Xerces XML validating parser for incoming messages
-    oasys::XercesXMLUnmarshal *parser_;
 
 protected:
-
-    class Receiver : public oasys::Thread,
-                     public oasys::UDPClient {
-    public:
-        Receiver(ExternalRouter::ModuleServer* parent);
-        virtual ~Receiver();
-        virtual void run();
-    protected:
-        /// Pointer to parent
-        ExternalRouter::ModuleServer* parent_;
-
-        /// Sequence Counter for messages receivevd
-        uint64_t last_recv_seq_ctr_;
-    };
-
-    class Sender : public oasys::Thread,
-                   public oasys::UDPClient {
-    public:
-        Sender();
-        virtual ~Sender();
-        virtual void run();
-        virtual void post(std::string* event);
-    protected:
-        /// Message queue for accepting BundleEvents from ExternalRouter
-        oasys::MsgQueue< std::string * > *eventq_;
-
-        /// Rate Limiting TokenBucket
-        oasys::TokenBucket bucket_;
-
-        oasys::Time transmit_timer_;
-        uint64_t bytes_sent_;
-    };
-
 
     /**
      * Helper class (and thread) that listens on a TCP
@@ -349,9 +328,13 @@ protected:
 
             protected:
                 /// Message queue for accepting BundleEvents from ExternalRouter
-                oasys::MsgQueue< std::string * > *eventq_;
+                oasys::MsgQueue< std::string * > eventq_;
 
                 TcpConnection* parent_;
+
+                oasys::SpinLock eventq_lock_;
+                size_t eventq_bytes_ = 0;
+                size_t eventq_bytes_max_ = 0;
             };
 
 
@@ -364,7 +347,7 @@ protected:
             ModuleServer*     parent_;
 
             TcpSender* tcp_sender_;
-
+            oasys::SpinLock lock_;
     };
 
 
@@ -408,7 +391,10 @@ protected:
         ModuleServer* parent_;
         TcpConnection* router_client_;
 
+        oasys::SpinLock lock_;
     };
+
+    typedef std::unique_ptr<TcpInterface> QPtr_TcpInterface;
 
 
 
@@ -419,40 +405,37 @@ public:
 
 
 private:
+    ExternalRouter* parent_;
 
-    TcpInterface* tcp_interface_;
+    QPtr_TcpInterface tcp_interface_;
+    oasys::SpinLock lock_;
 
 private:
-    Link::link_type_t convert_link_type(rtrmessage::linkTypeType type);
-    Bundle::priority_values_t convert_priority(rtrmessage::bundlePriorityType);
-
-    ForwardingInfo::action_t 
-    convert_fwd_action(rtrmessage::bundleForwardActionType);
 
     /// Sequence Counter for messages receivevd
     uint64_t last_recv_seq_ctr_;
-
-    /// Sender thread
-    Sender* sender_;
-
-    /// Receiver thread
-    Receiver* receiver_;
 };
 
 /**
  * Helper class for ExternalRouter hello messages
  */
-class ExternalRouter::HelloTimer : public oasys::Timer {
+class ExternalRouter::HelloTimer : public oasys::SharedTimer {
 public:
     HelloTimer(ExternalRouter *router);
-    ~HelloTimer();
-        
-    /**
-     * Timer callback function
-     */
-    void timeout(const struct timeval &now);
+    virtual ~HelloTimer();
 
+    virtual void start(uint32_t seconds, SPtr_HelloTimer& sptr);
+
+    virtual void cancel();
+
+    virtual void timeout(const struct timeval &now) override;
+
+protected:
     ExternalRouter *router_;
+
+    oasys::SPtr_Timer sptr_;
+
+    uint32_t seconds_ = 30;
 };
 
 /**
@@ -478,5 +461,4 @@ void external_rtr_shutdown(void *args);
 
 } // namespace dtn
 
-#endif // XERCES_C_ENABLED && EXTERNAL_DP_ENABLED
 #endif //_EXTERNAL_ROUTER_H_

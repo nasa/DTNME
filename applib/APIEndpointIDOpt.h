@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "dtn_types.h"
-#include <oasys/util/Options.h>
+#include <third_party/oasys/util/Options.h>
 
 namespace dtn {
 

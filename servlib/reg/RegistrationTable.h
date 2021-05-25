@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,8 +36,8 @@
 #define _REGISTRATION_TABLE_H_
 
 #include <string>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "Registration.h"
 

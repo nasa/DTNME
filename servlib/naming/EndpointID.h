@@ -18,9 +18,9 @@
 #define _ENDPOINT_ID_H_
 
 #include <string>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/serialize/SerializableVector.h>
-#include <oasys/util/URI.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/util/URI.h>
 
 struct dtn_endpoint_id_t;
 
@@ -129,6 +129,17 @@ public:
     }
 
     /**
+     * Operator copy assignment
+     */
+    EndpointID& operator=(const EndpointID& other)
+    { 
+        if (this == &other) return *this;
+
+        this->assign(other);
+        return *this;
+    }
+
+    /**
      * Operator overload for equality syntactic sugar
      */
     bool operator==(const EndpointID& other) const
@@ -162,6 +173,11 @@ public:
     }
 
     /**
+     * Clear the underlying URI components
+     */
+    void clear() { uri_.clear(); }
+
+    /**
      * Set the string from the API type dtn_endpoint_id_t
      *
      * @return true if the string is a valid id, false if not.
@@ -174,6 +190,12 @@ public:
      */
     bool subsume(const EndpointID& other) const
              { return uri_.subsume(other.uri_); }
+
+    /**
+     * @ return true if the given EndpointID is contained within
+     *   this EndpointID; otherwise false.
+     */
+    bool subsume_ipn(const EndpointID& other) const;
 
     /**
      * Append the specified service tag (in a scheme-specific manner)
@@ -323,6 +345,29 @@ public:
         is_pattern_ = true;
         uri_.set_validate(false);
         validate();
+    }
+
+    /**
+     * Operator copy assignment
+     */
+    EndpointIDPattern& operator=(const EndpointIDPattern& other)
+    { 
+        if (this == &other) return *this;
+
+        this->assign(other);
+        return *this;
+    }
+
+    /**
+     * Operator copy assignment fron another that is  not
+     * necessarily a pattern.
+     */
+    EndpointIDPattern& operator=(const EndpointID& other)
+    { 
+        if (this == &other) return *this;
+
+        this->assign(other);
+        return *this;
     }
 
     /**
