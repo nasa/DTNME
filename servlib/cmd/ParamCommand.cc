@@ -72,6 +72,12 @@ ParamCommand::ParamCommand()
                                 "configure API to send BPv7 (true) or BPv6 (false) bundles "
                                 "(default is true)"));
 
+    bind_var(new oasys::SizeOpt("api_deliver_max_memory_size",
+                                &BundleDaemon::params_.api_deliver_max_memory_size_,
+                                "bytes",
+                                "max size of a payload to deliver via memory (range: 0 to 100M; "
+                                "default: 1M)"));
+    
     bind_var(new oasys::BoolOpt("clear_bundles_when_opp_link_unavailable",
                                 &BundleDaemon::params_.clear_bundles_when_opp_link_unavailable_,
                                 "Clear bundles from opportunistic link when it goes unavailable "

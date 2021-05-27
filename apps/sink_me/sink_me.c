@@ -36,6 +36,7 @@
 #  include <dtn-config.h>
 #endif
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -108,7 +109,7 @@ void* delete_file(void* args) {
     //fprintf(stderr, "\nAsynchronously deleting file: %s\n\n", fname);
     unlink(fname);
     free(fname);
-    return NULL;
+    pthread_exit(NULL);
 }
 
 
@@ -276,23 +277,23 @@ handle_file_transfer(dtn_bundle_payload_t payload, uint64_t *size, uint32_t *whi
     // Try to open the file
     tempdes = open(payload.filename.filename_val, O_RDONLY);
     if ( tempdes < 0 ) {
-    fprintf(stderr, "While opening the temporary file for reading '%s': %s\n",
+        fprintf(stderr, "While opening the temporary file for reading '%s': %s\n",
         payload.filename.filename_val, strerror(errno));
-    return 0;
+        return 0;
     }
 
     if (fstat(tempdes, &fileinfo) != 0) {
-    fprintf(stderr, "While stat'ing the temp file '%s': %s\n",
+        fprintf(stderr, "While stat'ing the temp file '%s': %s\n",
         payload.filename.filename_val, strerror(errno));
-    close(tempdes);
-    return -1;
+        close(tempdes);
+        return -1;
     }
 
     if (read(tempdes, which, sizeof(*which)) != sizeof(*which)) {
-    fprintf(stderr, "While reading bundle number from temp file '%s': %s\n",
+        fprintf(stderr, "While reading bundle number from temp file '%s': %s\n",
         payload.filename.filename_val, strerror(errno));
-    close(tempdes);
-    return -1;
+        close(tempdes);
+        return -1;
     }
     close(tempdes);
     unlink(payload.filename.filename_val);
@@ -349,14 +350,28 @@ handle_released_db_file_transfer(dtn_bundle_payload_t payload, uint64_t *size, u
     if (*size != (uint64_t) fileinfo.st_size) {
         printf("Incorrect released DB file of size: %zu  expected:: %zu  not deleting file: %s\n",
                fileinfo.st_size, *size, payload.filename.filename_val);
+    } else if (*size < 100*1024*1024) {
+        unlink(payload.filename.filename_val);
     } else {
-        char* fname = calloc(1, payload.filename.filename_len);
-        strncpy(fname, payload.filename.filename_val, payload.filename.filename_len-1);
-        pthread_t mythread;
-        pthread_create(&mythread, NULL, delete_file, fname);
-
-        fprintf(stderr, "Received released DB file: %s    size: %zu  (asynchronously deleting)\n", 
-               payload.filename.filename_val, *size);
+        pthread_attr_t attr;
+        int rc = pthread_attr_init(&attr);
+        if (rc != 0) {
+            unlink(payload.filename.filename_val);
+        } else {
+            rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            if (rc != 0) {
+                char* fname = calloc(1, payload.filename.filename_len);
+                strncpy(fname, payload.filename.filename_val, payload.filename.filename_len-1);
+                pthread_t mythread;
+                rc = pthread_create(&mythread, &attr, delete_file, fname);
+                if (rc != 0) {
+                  fprintf(stderr, "Received released DB file: %s    size: %zu  (asynchronously deleting)\n", 
+                         payload.filename.filename_val, *size);
+                }
+            } else {
+                unlink(payload.filename.filename_val);
+            }
+        }
     }
 
     return 0;
@@ -521,122 +536,122 @@ main(int argc, char** argv)
 
 
     while (i <= count) {
-    int tries;
-    uint32_t which;
-    uint64_t size;
+        int tries;
+        uint32_t which;
+        uint64_t size;
 
-    memset(&spec, 0, sizeof(spec));
-    memset(&payload, 0, sizeof(payload));
+        memset(&spec, 0, sizeof(spec));
+        memset(&payload, 0, sizeof(payload));
 
-    /* 
-     * this is a little tricky. We want dtn_recv to time out after
-     * RECV_TIMEOUT ms, so we don't wait a long time for a bundle
-     * if something is broken and no bundle is coming.  But we
-     * want to be friendly and wait patiently for the first
-     * bundle, in case dtnsource is slow in getting off the mark.
-     * 
-     * So we loop at most max_startup_retries times
-     */
-    tries = 0;
-    while ((ret = dtn_recv(handle, &spec, bundletype, &payload, 
-                   RECV_TIMEOUT)) < 0) {
-        /* if waiting for the first bundle and we timed out be patient */
-        if (dtn_errno(handle) == DTN_ETIMEOUT) {
-            if (i == 1 && ++tries < max_startup_retries) {
-                fprintf(stderr, "waiting %d seconds for first bundle...\n",
-                    (max_startup_retries-tries)*RECV_TIMEOUT/1000);
-            } else if (++tries < max_startup_retries) {
-                fprintf(stderr, "waiting %d seconds for bundle %d...\n",
-                    (max_startup_retries-tries)*RECV_TIMEOUT/1000, i);
+        /* 
+         * this is a little tricky. We want dtn_recv to time out after
+         * RECV_TIMEOUT ms, so we don't wait a long time for a bundle
+         * if something is broken and no bundle is coming.  But we
+         * want to be friendly and wait patiently for the first
+         * bundle, in case dtnsource is slow in getting off the mark.
+         * 
+         * So we loop at most max_startup_retries times
+         */
+        tries = 0;
+        while ((ret = dtn_recv(handle, &spec, bundletype, &payload, 
+                       RECV_TIMEOUT)) < 0) {
+            /* if waiting for the first bundle and we timed out be patient */
+            if (dtn_errno(handle) == DTN_ETIMEOUT) {
+                if (i == 1 && ++tries < max_startup_retries) {
+                    fprintf(stderr, "waiting %d seconds for first bundle...\n",
+                        (max_startup_retries-tries)*RECV_TIMEOUT/1000);
+                } else if (++tries < max_startup_retries) {
+                    fprintf(stderr, "waiting %d seconds for bundle %d...\n",
+                        (max_startup_retries-tries)*RECV_TIMEOUT/1000, i);
+                } else {
+                    /* timed out waiting, something got dropped */
+                    fprintf(stderr, "timeout waiting for bundle %d\n", i);
+                    goto bail;
+                }
             } else {
-                /* timed out waiting, something got dropped */
-                fprintf(stderr, "timeout waiting for bundle %d\n", i);
+                /* a bad thing has happend in recv, or we've lost patience */
+                fprintf(stderr, "error in dtn_recv: %d (%d, %s)\n", ret, 
+                    dtn_errno(handle), dtn_strerror(dtn_errno(handle)));
                 goto bail;
             }
+        }
+
+        tries = 0;
+        if (!start_time_set) {
+            clock_gettime(CLOCK_MONOTONIC, &first_bundle_receipt_time);
+            last_bundle_receipt_time = first_bundle_receipt_time;
+            interim_time = first_bundle_receipt_time;
+            start_time_set = 1;
         } else {
-            /* a bad thing has happend in recv, or we've lost patience */
-            fprintf(stderr, "error in dtn_recv: %d (%d, %s)\n", ret, 
-                dtn_errno(handle), dtn_strerror(dtn_errno(handle)));
-            goto bail;
-        }
-    }
-
-    tries = 0;
-    if (!start_time_set) {
-        clock_gettime(CLOCK_MONOTONIC, &first_bundle_receipt_time);
-        last_bundle_receipt_time = first_bundle_receipt_time;
-        interim_time = first_bundle_receipt_time;
-        start_time_set = 1;
-    } else {
-        clock_gettime(CLOCK_MONOTONIC, &last_bundle_receipt_time);
-    }
-
-
-    // Files need to be handled differently than memory transfers
-    if (payload.location == DTN_PAYLOAD_FILE) {
-        if (handle_file_transfer(payload, &size, &which) < 0) {
-            dtn_free_payload(&payload);
-            continue;
-        }
-    } else if (payload.location == DTN_PAYLOAD_RELEASED_DB_FILE) {
-        if (handle_released_db_file_transfer(payload, &size, &which) < 0) {
-            dtn_free_payload(&payload);
-            continue;
+            clock_gettime(CLOCK_MONOTONIC, &last_bundle_receipt_time);
         }
 
-        if ((3 == size) && (i == 1)) {
+
+        // Files need to be handled differently than memory transfers
+        if (payload.location == DTN_PAYLOAD_FILE) {
+            if (handle_file_transfer(payload, &size, &which) < 0) {
+                dtn_free_payload(&payload);
+                continue;
+            }
+        } else if (payload.location == DTN_PAYLOAD_RELEASED_DB_FILE) {
+            if (handle_released_db_file_transfer(payload, &size, &which) < 0) {
+                dtn_free_payload(&payload);
+                continue;
+            }
+
+            if ((3 == size) && (i == 1)) {
+                now = time(0);
+                got_bpdriver_start = 1;
+                printf("Received bpdriver start packet at %s\n", ctime(&now));
+                continue;
+            }
+        } else {
+            size = payload.buf.buf_len;
+
+            if ((3 == size) && ((i == 1) || (0 == strncmp(&payload.buf.buf_val[1], "Go", 2)))) {
+                now = time(0);
+                got_bpdriver_start = 1;
+                printf("Received bpdriver start packet at %s\n", ctime(&now));
+                continue;
+            }
+
+            memcpy(&which, payload.buf.buf_val, sizeof(uint32_t));
+            which = ntohl(which);
+        }
+
+
+        if ((i == 1) && (!got_bpdriver_start)) {
             now = time(0);
-            got_bpdriver_start = 1;
-            printf("Received bpdriver start packet at %s\n", ctime(&now));
-            continue;
-        }
-    } else {
-        size = payload.buf.buf_len;
-
-        if ((3 == size) && ((i == 1) || (0 == strncmp(&payload.buf.buf_val[1], "Go", 2)))) {
-            now = time(0);
-            got_bpdriver_start = 1;
-            printf("Received bpdriver start packet at %s\n", ctime(&now));
-            continue;
+            printf("received first bundle at %s\n", ctime(&now));
         }
 
-        memcpy(&which, payload.buf.buf_val, sizeof(uint32_t));
-        which = ntohl(which);
-    }
+        ++bundles_received;
+        bytes_received += size;
 
+        if (!promiscuous) {
+            /* check to see which bundle this is */
+            if (which > (uint32_t) count) {
+                // note that the above cast is safe as count always >= 0
+                fprintf(stderr, "-- expecting %d bundles, saw bundle %u\n", 
+                        count, which);
+            }
+            else if (which <= 0) { /* because I am paranoid -DJE */
+                fprintf(stderr, "-- didn't expect bundle %u\n", which);
+            }
+            else {
+                ++received[which];
+            }
 
-    if ((i == 1) && (!got_bpdriver_start)) {
-        now = time(0);
-        printf("received first bundle at %s\n", ctime(&now));
-    }
-
-    ++bundles_received;
-    bytes_received += size;
-
-    if (!promiscuous) {
-        /* check to see which bundle this is */
-        if (which > (uint32_t) count) {
-        // note that the above cast is safe as count always >= 0
-        fprintf(stderr, "-- expecting %d bundles, saw bundle %u\n", 
-            count, which);
-        }
-        else if (which <= 0) { /* because I am paranoid -DJE */
-            fprintf(stderr, "-- didn't expect bundle %u\n", which);
-        }
-        else {
-            ++received[which];
-        }
-
-        if ((verbose > 0) && (bundles_received % verbose == 0)) {
-            printf("bundle %d received successfully: id %s,%"PRIu64".%"PRIu64"  payload len: %"PRIu64"\n",
-                   i,
-                   spec.source.uri,
-                   spec.creation_ts.secs,
-                   spec.creation_ts.seqno,
-                   size
-               );
-        }
-    } else {
+            if ((verbose > 0) && (bundles_received % verbose == 0)) {
+                printf("bundle %d received successfully: id %s,%"PRIu64".%"PRIu64"  payload len: %"PRIu64"\n",
+                       i,
+                       spec.source.uri,
+                       spec.creation_ts.secs,
+                       spec.creation_ts.seqno,
+                       size
+                   );
+            }
+        } else {
             if (dots) {
                 printf(".");
                 fflush(stdout);
@@ -722,8 +737,6 @@ bail:
     } else {
         printf("Total bundles received: %d  in %.3f secs - payload bytes: %"PRIu64"  rate: %.3f Mbps\n", 
                bundles_received, delta_us/1000000.0, bytes_received, rate);
-
-        printf("\n(exiting can be delayed if a large file deletion is in progress - please, be patient...)\n");
     }
 
 done:

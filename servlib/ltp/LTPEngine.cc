@@ -2482,12 +2482,15 @@ LTPNode::Receiver::RecvBundleProcessor::extract_bundles_from_data_file(std::stri
                 to_read = std::min(work_buf.tailbytes(), bytes_remaining);
 
                 cc = ::read(data_file_fd, work_buf.end(), to_read);
+
                 if (cc != to_read) {
-                    log_err("%s - error in loop reading from file: %s - %s -- try to close and reopen file...", 
-                            __func__, file_path.c_str(), strerror(errno));
+                    errno = 0;
+                    log_err("%s - error (cc=%zd) in loop reading %zd bytes at offset %zu (session_size: %zu) from file: %s - %s -- try to close and reopen file...", 
+                            __func__, cc, to_read, bytes_processed, len, file_path.c_str(), strerror(errno));
 
                     // try to close and reopen the file 
                     ::close(data_file_fd);
+                    errno = 0;
                     data_file_fd = ::open(file_path.c_str(), O_RDONLY);
 
                     if (data_file_fd < 0) {
@@ -2504,10 +2507,11 @@ LTPNode::Receiver::RecvBundleProcessor::extract_bundles_from_data_file(std::stri
                                     __func__, file_path.c_str(), strerror(errno));
                             abort_processing = true;
                         } else {
+                            errno = 0;
                             cc = ::read(data_file_fd, work_buf.end(), to_read);
                             if (cc != to_read) {
-                                log_err("%s - error in 2nd attempt reading from file: %s - %s -- abotr...",
-                                        __func__, file_path.c_str(), strerror(errno));
+                                log_err("%s - error (cc=%zd) in 2nd attempt reading from file: %s - %s -- abort...",
+                                        __func__, cc, file_path.c_str(), strerror(errno));
                                 abort_processing = true;
                             } else {
                                 work_buf.fill(to_read);
@@ -4077,17 +4081,17 @@ LTPNode::Sender::process_bundles_using_a_file(LTPSession* session_ptr)
 bool
 LTPNode::Sender::check_write_to_file(LTPDataFile* file_ptr, std::string& file_path, size_t& session_size, bool force_write)
 {
-    bool result = false;
+    bool result = true;
 
     if (force_write || (work_buf_.tailbytes() == 0)) {
         ssize_t cc = ::write(file_ptr->data_file_fd_, work_buf_.start(), work_buf_.fullbytes());
         if (cc != (ssize_t) work_buf_.fullbytes()) {
+            result = false;
             log_err("Error writing %zu bytes to outgoing LTP data file: %s",
                     work_buf_.fullbytes(), file_path.c_str());
         } else {
             session_size += work_buf_.fullbytes();
             work_buf_.consume(work_buf_.fullbytes());
-            result = true;
         }
 
         work_buf_.compact();

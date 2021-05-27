@@ -1485,11 +1485,19 @@ APIClient::handle_recv()
     // must stay in scope until it is sent to the app
     std::string released_filename;
 
+    size_t max_memory_size =  BundleDaemon::params_.api_deliver_max_memory_size_;
+    if (max_memory_size > DTN_MAX_BUNDLE_MEM) {
+        log_err("Changing api_deliver_max_memory_size from %zu to max allowed: %d",
+                 BundleDaemon::params_.api_deliver_max_memory_size_, DTN_MAX_BUNDLE_MEM);
+
+        BundleDaemon::params_.api_deliver_max_memory_size_ = DTN_MAX_BUNDLE_MEM;
+    }
+
     size_t payload_len = b->payload().length();
 
     // adjust delivery location based on the current limits
     if (location == DTN_PAYLOAD_VARIABLE) {
-        if (payload_len <= DTN_MAX_BUNDLE_MEM) {
+        if (payload_len <= max_memory_size) {
             location = DTN_PAYLOAD_MEM;
         } else {
             location = DTN_PAYLOAD_FILE;
@@ -1497,7 +1505,7 @@ APIClient::handle_recv()
     }
 
     if (location == DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE) {
-        if (payload_len <= DTN_MAX_BUNDLE_MEM) {
+        if (payload_len <= max_memory_size) {
             location = DTN_PAYLOAD_MEM;
         } else {
             location = DTN_PAYLOAD_RELEASED_DB_FILE;
@@ -1505,7 +1513,7 @@ APIClient::handle_recv()
     }
 
     if (location == DTN_PAYLOAD_MEM) {
-        if (payload_len > DTN_MAX_BUNDLE_MEM) {
+        if (payload_len > max_memory_size) {
             location = DTN_PAYLOAD_FILE;
         }
     }
@@ -1860,13 +1868,29 @@ APIClient::handle_recv_raw()
         log_err("APIServer.dtn_recv_raw: Produced length (%zu) does not match expected length (%zu)",
                 prod_len, total_len);
     }
-        
-    if (location == DTN_PAYLOAD_MEM && total_len > DTN_MAX_BUNDLE_MEM)
+
+
+    size_t max_memory_size =  BundleDaemon::params_.api_deliver_max_memory_size_;
+    if (max_memory_size > DTN_MAX_BUNDLE_MEM) {
+        log_err("Changing api_deliver_max_memory_size from %zu to max allowed: %d",
+                 BundleDaemon::params_.api_deliver_max_memory_size_, DTN_MAX_BUNDLE_MEM);
+
+        BundleDaemon::params_.api_deliver_max_memory_size_ = DTN_MAX_BUNDLE_MEM;
+    }
+
+
+    // adjust delivery location based on the current limits
+    if (location == DTN_PAYLOAD_VARIABLE) {
+        if (total_len <= max_memory_size) {
+            location = DTN_PAYLOAD_MEM;
+        } else {
+            location = DTN_PAYLOAD_FILE;
+        }
+    }
+
+
+    if ((location == DTN_PAYLOAD_MEM) && (total_len > max_memory_size))
     {
-        //dz debug log_debug(
-        log_crit("app requested memory delivery but raw_bundle is too big (%zu bytes)... "
-                  "using files instead",
-                  total_len);
         location = DTN_PAYLOAD_FILE;
     }
 

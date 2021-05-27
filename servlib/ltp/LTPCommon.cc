@@ -1861,9 +1861,16 @@ LTPSession::open_file_write()
             use_file_ = false;
             disk_io_error_ = true;
         } else {
-            // directgory structure is good
+            // directory structure is good
             // create the file path
-            sb.appendf("/ltpsession_%zu-%zu.dat", engine_id_, session_id_);
+            time_t now;
+            struct tm *timeinfo;
+            char time_str[80];
+            time(&now);
+            timeinfo = localtime(&now);
+            strftime(time_str, 80, "%Y-%m-%d_%H-%M-%S", timeinfo);
+
+            sb.appendf("/ltpsession_%zu-%zu__%s.dat", engine_id_, session_id_, time_str);
 
             file_path_ = sb.c_str();
 

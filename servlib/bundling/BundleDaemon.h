@@ -369,6 +369,9 @@ public:
         /// which BP version the API should generate/send
         bool api_send_bp_version7_ = true;
 
+        /// API max size for a payload delivered by mmemory
+        size_t api_deliver_max_memory_size_ = 1000000;
+
         /// allow specification of the local LTP Engine ID (otherwise pull from local IPN EID)
         uint64_t ltp_engine_id_ = 0;
 
