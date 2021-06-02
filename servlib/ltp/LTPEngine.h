@@ -142,6 +142,12 @@ public:
     virtual void start_shutdown();
     virtual void shutdown();
 
+    /**
+     * Force cancelling a session by sender due to a disk I/O error detected in the 
+     * convergence layer transmission processing
+     */
+    virtual void force_cancel_by_sender(LTPDataSegment* ds_seg);
+
 private:
 
     uint64_t local_engine_id_;
@@ -245,6 +251,12 @@ public:
 
 
     int64_t send_bundle(const BundleRef& bundle);
+
+    /**
+     * Force cancelling a session by sender due to a disk I/O error detected in the 
+     * convergence layer transmission processing
+     */
+    void force_cancel_by_sender(LTPDataSegment* ds_seg);
 
     /**
      * LTPNodeIF prototypes
@@ -619,6 +631,12 @@ protected:
 
         void reconfigured();
         uint64_t ltp_queued_bytes_quota() { return clsender_->Ltp_Queued_Bytes_Quota(); }
+
+        /**
+         * Force cancelling a session by sender due to a disk I/O error detected in the 
+         * convergence layer transmission processing
+         */
+        void force_cancel_by_sender(LTPDataSegment* ds_seg);
 
     protected:
         virtual void data_seg_timeout(SPtr_LTPSegment sptr_ltp_seg);

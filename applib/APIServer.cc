@@ -1213,7 +1213,7 @@ APIClient::handle_send()
                     filename, strerror(errno));
             return DTN_EINVAL;
         }
-        
+       
         left = payload_len;
         r = 0;
         offset = 0;
@@ -1221,15 +1221,21 @@ APIClient::handle_send()
         {
             r = fread(buffer, 1, (left>4096)?4096:left, file);
             
-            if (r)
+            if (r > 0)
             {
                 b->mutable_payload()->write_data(buffer, offset, r);
                 left   -= r;
                 offset += r;
             }
-            else
+            else if (ferror(file))
             {
-                sleep(1); // pause before re-reading
+                log_err("%s: error reading payload file from app: %s - %s",
+                        __func__, filename, strerror(errno));
+                return DTN_EINTERNAL;
+            } else if (feof(file)) {
+                log_err("%s: unexpected EOF reading payload file from app: %s - %s",
+                        __func__, filename, strerror(errno));
+                return DTN_EINTERNAL;
             }
         }
 

@@ -237,6 +237,17 @@ LTPEngine::get_closed_session_count()
 }
 
 //----------------------------------------------------------------------
+void
+LTPEngine::force_cancel_by_sender(LTPDataSegment* ds_seg)
+{
+     SPtr_LTPEngineReg engine_entry = lookup_engine(ds_seg->Engine_ID());
+
+     if (engine_entry != nullptr) {
+         engine_entry->LTP_Node()->force_cancel_by_sender(ds_seg);
+     }
+}
+
+//----------------------------------------------------------------------
 SPtr_LTPEngineReg
 LTPEngine::lookup_engine(uint64_t engine)
 {
@@ -633,6 +644,13 @@ LTPNode::reconfigured()
 {
     sender_sptr_->reconfigured();
     receiver_sptr_->reconfigured();
+}
+
+//----------------------------------------------------------------------
+void
+LTPNode::force_cancel_by_sender(LTPDataSegment* ds_seg)
+{
+    sender_sptr_->force_cancel_by_sender(ds_seg);
 }
 
 //----------------------------------------------------------------------
@@ -1181,13 +1199,19 @@ LTPNode::Receiver::dump_sessions(oasys::StringBuffer* buf)
     seg_processor_->get_queue_stats(seg_queue_size, seg_bytes_queued, seg_bytes_queued_max, seg_bytes_quota, seg_ds_discards);
     bundle_processor_->get_queue_stats(bundle_queue_size, bundle_bytes_queued, bundle_bytes_queued_max, bundle_quota);
 
-    buf->appendf("Receiver threads: SegProcessor: queued: %zu  bytes: %zu  max bytes: %zu (%s)   quota: %zu (%s)  DS discards: %zu\n"
-                 "               BundleProcessor: queued: %zu  bytes: %zu  max bytes: %zu (%s)\n",
-                 seg_queue_size, seg_bytes_queued, seg_bytes_queued_max,
+    buf->appendf("Receiver threads: SegProcessor: queued: %zu  bytes: %zu (%s)  max bytes: %zu (%s)   quota: %zu (%s)  DS discards: %zu\n"
+                 "               BundleProcessor: queued: %zu  bytes: %zu (%s)  max bytes: %zu (%s)\n",
+                 seg_queue_size, 
+                 seg_bytes_queued, 
+                 FORMAT_WITH_MAG(seg_bytes_queued).c_str(),
+                 seg_bytes_queued_max,
                  FORMAT_WITH_MAG(seg_bytes_queued_max).c_str(),
                  seg_bytes_quota, FORMAT_WITH_MAG(seg_bytes_quota).c_str(), seg_ds_discards,
 
-                 bundle_queue_size, bundle_bytes_queued, bundle_bytes_queued_max,
+                 bundle_queue_size, 
+                 bundle_bytes_queued, 
+                 FORMAT_WITH_MAG(bundle_bytes_queued).c_str(),
+                 bundle_bytes_queued_max,
                  FORMAT_WITH_MAG(bundle_bytes_queued_max).c_str());
 
 
@@ -2963,7 +2987,7 @@ LTPNode::Sender::process_RS(LTPReportSegment* rpt_seg, bool closed, bool cancell
                                                                        rpt_seg->Session_ID(),
                                                                        closed, cancelled);
     
-            if (!closed) {
+            if ((engptr == nullptr) || !closed) {
                 build_CS_segment(rpt_seg, LTP_SEGMENT_CS_BS, 
                                  LTPCancelSegment::LTP_CS_REASON_SYS_CNCLD);
 
@@ -3947,8 +3971,6 @@ LTPNode::Sender::process_bundles_using_a_file(LTPSession* session_ptr)
     bool force_write = false;
 
 
-    oasys::ScopeLock(&sptr_file->lock_, __func__);
-
     // generate the session data into the file
     bundle_iter = session_ptr->Bundle_List()->begin(); 
     while (!start_shutting_down_ && (bundle_iter != session_ptr->Bundle_List()->end()))
@@ -4557,7 +4579,10 @@ LTPNode::Sender::erase_send_session(LTPSession* session_ptr, bool cancelled)
 
     // start an InactivityTimer to eventually delete the closed out session from Engine's list
     SPtr_LTPNodeRcvrSndrIF sndr_if = parent_node_->sender_rsif_sptr();
-    session_ptr->Start_Closeout_Timer(sndr_if, inactivity_interval_);
+
+    // allow plenty of time to handle late RS's if the other side gets backed up
+    uint32_t closeout_secs = std::max(inactivity_interval_, 3600U);
+    session_ptr->Start_Closeout_Timer(sndr_if, closeout_secs);
 
     oasys::ScopeLock scoplok(&session_list_lock_, __func__);
 
@@ -4569,6 +4594,22 @@ LTPNode::Sender::erase_send_session(LTPSession* session_ptr, bool cancelled)
     bool is_ready = !shutting_down_ && 
                     ((send_sessions_.size() - sessions_state_cs_) <= max_sessions_);
     clsender_->Set_Ready_For_Bundles(is_ready);
+}
+
+//----------------------------------------------------------------------
+void
+LTPNode::Sender::force_cancel_by_sender(LTPDataSegment* ds_seg)
+{
+    SPtr_LTPSession sptr_session = find_sender_session(ds_seg);
+
+    if (sptr_session != nullptr) {
+        ds_seg->Set_Deleted();
+
+        build_CS_segment(sptr_session.get(), LTP_SEGMENT_CS_BS, 
+                         LTPCancelSegment::LTP_CS_REASON_SYS_CNCLD);
+    } else {
+        log_err("%s: unable to find session: %s", __func__, ds_seg->session_key_str().c_str());
+    }
 }
 
 //----------------------------------------------------------------------

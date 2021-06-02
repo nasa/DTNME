@@ -1855,8 +1855,7 @@ BundleDaemon::handle_contact_up(ContactUpEvent* event)
         return;
     }
     
-    //dzdebug
-    log_always("CONTACT_UP *%p (contact %p)", link.object(), contact.object());
+    log_info("CONTACT_UP *%p (contact %p)", link.object(), contact.object());
     link->set_state(Link::OPEN);
     link->stats_.contacts_++;
 }
@@ -1870,8 +1869,7 @@ BundleDaemon::handle_contact_down(ContactDownEvent* event)
     LinkRef link = contact->link();
     ASSERT(link != nullptr);
 
-    //dzdebug
-    log_always("CONTACT_DOWN *%p (%s) (contact %p)",
+    log_info("CONTACT_DOWN *%p (%s) (contact %p)",
              link.object(), ContactEvent::reason_to_str(reason),
              contact.object());
 

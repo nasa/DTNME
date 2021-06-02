@@ -231,6 +231,7 @@ protected:
 
     bundleid_t bundleid_;
 
+    bool syncing_file_ = false;  ///< flag indicating whether a file sync is in progress
 
     static oasys::SpinLock dir_lock_;	///< coordinate attempts to create/remove directories
 };

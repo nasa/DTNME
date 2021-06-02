@@ -338,7 +338,7 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
     }
 
     if (!conn->is_stopped()) {
-        log_err("Connection not stopped after 2 seconds - trying to force it to stop");
+        //log_err("Connection not stopped after 2 seconds - trying to force it to stop");
         conn->force_shutdown();
 
         while (!conn->is_stopped()) {

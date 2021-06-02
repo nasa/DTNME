@@ -1882,17 +1882,32 @@ LTPSession::open_file_write()
         oasys::ScopeLock(&sptr_file_->lock_, __func__);
 
         if (sptr_file_->data_file_fd_ < 0) {
-            sptr_file_->data_file_fd_ = ::open(file_path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0777);
+            sptr_file_->data_file_fd_ = ::open(file_path_.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0777);
+            //sptr_file_->data_file_fd_ = ::open(file_path_.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0777);
 
             if (sptr_file_->data_file_fd_ < 0) {
-                ASSERT(bytes_written_to_disk_ == 0);
+                if (errno == EEXIST) {
+                    // file already exists - adjust the name and try again....
+                    char rand_str[16];
+                    snprintf(rand_str, sizeof(rand_str), "_%u", LTP_14BIT_RAND);
+                    file_path_.append(rand_str);
 
-                log_err("error creating LTP data file: %s - %s - no data written yet so using memory",
-                         file_path_.c_str(), strerror(errno));
+                    log_err("LTP Session %s: file already exists - trying new name: %s",
+                            key_str().c_str(), file_path_.c_str());
 
-                use_file_ = false;
-                disk_io_error_ = true;
 
+                    sptr_file_->data_file_fd_ = ::open(file_path_.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0777);
+                }
+
+                if (sptr_file_->data_file_fd_ < 0) {
+                    ASSERT(bytes_written_to_disk_ == 0);
+
+                    log_err("error creating LTP data file: %s - %s - no data written yet so using memory",
+                             file_path_.c_str(), strerror(errno));
+
+                    use_file_ = false;
+                    disk_io_error_ = true;
+                }
             } else {
                 result = true;
             }
@@ -3738,22 +3753,11 @@ LTPDataSegment::asNewString()
             result->append((const char*)payload_, payload_length_);
             
         } else {
-            // TODO: how to signal local Engine to cancel the session? This would be invoked in the CL Sender
             log_err("LTP Session %s-%zu: Error reading DS payload from file; "
-                    "generating header with invalid client service ID (9999) to force a cancel",
+                    "forcing cancel by sender",
                     session_key_str().c_str(), offset_);
-
-            // sabotage the header to force cancelling this session
-            client_service_id_ = 9999;
-            offset_ = 0;
-            start_byte_ = 0;
-            stop_byte_ = 0;
-            payload_length_ = 0;
-
-            Encode_LTP_DS_Header();
-
             delete result;
-            result = new std::string((const char*)packet_.buf(), packet_len_);
+            result = nullptr;
         }
 
         free(payload_);

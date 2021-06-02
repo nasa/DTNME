@@ -308,8 +308,8 @@ protected:
 
         virtual void           Set_Ready_For_Bundles(bool input_flag) override { ready_for_bundles_ = input_flag; }
         virtual void           Send_Admin_Seg_Highest_Priority(std::string * send_data, SPtr_LTPTimer timer, bool back) override;
-        virtual void           Send_DataSeg_Higher_Priority(SPtr_LTPDataSegment ds_seg, SPtr_LTPTimer timer) override;
-        virtual void           Send_DataSeg_Low_Priority(SPtr_LTPDataSegment ds_seg, SPtr_LTPTimer timer) override;
+        virtual void           Send_DataSeg_Higher_Priority(SPtr_LTPDataSegment sptr_ds_seg, SPtr_LTPTimer timer) override;
+        virtual void           Send_DataSeg_Low_Priority(SPtr_LTPDataSegment sptr_ds_seg, SPtr_LTPTimer timer) override;
         virtual uint32_t       Retran_Intvl() override;
         virtual uint32_t       Retran_Retries() override;
         virtual uint32_t       Inactivity_Intvl() override;
@@ -350,7 +350,7 @@ protected:
             std::string*      str_data_ = nullptr;
             size_t            bytes_queued_ = 0;
             SPtr_LTPTimer     timer_;
-            SPtr_LTPDataSegment ds_seg_;
+            SPtr_LTPDataSegment sptr_ds_seg_;
         } MySendObject;
 
 

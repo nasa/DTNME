@@ -1422,20 +1422,20 @@ LTPUDPConvergenceLayer::LTPUDPSender::run()
                 // while it is being processed for transmission
                 // (LTP Engine can change it to a checkpoint while it is queued,
                 //  but, now it is too late and it will have to resend it)
-                oasys::ScopeLock scoplok(event->ds_seg_->lock(), __func__);
+                oasys::ScopeLock scoplok(event->sptr_ds_seg_->lock(), __func__);
 
                 // The LTP session may have been cancelled or completed
                 // while this segment was queued for transmission
-                if (event->ds_seg_->IsDeleted()) {
-                    if (event->ds_seg_->Retransmission_Timer_Raw_Ptr() != nullptr) {
+                if (event->sptr_ds_seg_->IsDeleted()) {
+                    if (event->sptr_ds_seg_->Retransmission_Timer_Raw_Ptr() != nullptr) {
                         // XXX/dz This should not happen [any longer ;)]
                         //        but if the timer is not cancelled then the segment and the timer leak
                         log_err("not sending deleted segment %s-%zu Chkpt: %zu  that has a Retransmission Timer",
-                                   event->ds_seg_->session_key_str().c_str(), 
-                                   event->ds_seg_->Offset(),
-                                   event->ds_seg_->Checkpoint_ID());
+                                   event->sptr_ds_seg_->session_key_str().c_str(), 
+                                   event->sptr_ds_seg_->Offset(),
+                                   event->sptr_ds_seg_->Checkpoint_ID());
 
-                        event->ds_seg_->Set_Deleted();  // cancels the timer
+                        event->sptr_ds_seg_->Set_Deleted();  // cancels the timer
                     }
 
                     okay_to_send = false;
@@ -1443,18 +1443,26 @@ LTPUDPConvergenceLayer::LTPUDPSender::run()
                     // xmit_str maintains the new string in scope until it is transmitted
                     // NOTE: the xmit_len may differ from event->bytes_queued if the
                     //       LTPEngine changed it to a checkpoint while it was queued
-                    xmit_str = event->ds_seg_->asNewString();
-                    str_data = xmit_str->data();
-                    xmit_len = xmit_str->size();
+                    xmit_str = event->sptr_ds_seg_->asNewString();
+                    if (xmit_str == nullptr) {
+                        // Error reading from an LTP Session Data file
+                        okay_to_send = false;
+                        SPtr_LTPEngine ltp_engine = BundleDaemon::instance()->ltp_engine();
 
-                    if (event->timer_) {
-                        event->timer_->start();
+                        ltp_engine->force_cancel_by_sender(event->sptr_ds_seg_.get());
                     } else {
-                        // in case the segment was changed to a Checkpoint while it was queued
-                        event->ds_seg_->Start_Retransmission_Timer();
-                    }
+                        str_data = xmit_str->data();
+                        xmit_len = xmit_str->size();
 
-                    event->ds_seg_->Set_Queued_To_Send(false);
+                        if (event->timer_) {
+                            event->timer_->start();
+                        } else {
+                            // in case the segment was changed to a Checkpoint while it was queued
+                            event->sptr_ds_seg_->Start_Retransmission_Timer();
+                        }
+
+                        event->sptr_ds_seg_->Set_Queued_To_Send(false);
+                    }
                 }
             }
 
@@ -1503,11 +1511,11 @@ LTPUDPConvergenceLayer::LTPUDPSender::run()
             // clean up
             if (event->str_data_) {
                 delete event->str_data_;
-            } else {
+            } else if (xmit_str != nullptr) {
                 delete xmit_str;
             }
 
-            event->ds_seg_.reset();
+            event->sptr_ds_seg_.reset();
             delete event;
         }
     }
@@ -1545,14 +1553,14 @@ LTPUDPConvergenceLayer::LTPUDPSender::Send_Admin_Seg_Highest_Priority(std::strin
 
 //----------------------------------------------------------------------
 void
-LTPUDPConvergenceLayer::LTPUDPSender::Send_DataSeg_Higher_Priority(SPtr_LTPDataSegment ds_seg, SPtr_LTPTimer timer)
+LTPUDPConvergenceLayer::LTPUDPSender::Send_DataSeg_Higher_Priority(SPtr_LTPDataSegment sptr_ds_seg, SPtr_LTPTimer timer)
 {
     if (!should_stop()) {
         MySendObject* obj = new MySendObject();
 
         obj->str_data_       = nullptr;
-        obj->bytes_queued_   = ds_seg->Transmit_Length();
-        obj->ds_seg_         = ds_seg;
+        obj->bytes_queued_   = sptr_ds_seg->Transmit_Length();
+        obj->sptr_ds_seg_    = sptr_ds_seg;
         obj->timer_          = timer;
 
         oasys::ScopeLock l(&eventq_lock_, __func__);
@@ -1569,14 +1577,14 @@ LTPUDPConvergenceLayer::LTPUDPSender::Send_DataSeg_Higher_Priority(SPtr_LTPDataS
 
 //----------------------------------------------------------------------
 void
-LTPUDPConvergenceLayer::LTPUDPSender::Send_DataSeg_Low_Priority(SPtr_LTPDataSegment ds_seg, SPtr_LTPTimer timer)
+LTPUDPConvergenceLayer::LTPUDPSender::Send_DataSeg_Low_Priority(SPtr_LTPDataSegment sptr_ds_seg, SPtr_LTPTimer timer)
 {
     if (!should_stop()) {
         MySendObject* obj = new MySendObject();
 
         obj->str_data_       = nullptr;
-        obj->bytes_queued_   = ds_seg->Transmit_Length();
-        obj->ds_seg_         = ds_seg;
+        obj->bytes_queued_   = sptr_ds_seg->Transmit_Length();
+        obj->sptr_ds_seg_    = sptr_ds_seg;
         obj->timer_          = timer;
 
         oasys::ScopeLock l(&eventq_lock_, __func__);

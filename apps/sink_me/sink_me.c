@@ -92,8 +92,7 @@ int   unregister    = 0;        // remove existing registration
 int   no_find_reg    = 0;        // omit call to dtn_find_registration
 char filename[PATH_MAX+1];        // Destination filename for file xfers
 
-//dzdebug dtn_bundle_payload_location_t bundletype = DTN_PAYLOAD_VARIABLE;
-dtn_bundle_payload_location_t bundletype = DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE;
+dtn_bundle_payload_location_t bundletype = DTN_PAYLOAD_VARIABLE;
 
 int   promiscuous       = 0;            // accept any bundles, ignore content
 int   dots              = 0;            // show progress using dots
@@ -135,9 +134,11 @@ usage()
     fprintf(stderr, " -N don't try to find an existing registration\n");
     fprintf(stderr, " -p operate in promiscuous mode "
         "(accept n bundles, ignore contents\n");
+    fprintf(stderr, " -b use experimental Release DB File delivery method\n");
     fprintf(stderr, " -s show progress using dots (promiscuous mode)\n");
     fprintf(stderr, " -t <retries> default is 10 for 100 seconds\n");
 }
+
 
 void
 parse_options(int argc, char**argv)
@@ -150,7 +151,7 @@ parse_options(int argc, char**argv)
 
     while (!done)
     {
-        c = getopt(argc, argv, "A:B:v:hHd:r:e:f:F:xn:cuNpst:");
+        c = getopt(argc, argv, "A:B:v:hHd:r:e:f:F:xn:cuNpbst:");
         switch (c)
         {
         case 'A':
@@ -220,6 +221,9 @@ parse_options(int argc, char**argv)
             break;
         case 't':
             max_startup_retries = atoi(optarg);
+            break;
+        case 'b':
+            bundletype = DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE;
             break;
         case -1:
             done = 1;
@@ -365,8 +369,10 @@ handle_released_db_file_transfer(dtn_bundle_payload_t payload, uint64_t *size, u
                 pthread_t mythread;
                 rc = pthread_create(&mythread, &attr, delete_file, fname);
                 if (rc != 0) {
-                  fprintf(stderr, "Received released DB file: %s    size: %zu  (asynchronously deleting)\n", 
-                         payload.filename.filename_val, *size);
+                    fprintf(stderr, "Received released DB file: %s    size: %zu  (asynchronously deleting)\n", 
+                            payload.filename.filename_val, *size);
+                } else {
+                    unlink(payload.filename.filename_val);
                 }
             } else {
                 unlink(payload.filename.filename_val);
@@ -593,6 +599,14 @@ main(int argc, char** argv)
                 dtn_free_payload(&payload);
                 continue;
             }
+
+            if ((3 == size) && (i == 1)) {
+                now = time(0);
+                got_bpdriver_start = 1;
+                printf("Received bpdriver start packet at %s\n", ctime(&now));
+                dtn_free_payload(&payload);
+                continue;
+            }
         } else if (payload.location == DTN_PAYLOAD_RELEASED_DB_FILE) {
             if (handle_released_db_file_transfer(payload, &size, &which) < 0) {
                 dtn_free_payload(&payload);
@@ -603,6 +617,7 @@ main(int argc, char** argv)
                 now = time(0);
                 got_bpdriver_start = 1;
                 printf("Received bpdriver start packet at %s\n", ctime(&now));
+                dtn_free_payload(&payload);
                 continue;
             }
         } else {
@@ -612,6 +627,7 @@ main(int argc, char** argv)
                 now = time(0);
                 got_bpdriver_start = 1;
                 printf("Received bpdriver start packet at %s\n", ctime(&now));
+                dtn_free_payload(&payload);
                 continue;
             }
 

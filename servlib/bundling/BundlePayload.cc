@@ -193,11 +193,18 @@ BundlePayload::sync_payload()
 
         pin_file();
 
+        // flag to prevent releasing the database file to an app while a sync
+        // is in progress - all others can read during this phase
+
+        syncing_file_ = true;
+
         scoplok.unlock();
 
         fsync(file_.fd());
         unpin_file();
 
+        // release the syncing flag after the unpin
+        syncing_file_ = false;
         modified_ = false;
     }
 }
@@ -279,7 +286,13 @@ BundlePayload::release_file(std::string& filename)
 
     oasys::ScopeLock scoplok(lock_, __func__);
 
-    modified_ = false;  // prevent the BDStorage from trying to sync to disk
+    // prevent the BDStorage from trying to sync to disk if possible
+    modified_ = false;
+
+    // if sync is in progress then must wait for it to finish
+    while (syncing_file_) {
+        usleep(100000);
+    }
 
     if (location_ == DISK && file_.is_open()) {
         // moving the file up one level to the main bundle storage path and renaming it
@@ -411,7 +424,7 @@ BundlePayload::release_from_fd_cache()
         return;
     }
     
-    BundleStore::instance()->payload_fdcache()->try_close(file_.path());
+    BundleStore::instance()->payload_fdcache()->close(file_.path());
 }
 
 //----------------------------------------------------------------------
@@ -548,8 +561,20 @@ BundlePayload::internal_write(const u_char* bp, size_t offset, size_t len)
             file_.lseek(offset, SEEK_SET);
             cur_offset_ = offset;
         }
-        file_.writeall((char*)bp, len);
-        cur_offset_ += len;
+        int cc;
+        
+        cc = file_.writeall((char*)bp, len);
+        if (cc < 0) {
+            log_err("%s: error writing %zu bytes at offset %zu to file(fd: %d): %s - %s",
+                    __func__, len, offset, file_.fd(), file_.path(), strerror(errno));
+        } else if ((size_t) cc < len) {
+            cur_offset_ += cc;
+            log_err("%s: error writing %zu bytes at offset %zu (only wrote %d) to file(fd: %d): %s - %s",
+                    __func__, len, offset, cc, file_.fd(), file_.path(), strerror(errno));
+        } else {
+            cur_offset_ += len;
+        }
+
         modified_ = true;
         break;
     case NODATA:
