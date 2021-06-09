@@ -85,12 +85,6 @@ public:
     void sync_payload();
   
     /**
-     * Close and remove the file descriptor from the cache
-     * (after finished reading the payload to minimize number of open files)
-     */
-    void release_from_fd_cache();
-
-    /**
      * Set the payload length in preparation for filling in with data.
      */
     void set_length(size_t len);

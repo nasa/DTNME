@@ -294,30 +294,30 @@ BundlePayload::release_file(std::string& filename)
         usleep(100000);
     }
 
-    if (location_ == DISK && file_.is_open()) {
-        // moving the file up one level to the main bundle storage path and renaming it
+    if (location_ == DISK) {
+        if (pin_file()) {
+            // moving the file up one level to the main bundle storage path and renaming it
+            BundleStore* bs = BundleStore::instance();
 
-        release_from_fd_cache();
+            if (bs->payload_fdcache()->try_close_while_pinned(file_.path())) {
+                file_.set_fd(-1); // prevent 2nd close
 
-        BundleStore* bs = BundleStore::instance();
-        oasys::StringBuffer new_filepath("%s/released_bundle_%" PRIbid ".dat",
-                                         bs->payload_dir().c_str(), bundleid_);
+                oasys::StringBuffer new_filepath("%s/released_bundle_%" PRIbid ".dat",
+                                                 bs->payload_dir().c_str(), bundleid_);
         
-        file_.close();
+                int err = rename(file_.path(), new_filepath.c_str());
 
-        int err = rename(file_.path(), new_filepath.c_str());
-
-        if (err != 0) {
-            log_err("Error (%s) releasing and renaming bundle payload file from %s to %s",
-                    strerror(errno), file_.path(), new_filepath.c_str());
-        } else {
-            result = true;
-            filename = new_filepath.c_str();
+                if (err != 0) {
+                    log_err("Error (%s) releasing and renaming bundle payload file from %s to %s",
+                            strerror(errno), file_.path(), new_filepath.c_str());
+                } else {
+                    result = true;
+                    filename = new_filepath.c_str();
+                }
+            } else {
+                unpin_file();
+            }
         }
-
-         
-    } else {
-        result = false;
     }
 
     return result;
@@ -414,17 +414,6 @@ BundlePayload::unpin_file() const
     }
     
     BundleStore::instance()->payload_fdcache()->unpin(file_.path());
-}
-
-//----------------------------------------------------------------------
-void
-BundlePayload::release_from_fd_cache()
-{
-    if (location_ != DISK) {
-        return;
-    }
-    
-    BundleStore::instance()->payload_fdcache()->close(file_.path());
 }
 
 //----------------------------------------------------------------------
