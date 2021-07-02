@@ -238,15 +238,17 @@ public:
     /*!
      * Close a file fd and remove it from the cache if pin_count is zero.
      */
-    void try_close(const _Key& key) 
+    bool try_close(const _Key& key) 
     {
+        bool result = false;
+
         ScopeLock l(&lock_, "OpenFdCache::try_close");
         
         typename FdMap::iterator i = open_fds_map_.find(key);
 
         if (i == open_fds_map_.end()) 
         {
-            return;
+            return false;
         }
 
         if (i->second->pin_count_ == 0) {
@@ -255,7 +257,40 @@ public:
 
             open_fds_.erase(i->second);
             open_fds_map_.erase(i);       
+
+            result = true;
         }
+
+        return result;
+    }
+    
+    /*!
+     * Close a file fd and remove it from the cache if pin_count is one.
+     */
+    bool try_close_while_pinned(const _Key& key) 
+    {
+        bool result = false;
+
+        ScopeLock l(&lock_, "OpenFdCache::try_close_while_pinned");
+        
+        typename FdMap::iterator i = open_fds_map_.find(key);
+
+        if (i == open_fds_map_.end()) 
+        {
+            return false;
+        }
+
+        if (i->second->pin_count_ == 1) {
+            _CloseFcn::close(i->second->fd_);
+            log_debug("Closed %d size=%u", i->second->fd_, (u_int)open_fds_map_.size());
+
+            open_fds_.erase(i->second);
+            open_fds_map_.erase(i);       
+
+            result = true;
+        }
+
+        return result;
     }
     
     /*!
