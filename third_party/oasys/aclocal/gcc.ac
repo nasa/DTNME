@@ -120,7 +120,7 @@ AC_DEFUN(AC_OASYS_CONFIG_GCC_VERSION, [
 	# For 3.2 and beyond, use auto-dependency flags. 
 	# Note that for m4 to output a '$' requires the '@S|@' heinosity below.
 	#
-	3.*|4.*|5.*|6.*|7.*|8|8.*|9|9.*)
+	3.*|4.*|5.*|6.*|7.*|8|8.*|9|9.*|10|10.*)
             DEPFLAGS=['-MMD -MP -MT "@S|@*.o @S|@*.E"']
 	    ;;
 	#
