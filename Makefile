@@ -164,4 +164,4 @@ $(SRCDIR)/configure $(OASYS_ETCDIR)/Rules.make.in:
 	@echo error -- Makefile did not set SRCDIR properly
 	@exit 1
 
-CFGFILES = Rules.make System.make aclocal.m4 config.log config.status configure dtn-config.h dtn-config.h.in
+CFGFILES = Rules.make System.make aclocal.m4 config.log config.status configure dtn-config.h dtn-config.h.in dtn-version.h 

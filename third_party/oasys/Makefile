@@ -324,7 +324,7 @@ Rules.make: ./Rules.make.in ./configure
 #
 # Make sure the clean rule knows about which files need cleaning
 #
-CFGFILES := Rules.make System.make oasys-config.h oasys-config.h.in config.cache config.log config.status aclocal.m4 configure  \
+CFGFILES := Rules.make System.make oasys-config.h oasys-config.h.in config.cache config.log config.status aclocal.m4 configure oasys-version.h \
 CFGDIRS  := 
 #./Rules.make.in:
 #	@echo SRCDIR: .

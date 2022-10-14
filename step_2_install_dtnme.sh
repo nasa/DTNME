@@ -2,24 +2,39 @@
 
 # Build file structure at designated root directory
 
+if [ $# -ne 2 ]
+  then
+    echo "Usage: ./step_2_install_dtnme.sh <installation_directory> <node_number>"
+    exit 1
+fi
+
 # Generate Run Script
 
-tee /$1/run_dtnme.sh <<<"
-#!/bin/bash
+echo "#!/bin/bash
 
 # dtnd - DTN2 server daemon
 #    -c <cfg file>   = configuration file
 #    -l <level>      = logging level (crit, err, warn, notice, info, debug)
-#    -t              = tidy  (reset database)
+#    -t              = tidy  (reset/initialize database)
 #    -o <file>       = log file path
+#    -d              = daemonize (run in background)
 #
-./bin/dtnme -c ./dtnme_daemon.cfg -l err -o node$2/dtn.log
-"
+
+    ./bin/dtnme -c ./dtnme_daemon.cfg -l err -o node_$2/dtn.log -t
+" > /$1/run_dtnme.sh
+
+chmod +x /$1/run_dtnme.sh
 
 # Copy Config File
+
 cp daemon/dtnme_daemon.cfg /$1/dtnme_daemon.cfg
 
-#Create Bin Directory to Store Binaries
+# Update Config with new Node Number
+
+sed -i "s|node_eid|$2|g" /$1/dtnme_daemon.cfg
+
+# Create Bin Directory to Store Binaries
+
 mkdir /$1/bin
 
 cp daemon/dtnme /$1/bin/dtnme
@@ -37,6 +52,9 @@ cp apps/source_me/source_me /$1/bin/source_me
 cp apps/tunnel_me/tunnel_me /$1/bin/tunnel_me
 cp apps/deliver_me/deliver_me /$1/bin/deliver_me
 
-#Create Working Directory for DTNME to Store Bundles, Logs, and Databases
+# Create Working Directory for DTNME to Store Bundles, Logs, and Databases
 mkdir /$1/node_$2
 
+mkdir /$1/node_$2/db
+
+mkdir /$1/node_$2/bundles
