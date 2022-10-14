@@ -217,8 +217,15 @@ EhsDtnNode::process_hello_msg(CborValue& cvElement, uint64_t msg_version)
             uint64_t local_pending = all_bundles_.get_bundles_pending();
 
             if (bundles_pending != local_pending) {
-                log_msg(oasys::LOG_CRIT, "Pending bundles (%" PRIu64 ") out of sync with DTNME server (%" PRIu64 ")",
+                log_msg(oasys::LOG_ALWAYS, "Pending bundles (%" PRIu64 ") out of sync with DTNME server (%" PRIu64 ")",
                         local_pending, bundles_pending);
+
+                resync_bundles_in_process_ = true;
+                // set all bundles to indicate they were not in the resync report
+                all_bundles_.prepare_for_resync();
+                // request a current bundle report to resync with
+                client_send_bundle_query_msg();
+
             }
         }
 
@@ -229,6 +236,21 @@ EhsDtnNode::process_hello_msg(CborValue& cvElement, uint64_t msg_version)
 
 }
 
+//----------------------------------------------------------------------
+void
+EhsDtnNode::do_resync_processing()
+{
+    if (resync_bundles_in_process_) {
+        oasys::ScopeLock l(&lock_, __func__);
+
+        // provide the undeliveerd and custody lists so that bundles can be deleted from them also
+        size_t num_deleted = all_bundles_.finalize_resync(undelivered_bundles_, custody_bundles_);
+
+        log_msg(oasys::LOG_ALWAYS, "Reync deleted %zu bundles", num_deleted);
+
+        resync_bundles_in_process_ = false;
+    }
+}
 
 //----------------------------------------------------------------------
 void
@@ -252,7 +274,8 @@ EhsDtnNode::process_bundle_report_v0(CborValue& cvElement)
 {
     extrtr_bundle_vector_t bundle_vec;
 
-    if (CBORUTIL_SUCCESS != decode_bundle_report_msg_v0(cvElement, bundle_vec))
+    bool last_msg = false;
+    if (CBORUTIL_SUCCESS != decode_bundle_report_msg_v0(cvElement, bundle_vec, last_msg))
     {
         log_msg(oasys::LOG_ERR, "process_bundle_report_v0: error parsing CBOR - num bundles = %zu",
                                 bundle_vec.size());
@@ -338,6 +361,11 @@ EhsDtnNode::process_bundle_report_v0(CborValue& cvElement)
         }
 
         ++iter;
+    }
+
+
+    if (last_msg) {
+        do_resync_processing();
     }
 }
 
@@ -601,10 +629,13 @@ EhsDtnNode::process_bundle_cancelled_v0(CborValue& cvElement)
     bref = all_bundles_.bundle_transmitted(bundleid, false);
     if (bref != nullptr) {
         // reroute to try again 
-        log_msg(oasys::LOG_ALWAYS, 
-                "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
-                bundleid);
-        route_bundle(bref);
+        if (resync_bundles_in_process_) {
+            log_msg(oasys::LOG_ALWAYS, 
+                    "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
+                    bundleid);
+            route_bundle(bref);
+        }
+        //dzdebug route_bundle(bref);
     } else {
         // Probably received notice from LTP after the bundle expired (dtnping with 30 secs)
         log_msg(oasys::LOG_ALWAYS, 
@@ -888,6 +919,115 @@ EhsDtnNode::process_agg_custody_signal_v0(CborValue& cvElement)
 }
 
 
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_bard_usage_rpt_v0(CborValue& cvElement)
+{
+    (void) cvElement;
+
+#ifdef BARD_ENABLED
+    oasys::ScopeLock l(&lock_, __func__);
+
+    if (!have_bard_usage_reprt_) {
+        bard_usage_rpt_usage_stats_.clear();
+        bard_usage_rpt_cl_stats_.clear();
+
+        BARDNodeStorageUsageMap bard_usage_map;
+        RestageCLMap restagecl_map;
+
+        if (CBORUTIL_SUCCESS != decode_bard_usage_report_msg_v0(cvElement, bard_usage_map, restagecl_map))
+        {
+            log_msg(oasys::LOG_ERR, "%s: error parsing CBOR", __func__);
+        }
+
+
+        SPtr_BARDNodeStorageUsage sptr_usage;
+        BARDNodeStorageUsageMap::iterator usage_iter =  bard_usage_map.begin();
+        while (usage_iter != bard_usage_map.end()) {
+            sptr_usage = usage_iter->second;
+
+            EhsBARDUsageStats usage_stats;
+            usage_stats.quota_type_ = bard_quota_type_to_int(sptr_usage->quota_type());
+            usage_stats.naming_scheme_ = bard_naming_scheme_to_int(sptr_usage->naming_scheme());
+            usage_stats.node_number_ = sptr_usage->node_number();
+
+            // usage elements
+            usage_stats.inuse_internal_bundles_ = sptr_usage->inuse_internal_bundles_;
+            usage_stats.inuse_internal_bytes_ = sptr_usage->inuse_internal_bytes_;
+            usage_stats.inuse_external_bundles_ = sptr_usage->inuse_external_bundles_;
+            usage_stats.inuse_external_bytes_ = sptr_usage->inuse_external_bytes_;
+
+            // reserved elements
+            usage_stats.reserved_internal_bundles_ = sptr_usage->reserved_internal_bundles_;
+            usage_stats.reserved_internal_bytes_ = sptr_usage->reserved_internal_bytes_;
+            usage_stats.reserved_external_bundles_ = sptr_usage->reserved_external_bundles_;
+            usage_stats.reserved_external_bytes_ = sptr_usage->reserved_external_bytes_;
+
+            // quota elements
+            usage_stats.quota_internal_bundles_ = sptr_usage->quota_internal_bundles();
+            usage_stats.quota_internal_bytes_ = sptr_usage->quota_internal_bytes();
+            usage_stats.quota_external_bundles_ = sptr_usage->quota_external_bundles();
+            usage_stats.quota_external_bytes_ = sptr_usage->quota_external_bytes();
+            usage_stats.quota_refuse_bundle_ = sptr_usage->quota_refuse_bundle();
+            usage_stats.quota_auto_reload_ = sptr_usage->quota_auto_reload();
+
+            usage_stats.quota_restage_link_name_ = sptr_usage->quota_restage_link_name();
+
+            bard_usage_rpt_usage_stats_.push_back(usage_stats);
+
+
+            ++usage_iter;
+        }
+
+
+        SPtr_RestageCLStatus sptr_clstatus;
+        RestageCLIterator cl_iter = restagecl_map.begin();
+        while (cl_iter != restagecl_map.end()) {
+
+            sptr_clstatus = cl_iter->second;
+
+            EhsRestageCLStats cl_stats;
+
+            cl_stats.restage_link_name_ = sptr_clstatus->restage_link_name_;
+
+            cl_stats.storage_path_ = sptr_clstatus->storage_path_;
+
+            cl_stats.validated_mount_pt_ = sptr_clstatus->validated_mount_pt_;
+
+            cl_stats.mount_point_ = sptr_clstatus->mount_point_;
+            cl_stats.mount_pt_validated_ = sptr_clstatus->mount_pt_validated_;
+            cl_stats.storage_path_exists_ = sptr_clstatus->storage_path_exists_;
+
+            cl_stats.part_of_pool_ = sptr_clstatus->part_of_pool_;
+
+            cl_stats.vol_total_space_ = sptr_clstatus->vol_total_space_;
+            cl_stats.vol_space_available_ = sptr_clstatus->vol_space_available_;
+
+            cl_stats.disk_quota_ = sptr_clstatus->disk_quota_;
+            cl_stats.disk_quota_in_use_ = sptr_clstatus->disk_quota_in_use_;
+            cl_stats.disk_num_files_ = sptr_clstatus->disk_num_files_;
+
+            cl_stats.days_retention_ = sptr_clstatus->days_retention_;
+            cl_stats.expire_bundles_ = sptr_clstatus->expire_bundles_;
+            cl_stats.ttl_override_ = sptr_clstatus->ttl_override_;
+            cl_stats.auto_reload_interval_ = sptr_clstatus->auto_reload_interval_;
+
+            cl_stats.cl_state_ = sptr_clstatus->cl_state_;
+
+            bard_usage_rpt_cl_stats_.push_back(cl_stats);
+
+            ++cl_iter;
+        }
+
+
+        bard_usage_report_requested_ = false;
+        have_bard_usage_reprt_ = true;
+    }
+#endif // BARD_ENABLED
+}
+
+
+
 
 
 //----------------------------------------------------------------------
@@ -1122,6 +1262,14 @@ EhsDtnNode::handle_cbor_received(EhsCborReceivedEvent* event)
             if (msg_version == 0) {
                 msg_processed = true;
                 process_agg_custody_signal_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BARD_USAGE_REPORT:
+            //log_always("%s - got BARD Usage Report msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bard_usage_rpt_v0(cvElement);
             }
             break;
 
@@ -1393,6 +1541,87 @@ EhsDtnNode::fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats)
     all_bundles_.fwdlink_interval_stats(count, stats);
 }
 
+//----------------------------------------------------------------------
+void
+EhsDtnNode::request_bard_usage_stats()
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    if (!have_bard_usage_reprt_ && !bard_usage_report_requested_) {
+        bard_usage_report_requested_ = true;
+
+        client_send_bard_usage_req_msg();
+    }
+}
+
+
+//----------------------------------------------------------------------
+bool
+EhsDtnNode::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, 
+                            EhsRestageCLStatsVector& cl_stats)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    bool result = have_bard_usage_reprt_;
+
+    if (have_bard_usage_reprt_) {
+        // TODO: add a time received...
+
+        usage_stats = bard_usage_rpt_usage_stats_;
+        cl_stats = bard_usage_rpt_cl_stats_;
+
+        // clear the local copies
+        bard_usage_rpt_usage_stats_.clear();
+        bard_usage_rpt_cl_stats_.clear();
+
+        have_bard_usage_reprt_ = false;
+    }
+
+    return result;
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+#ifdef BARD_ENABLED    
+    BARDNodeStorageUsage bard_quota;
+
+    bard_quota.set_quota_type(int_to_bard_quota_type(quota.quota_type_));
+    bard_quota.set_naming_scheme(int_to_bard_naming_scheme(quota.naming_scheme_));
+    bard_quota.set_node_number(quota.node_number_);
+
+    bard_quota.set_quota_internal_bundles(quota.quota_internal_bundles_);
+    bard_quota.set_quota_internal_bytes(quota.quota_internal_bytes_);
+    bard_quota.set_quota_external_bundles(quota.quota_external_bundles_);
+    bard_quota.set_quota_external_bytes(quota.quota_external_bytes_);
+
+    bard_quota.set_quota_restage_link_name(quota.quota_restage_link_name_);
+    bard_quota.set_quota_auto_reload(quota.quota_auto_reload_);
+
+    client_send_bard_add_quota_req_msg(bard_quota);
+#endif // BARD_ENABLED
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+#ifdef BARD_ENABLED    
+    BARDNodeStorageUsage bard_quota;
+
+    bard_quota.set_quota_type(int_to_bard_quota_type(quota.quota_type_));
+    bard_quota.set_naming_scheme(int_to_bard_naming_scheme(quota.naming_scheme_));
+    bard_quota.set_node_number(quota.node_number_);
+
+    client_send_bard_del_quota_req_msg(bard_quota);
+#endif // BARD_ENABLED
+}
 
 //----------------------------------------------------------------------
 void
@@ -1717,7 +1946,7 @@ EhsDtnNode::bundle_delete_all()
 
     client_send_delete_all_bundles_req_msg();
 
-    return 0;
+    return all_bundles_.size();
 }
 
 //----------------------------------------------------------------------

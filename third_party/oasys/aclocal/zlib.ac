@@ -22,7 +22,7 @@ dnl
 AC_DEFUN(AC_CONFIG_ZLIB, [
 
     AC_ARG_WITH(zlib,
-      [AC_HELP_STRING([--with-zlib],
+      [AS_HELP_STRING([--with-zlib],
                       [compile in zlib support (default try)])],
       [ac_use_zlib=$withval],
       [ac_use_zlib=try])

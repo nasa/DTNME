@@ -1004,6 +1004,60 @@ EhsBundleMapWithStats::fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStat
 }
 
 
+//----------------------------------------------------------------------
+void
+EhsBundleMapWithStats::prepare_for_resync()
+{
+    EhsBundleRef bref(__func__);
+
+    oasys::ScopeLock l(&lock_, __func__);
+
+    Iterator iter = list_.begin();
+
+    while (iter != list_.end()) {
+        bref = iter->second;
+
+        bref->prepare_for_resync();
+
+        ++iter;
+    }
+}
+
+size_t
+EhsBundleMapWithStats::finalize_resync(EhsBundleMap& undelivered_bmap, EhsBundleMap& custody_bmap)
+{
+    size_t num_deleted = 0;
+
+    EhsBundleRef bref(__func__);
+
+    oasys::ScopeLock l(&lock_, __func__);
+
+    bool do_delete = false;
+    Iterator iter = list_.begin();
+
+    while (iter != list_.end()) {
+        bref = iter->second;
+
+        do_delete = false;
+        if (bref->not_in_resync_report()) {
+            do_delete = true;
+
+            bref->set_deleted();
+
+            undelivered_bmap.erase(bref->bundleid());
+            custody_bmap.erase(bref->bundleid());
+        }
+
+        ++iter;
+
+        if (do_delete) {
+            bundle_rejected(bref);
+            ++num_deleted;
+        }
+    }
+
+    return num_deleted;
+}
 
 
 /***********************************************************************

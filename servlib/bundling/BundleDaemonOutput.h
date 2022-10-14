@@ -137,6 +137,7 @@ protected:
     void handle_bundle_injected(BundleInjectedEvent* event);
     void handle_bundle_send(BundleSendRequest* event);
     void handle_bundle_transmitted(BundleTransmittedEvent* event);
+    void handle_bundle_restaged(BundleRestagedEvent* event);
     void handle_link_cancel_all_bundles_request(LinkCancelAllBundlesRequest* event);
     ///@}
 

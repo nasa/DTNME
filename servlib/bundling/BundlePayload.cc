@@ -295,13 +295,14 @@ BundlePayload::release_file(std::string& filename)
     }
 
     if (location_ == DISK) {
+        // pin the file to reopen it incase t was evicted and closed
         if (pin_file()) {
             // moving the file up one level to the main bundle storage path and renaming it
-            BundleStore* bs = BundleStore::instance();
 
-            if (bs->payload_fdcache()->try_close_while_pinned(file_.path())) {
-                file_.set_fd(-1); // prevent 2nd close
+            if (BundleStore::instance()->payload_fdcache()->try_close_and_release(file_.path())) {
+                file_.set_fd(-1); // avoid duplicate close
 
+                BundleStore* bs = BundleStore::instance();
                 oasys::StringBuffer new_filepath("%s/released_bundle_%" PRIbid ".dat",
                                                  bs->payload_dir().c_str(), bundleid_);
         

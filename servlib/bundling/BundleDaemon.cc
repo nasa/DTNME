@@ -56,6 +56,7 @@
 #include "BundleDaemonStorage.h"
 #include "BundleDaemonCleanup.h"
 #include "BundleProtocolVersion7.h"
+#include "BundleArchitecturalRestagingDaemon.h"
 #include "BundleStatusReport.h"
 #include "BundleTimestamp.h"
 #include "CustodySignal.h"
@@ -144,6 +145,10 @@ BundleDaemon::BundleDaemon()
     daemon_output_  = std::unique_ptr<BundleDaemonOutput>(new BundleDaemonOutput(this));
     daemon_cleanup_ = std::unique_ptr<BundleDaemonCleanup>(new BundleDaemonCleanup(this));
 
+#ifdef BARD_ENABLED
+    bundle_restaging_daemon_ = std::make_shared<BundleArchitecturalRestagingDaemon>();
+#endif  // BARD_ENABLED
+
     router_ = nullptr;
 
     app_shutdown_proc_ = nullptr;
@@ -170,6 +175,11 @@ BundleDaemon::cleanup_allocations()
 
     bibe_extractor_.reset();
     ltp_engine_.reset();
+
+#ifdef BARD_ENABLED
+    bundle_restaging_daemon_.reset();
+#endif  // BARD_ENABLED
+
 
     daemon_input_.reset();
     daemon_output_.reset();
@@ -362,6 +372,7 @@ BundleDaemon::get_bundle_stats(oasys::StringBuffer* buf)
                  "  from_frag:  %zu"
                  "  injected:  %zu"
                  "  from_storage:  %zu"
+                 "  from_restage:  %zu"
                  "  duplicates:  %zu"
                  ")\n",
                  daemon_input_->get_received_bundles(),
@@ -371,11 +382,13 @@ BundleDaemon::get_bundle_stats(oasys::StringBuffer* buf)
                  daemon_input_->get_rcvd_from_frag(),
                  stats_.injected_bundles_,
                  daemon_input_->get_rcvd_from_storage(),
+                 daemon_input_->get_rcvd_from_restage(),
                  daemon_input_->get_duplicate_bundles());
 
     buf->appendf("pending: %zu  custody: %zu"
                  "  delivered: %zu"
                  "  transmitted: %zu"
+                 "  restaged: %zu"
                  "  expired: %zu"
                  "  rejected: %zu"
                  "  suppressed_dlv: %zu"
@@ -385,8 +398,9 @@ BundleDaemon::get_bundle_stats(oasys::StringBuffer* buf)
                  custody_bundles()->size(),
                  stats_.delivered_bundles_,
                  stats_.transmitted_bundles_,
+                 stats_.restaged_bundles_,
                  stats_.expired_bundles_,
-                 daemon_input_->get_rejected_bundles(),
+                 daemon_input_->get_rejected_bundles() + stats_.rejected_bundles_,
                  stats_.suppressed_delivery_,
                  stats_.deleted_bundles_);
 
@@ -883,7 +897,14 @@ BundleDaemon::handle_bundle_delete(BundleDeleteRequest* request)
         delete_bundle(request->bundle_, request->reason_);
     } else if (request->delete_all_) {
 
+#if BARD_ENABLED
+        std::string dummy_result_str;
+        bundle_restaging_daemon_->bardcmd_del_all_restaged_bundles(dummy_result_str);
+#endif
+
         oasys::ScopeLock scoplok(&pending_lock_, __func__);
+
+        pending_bundles_->lock()->lock(__func__);
 
         log_info("BUNDLE_DELETE_REQUEST: deleting all %zu pending bundles", 
                  pending_bundles_->size());
@@ -901,6 +922,8 @@ BundleDaemon::handle_bundle_delete(BundleDeleteRequest* request)
 
             delete_bundle(bref, request->reason_);
         }
+
+        pending_bundles_->lock()->unlock();
     }
 }
 
@@ -2107,6 +2130,7 @@ BundleDaemon::handle_shutdown_request(ShutdownRequest* request)
     InterfaceTable::instance()->shutdown();
 
     // close links that actually transfer bundles between nodes
+    //(leave restage links open for now)
     close_standard_transfer_links();
 
     // shutdown the LTP Engine waiting for it to complete in-progress bundle extraction
@@ -2116,6 +2140,7 @@ BundleDaemon::handle_shutdown_request(ShutdownRequest* request)
     }
 
     // all incoming bundles should be queued by now
+    // wait for the BDInput to possibly route pending bundles to the restager
     while (daemon_input_->event_queue_size() > 0) {
         usleep(100000);
     }
@@ -2140,6 +2165,9 @@ BundleDaemon::handle_shutdown_request(ShutdownRequest* request)
     DtpcDaemon::instance()->set_should_stop();
 #endif // DTPC_ENABLED
 
+    // and then close the restage CLs
+    close_restage_links();
+
     // Shutdown all actively registered convergence layers.
     ConvergenceLayer::shutdown_clayers();
 
@@ -2162,6 +2190,10 @@ BundleDaemon::handle_shutdown_request(ShutdownRequest* request)
     set_should_stop();
 
     daemon_cleanup_->shutdown();
+
+#ifdef BARD_ENABLED
+    bundle_restaging_daemon_->shutdown();
+#endif  // BARD_ENABLED
 
     // fall through -- the DTNServer will close and flush all the data
     // stores
@@ -2186,6 +2218,8 @@ void
 BundleDaemon:: close_standard_transfer_links()
 {
     // close links that actually transfer bundles between nodes
+    //(leave the Restage links open for now to allow processing of bundles
+    // in the limbo statei: to be written to external storage but not there yet)
 
     // prevent contacts from being [re]opened and then close all open contacts(links)
     // - for LTP, this will also remove each node in LTPEngine as the links close
@@ -2203,7 +2237,7 @@ BundleDaemon:: close_standard_transfer_links()
             contactmgr_->lock()->unlock();
             LinkRef link = *iter;
 
-            if (strcmp(link->cl_name(), "future_use") != 0) {
+            if (strcmp(link->cl_name(), "restage") != 0) {
                 if (link->isopen() || link->isopening()) {
                     link->close();
                     link->set_state(Link::UNAVAILABLE);
@@ -2232,7 +2266,7 @@ BundleDaemon:: close_standard_transfer_links()
             contactmgr_->lock()->unlock();
             LinkRef link = *iter;
 
-            if (strcmp(link->cl_name(), "future_use") != 0) {
+            if (strcmp(link->cl_name(), "restage") != 0) {
                 if (link->isopen() || link->isopening()) {
                     //dzdebug
                     link->close();
@@ -2248,6 +2282,40 @@ BundleDaemon:: close_standard_transfer_links()
         contactmgr_->lock()->unlock();
     } while (false);   // end of scopelock
 }
+
+
+//----------------------------------------------------------------------
+void
+BundleDaemon:: close_restage_links()
+{
+    do {
+        contactmgr_->set_shutting_down();
+
+        contactmgr_->lock()->lock(__func__);
+
+        const LinkSet* links = contactmgr_->links();
+        LinkSet::const_iterator iter = links->begin();
+
+        // close open links
+        while (iter != links->end())
+        {
+            contactmgr_->lock()->unlock();
+            LinkRef link = *iter;
+
+            if (strcmp(link->cl_name(), "restage") == 0) {
+                if (link->isopen()) {
+                    //dzdebug
+                    log_always("BD::handle_shutdown_req - %s - call link->close()", link->name());
+                    link->close();
+                }
+            }
+
+            contactmgr_->lock()->lock("close_restage_links #2");
+            ++iter;
+        }
+    } while (false);   // end of scopelock
+}
+
 
 
 //----------------------------------------------------------------------
@@ -2288,6 +2356,8 @@ BundleDaemon::event_handlers_completed(BundleEvent* event)
         try_to_delete(((BundleReceivedEvent*)event)->bundleref_, "BundleReceived");
     } else if (event->type_ == BUNDLE_TRANSMITTED) {
         try_to_delete(((BundleTransmittedEvent*)event)->bundleref_, "BundleTransmitted");
+    } else if (event->type_ == BUNDLE_RESTAGED) {
+        try_to_delete(((BundleRestagedEvent*)event)->bundleref_, "BundleRestaged");
     } else if (event->type_ == BUNDLE_DELIVERED) {
         try_to_delete(((BundleDeliveredEvent*)event)->bundleref_, "BundleDelivered");
     }
@@ -2321,6 +2391,10 @@ BundleDaemon::add_to_pending(Bundle* bundle, bool add_to_store)
     pending_bundles_->push_back(bundle);
     dupefinder_bundles_->push_back(bundle);
 
+#if BARD_ENABLED
+    bundle_restaging_daemon_->bundle_accepted(bundle);
+#endif // BARD_ENABLED
+
     if (add_to_store) {
         actions_->store_add(bundle);
     }
@@ -2338,7 +2412,7 @@ BundleDaemon::query_accept_bundle_based_on_quotas(Bundle* bundle, bool& payload_
     // length of bundle data which is larger than the actual payload length so we need to handle
     // that case as well as a first attempt to reserve payload quota.
 
-    // -- allow for repeated calls to query future quotas after payload space has been reserved
+    // -- allow for repeated calls to query the BARD after payload space has been reserved
     //   and applied to the bundle
     payload_space_reserved = bundle->payload_space_reserved();
 
@@ -2396,6 +2470,14 @@ BundleDaemon::query_accept_bundle_based_on_quotas(Bundle* bundle, bool& payload_
 
     bool result = payload_space_reserved;
 
+#ifdef BARD_ENABLED
+    // if okay to accept bundle into the overall payload quota then
+    // query the BARD for internal or external storage acceptance
+    if (result) {
+        result = bundle_restaging_daemon_->query_accept_bundle(bundle);
+    }
+#endif // BARD_ENABLED
+
     return result;
 }
 
@@ -2408,6 +2490,10 @@ BundleDaemon::release_bundle_without_bref_reserved_space(Bundle* bundle)
 
         bs->release_payload_space(bundle->payload().length());
     }
+
+#ifdef BARD_ENABLED
+    bundle_restaging_daemon_->bundle_deleted(bundle);
+#endif // BARD_ENABLED
 }
 
 //----------------------------------------------------------------------
@@ -2633,6 +2719,10 @@ BundleDaemon::handle_bundle_free(BundleFreeEvent* event)
     }
     
     bundle->lock()->lock("BundleDaemon::handle_bundle_free");
+
+#if BARD_ENABLED
+    bundle_restaging_daemon_->bundle_deleted(bundle);
+#endif // BARD_ENABLED
 
     delete bundle;
 
@@ -3011,6 +3101,11 @@ BundleDaemon::run()
 
     ltp_engine_ = std::make_shared<LTPEngine>(params_.ltp_engine_id_);
 
+#ifdef BARD_ENABLED
+    // BARD must be started before reloading bundles
+    bundle_restaging_daemon_->start();
+#endif  // BARD_ENABLED
+
     router_ = BundleRouter::create_router(BundleRouter::config_.type_.c_str());
     router_->initialize();
 
@@ -3386,6 +3481,27 @@ void BundleDaemon::inc_bibe7_extractions()
     oasys::ScopeLock scoplok(&bibe_stats_lock_, __func__);
     ++bibe7_extractions_;
 }
+
+
+#if BARD_ENABLED
+//----------------------------------------------------------------------
+void
+BundleDaemon::bundle_restaged(Bundle* bundle, size_t disk_usage)
+{
+    ++stats_.restaged_bundles_;
+    bundle_restaging_daemon_->bundle_restaged(bundle, disk_usage);
+}
+
+//----------------------------------------------------------------------
+void
+BundleDaemon::bard_generate_usage_report_for_extrtr(BARDNodeStorageUsageMap& bard_usage_map,
+                                                   RestageCLMap& restage_cl_map)
+{
+    bundle_restaging_daemon_->generate_usage_report_for_extrtr(bard_usage_map, restage_cl_map);
+}
+
+#endif // BARD_ENABLED
+
 
 
 } // namespace dtn

@@ -37,6 +37,8 @@ EHSROUTER_SRCS :=			\
 EHSROUTER_DEPENDENT_OBJS :=			\
 	../dtn-version.o \
 	../servlib/bundling/CborUtil.o \
+	../servlib/bundling/BARDNodeStorageUsage.o \
+	../servlib/bundling/BARDRestageCLIF.o \
 	../servlib/bundling/FormatUtils.o \
 	../servlib/bundling/SDNV.o \
 	../servlib/routing/ExternalRouterIF.o \

@@ -380,7 +380,7 @@ EhsRouter::process_link_report_v0(CborValue& cvElement)
             EhsLink* el = new EhsLink(linkptr, this, fwdlnk_aos_);
 
             if ((linkptr->conv_layer_.compare("bibe") != 0) &&
-                (linkptr->conv_layer_.compare("future_use") != 0)) {
+                (linkptr->conv_layer_.compare("restage") != 0)) {
                 if (!parent_->get_link_configuration(el)) {
                     log_msg(oasys::LOG_ERR, "process_link_report_v0 - Unconfigured Link: %s [%s]  initial state: %s - forcing closure", 
                             linkptr->link_id_.c_str(), el->remote_addr().c_str(), el->state().c_str());
@@ -454,7 +454,7 @@ EhsRouter::process_link_opened_msg_v0(CborValue& cvElement)
             el = new EhsLink(linkptr, this, fwdlnk_aos_);
 
             if ((linkptr->conv_layer_.compare("bibe") != 0) &&
-                (linkptr->conv_layer_.compare("future_use") != 0)) {
+                (linkptr->conv_layer_.compare("restage") != 0)) {
                 if (!parent_->get_link_configuration(el)) {
                     log_msg(oasys::LOG_ERR, "process_link_opened- Unconfigured Link: %s [%s]  initial state: %s - forcing closure", 
                             linkptr->link_id_.c_str(), el->remote_addr().c_str(), el->state().c_str());
@@ -492,7 +492,7 @@ EhsRouter::process_link_opened_msg_v0(CborValue& cvElement)
             el->set_is_rejected(false);
 
             if ((linkptr->conv_layer_.compare("bibe") != 0) &&
-                (linkptr->conv_layer_.compare("future_use") != 0)) {
+                (linkptr->conv_layer_.compare("restage") != 0)) {
                 if (!parent_->get_link_configuration(el)) {
                     log_msg(oasys::LOG_ERR, "process_link_opened- Unconfigured Link: %s [%s]  initial state: %s - forcing closure", 
                             linkptr->link_id_.c_str(), el->remote_addr().c_str(), el->state().c_str());

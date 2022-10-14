@@ -49,6 +49,8 @@
 #include "STCPConvergenceLayer.h"
 #include "MinimalTCPConvergenceLayer.h"
 
+#include "RestageConvergenceLayer.h"
+
 #include "bundling/BundleDaemon.h"
 
 namespace oasys {
@@ -86,6 +88,11 @@ ConvergenceLayer::init_clayers()
     add_clayer(new MinimalTCPConvergenceLayer());
 
     add_clayer(new BIBEConvergenceLayer());
+
+#if BARD_ENABLED
+    add_clayer(new RestageConvergenceLayer());
+#endif // BARD_ENABLED
+
 }
 //----------------------------------------------------------------------
 CLVector::~CLVector()

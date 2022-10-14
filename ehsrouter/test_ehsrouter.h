@@ -63,6 +63,11 @@ public:
     virtual void send_recv_stats();
     virtual void fwdlink_transmit_dump();
     virtual void bundle_stats_by_src_dst();
+    virtual void bard_usage_report();
+    virtual void bard_add_quota();
+    virtual void bard_del_quota();
+    virtual void add_restage_cl();
+    virtual void del_restage_cl();
     virtual void unrouted_bundle_stats_by_src_dst();
     virtual std::string fmt_bytes(uint64_t bytes);
 

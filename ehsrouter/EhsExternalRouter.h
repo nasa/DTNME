@@ -134,6 +134,133 @@ typedef struct EhsBundleStats
 
 
 
+/**
+ * EhsBARDUsageStats - This structure defines the statistics that
+ * are kept by the Bundle Restaging Daemon. An array of these structures
+ * is returned by the call to bard_usage_stats(). 
+ */
+
+#define EHSEXTRTR_BARD_QUOTA_TYPE_UNK  0
+#define EHSEXTRTR_BARD_QUOTA_TYPE_DST  1
+#define EHSEXTRTR_BARD_QUOTA_TYPE_SRC  2
+
+#define EHSEXTRTR_BARD_QUOTA_SCHEME_UNK  0
+#define EHSEXTRTR_BARD_QUOTA_SCHEME_IPN  1
+#define EHSEXTRTR_BARD_QUOTA_SCHEME_DTN  2
+#define EHSEXTRTR_BARD_QUOTA_SCHEME_IMC  3
+
+
+typedef struct EhsBARDUsageStats
+{
+    EhsBARDUsageStats() :
+        quota_type_(0),
+        naming_scheme_(0),
+        node_number_(0),
+        inuse_internal_bundles_(0),
+        inuse_internal_bytes_(0),
+        inuse_external_bundles_(0),
+        inuse_external_bytes_(0),
+        reserved_internal_bundles_(0),
+        reserved_internal_bytes_(0),
+        reserved_external_bundles_(0),
+        reserved_external_bytes_(0),
+        quota_internal_bundles_(0),
+        quota_internal_bytes_(0),
+        quota_external_bundles_(0),
+        quota_external_bytes_(0),
+        quota_refuse_bundle_(0),
+        quota_auto_reload_(0)
+    {};
+
+
+    // elements for the key
+    uint64_t quota_type_;                         ///< quota type (source or destination endpoint)
+    uint64_t naming_scheme_;                      ///< naming scheme identifier
+    uint64_t node_number_;                        ///< node number if Endpoint is IPN or IMC
+
+    // usage elements
+    uint64_t inuse_internal_bundles_;             ///< current number of bundles in internal storage 
+    uint64_t inuse_internal_bytes_;               ///< current number of payload bytes in internal storage
+    uint64_t inuse_external_bundles_;             ///< current number of bundles in external storage 
+    uint64_t inuse_external_bytes_;               ///< current number of payload bytes in external storage
+
+    uint64_t reserved_internal_bundles_;           ///< current number of reserved bundles in internal storage 
+    uint64_t reserved_internal_bytes_;             ///< current number of reserved payload bytes in internal storage
+    uint64_t reserved_external_bundles_;           ///< current number of reserved bundles in internal storage 
+    uint64_t reserved_external_bytes_;             ///< current number of reserved payload bytes in internal storage
+
+    // quota elements
+    uint64_t quota_internal_bundles_;              ///< max number of bundles allowed in internal storage 
+    uint64_t quota_internal_bytes_;                ///< max number of payload bytes allowed in internal storage
+    uint64_t quota_external_bundles_;              ///< max number of bundles allowed in external storage 
+    uint64_t quota_external_bytes_;                ///< max number of payload bytes allowed in external storage
+    uint64_t quota_refuse_bundle_;                 ///< whether to refuse bundle if quota would be exceeded
+    uint64_t quota_auto_reload_;                   ///< whether to initate reload if storage use falls below 20%
+    std::string quota_restage_link_name_;          ///< name of restage convergence layer instance to use for external storage
+} EhsBARDUsageStats;
+
+typedef std::vector<EhsBARDUsageStats> EhsBARDUsageStatsVector;
+
+/**
+ * EhsRestageCLStats - This structure defines the CL statistics that
+ * are kept by the Bundle Restaging Daemon. An array of these structures
+ * is returned by the call to bard_usage_stats(). 
+ */
+
+#define EHSEXTRTR_RESTAGE_CL_STATE_UNK       0
+#define EHSEXTRTR_RESTAGE_CL_STATE_ONLINE    1
+#define EHSEXTRTR_RESTAGE_CL_STATE_FULL      2
+#define EHSEXTRTR_RESTAGE_CL_STATE_ERROR     3
+#define EHSEXTRTR_RESTAGE_CL_STATE_DELETED   4
+
+
+typedef struct EhsRestageCLStats
+{
+    EhsRestageCLStats() :
+        mount_point_(false),
+        mount_pt_validated_(false),
+        storage_path_exists_(false),
+        part_of_pool_(false),
+        vol_total_space_(0),
+        vol_space_available_(0),
+        disk_quota_(0),
+        disk_quota_in_use_(0),
+        disk_num_files_(0),
+        days_retention_(0),
+        expire_bundles_(false),
+        ttl_override_(0),
+        auto_reload_interval_(0),
+        cl_state_(0)
+    {};
+
+    std::string restage_link_name_;           ///< Name of the Restage Convergence Layer instance
+    std::string storage_path_;                ///< Top level directory to use for external storage
+    std::string validated_mount_pt_;          ///< The actual mount point that was validated (vs. the storage path)
+
+    bool        mount_point_;                 ///< Whether to verify storage path is mounted
+    bool        mount_pt_validated_;          ///< Whether the mount point has been validated as actually mounted
+    bool        storage_path_exists_;         ///< Whether the storage path was successfully created or already exists
+
+    bool        part_of_pool_;                ///< Whether this instance is part of the BARD pool of storage locations or not
+
+    uint64_t    vol_total_space_;             ///< Total size of the volume (bytes)
+    uint64_t    vol_space_available_;         ///< Free space available on the volume (bytes)
+
+    uint64_t    disk_quota_;                  ///< Maximum amount of disk space to use for storage (0 = no limit other than disk space)
+    uint64_t    disk_quota_in_use_;           ///< Current amount of disk space in use by restaged bundles
+    uint64_t    disk_num_files_;              ///< Current number of files in use by restaged bundles
+
+    uint64_t    days_retention_;              ///< Number of days to keep bundles stored
+    bool        expire_bundles_;              ///< Whether to delete bundles when they expire
+    uint64_t    ttl_override_;                ///< Minimum number of seconds to set the time to live to when reloading
+    uint64_t    auto_reload_interval_;        ///< How often (seconds) to try to auto reload bundles (0 = never)
+
+    uint64_t    cl_state_;                    ///< Current state of the Restage CL
+} EhsRestageCLStats;
+
+typedef std::vector<EhsRestageCLStats> EhsRestageCLStatsVector;
+
+
 typedef std::vector<std::string> LinkParametersVector;
 
 
@@ -525,9 +652,37 @@ public:
      */
     virtual void fwdlink_interval_stats_free(int count, EhsFwdLinkIntervalStats** stats);
 
+    /**
+     * Request the BARD Usage/Quota and Restage CL stats from the Bundle Restaging Daemon
+     */
+    virtual void request_bard_usage_stats();
+    /**
+     * Retrieve the ipreviously requested BARD Usage/Quota and Restage CL stats from the Bundle Restaging Daemon
+     * @return true if report was received and false if not received yet (caller canperiodically check for it)
+     */
+    virtual bool bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, EhsRestageCLStatsVector& cl_stats);
+
+    /**
+     * Add a BARD Quota
+     * @param quota Structure with all needed elements filled in (key info and quota info)
+     */
+    virtual void bard_add_quota(EhsBARDUsageStats& quota);
+
+    /**
+     * Delete a BARD Quota
+     * @param quota Structure with all needed elements filled in (key info)
+     */
+    virtual void bard_del_quota(EhsBARDUsageStats& quota);
+
+
     virtual void send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
                                    std::string& cl_name,  LinkParametersVector& params);
     virtual void send_link_del_msg(std::string& link_id);
+
+    virtual const char* quota_type_to_str(uint64_t quota_type);
+    virtual const char* scheme_type_to_str(uint64_t scheme);
+    virtual const char* cl_state_to_str(uint64_t cl_state);
+
 
 
 

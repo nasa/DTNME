@@ -267,11 +267,11 @@ public:
     /*!
      * Close a file fd and remove it from the cache if pin_count is one.
      */
-    bool try_close_while_pinned(const _Key& key) 
+    bool try_close_and_release(const _Key& key) 
     {
         bool result = false;
 
-        ScopeLock l(&lock_, "OpenFdCache::try_close_while_pinned");
+        ScopeLock l(&lock_, "OpenFdCache::try_close");
         
         typename FdMap::iterator i = open_fds_map_.find(key);
 

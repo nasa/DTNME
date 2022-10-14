@@ -96,7 +96,7 @@ DTNME::DTNME()
                       "DTN",				// DB name
                       INSTALL_LOCALSTATEDIR "/dtn/db")	// DB directory
 {
-    umask(0002); // set deafult mask to prevent world write/delete
+    //umask(0002); // set deafult mask to prevent world write/delete
 
     // override default logging settings
     loglevel_ = oasys::LOG_NOTICE;
@@ -206,10 +206,10 @@ DTNME::main(int argc, char* argv[])
     // - the mask is inverted when applied so zero bits allow the particular access
     uint16_t mask = ~BundleDaemon::params_.file_permissions_;
     // - allow owner full access regardless of what the user specified
-    mask &= 0x077; 
+    //mask &= 0x077; 
     umask(mask); // set deafult mask to prevent world write
 
-    log_always("file permissions: 0%3.3o", (~mask & 0777));
+    log_always("file permissions: 0%3.3o", (~mask));
 
 
 

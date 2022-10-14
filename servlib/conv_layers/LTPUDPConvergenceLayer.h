@@ -388,7 +388,7 @@ protected:
         Params*     params_ = nullptr;
   
         /**
-         * load up a session and save it's contents 
+         * Overridden run method
          */
         void run() override;
 

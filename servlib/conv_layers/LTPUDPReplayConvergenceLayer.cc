@@ -560,6 +560,7 @@ LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len
             int now =  BundleTimestamp::get_current_time();
             bundle->set_expiration_secs((now - bundle->creation_ts().seconds_) + params_.ttl_); // update expiration time
 
+            // allow the Bundle Restaging Daemon to redirect the bundle to external storage if needed
             // - too late to reject the bundle so not checking the result
             bool space_reserved = false; // an output not an input
             uint64_t dummy_prev_reserved_space = 0;

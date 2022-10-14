@@ -202,11 +202,15 @@ binclean:
 		(echo "removing binary files: $(BINFILES)..." && \
 		rm -f $(BINFILES))
 
-.PHONY: distclean
-distclean: clean
-	@echo "removing configure generated files: $(CFGFILES)..."
-	@test -z "$(CFGFILES)" || rm -f $(CFGFILES)
+.PHOY: cfgclean
+cfgclean:
+	@test -z "$(CFGFILES)" || \
+		(echo "removing config files: $(CFGFILES)..." && \
+		 rm -f $(CFGFILES))
 
 	@test -z "$(CFGDIRS)" || \
 		(echo "removing configure generated directories: $(CFGDIRS)..." && \
 		rmdir $(CFGDIRS))
+
+.PHONY: distclean
+distclean: clean

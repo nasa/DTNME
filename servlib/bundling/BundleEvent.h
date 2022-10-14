@@ -107,6 +107,7 @@ event_processor_to_str(event_processor_t proc)
 typedef enum {
     BUNDLE_RECEIVED = 0x1,      ///< New bundle arrival
     BUNDLE_TRANSMITTED,         ///< Bundle or fragment successfully sent
+    BUNDLE_RESTAGED,            ///< Bundle restaged to external storage
     BUNDLE_DELIVERED,           ///< Bundle locally delivered
     BUNDLE_DELIVERY,            ///< Bundle delivery (with payload)
     BUNDLE_EXPIRED,             ///< Bundle expired
@@ -228,6 +229,7 @@ event_to_str(event_type_t event)
 
     case BUNDLE_RECEIVED:       return "BUNDLE_RECEIVED";
     case BUNDLE_TRANSMITTED:    return "BUNDLE_TRANSMITTED";
+    case BUNDLE_RESTAGED:       return "BUNDLE_RESTAGED";
     case BUNDLE_DELIVERED:      return "BUNDLE_DELIVERED";
     case BUNDLE_DELIVERY:       return "BUNDLE_DELIVERY";
     case BUNDLE_EXPIRED:        return "BUNDLE_EXPIRED";
@@ -351,6 +353,7 @@ typedef enum {
     EVENTSRC_ADMIN  = 4,        ///< the admin logic
     EVENTSRC_FRAGMENTATION = 5, ///< the fragmentation engine
     EVENTSRC_ROUTER = 6,        ///< the routing logic
+    EVENTSRC_RESTAGE = 7,       ///< reloaded from restage storage
 } event_source_t;
 
 /**
@@ -368,6 +371,7 @@ source_to_str(event_source_t source)
     case EVENTSRC_ADMIN:            return "admin";
     case EVENTSRC_FRAGMENTATION:    return "fragmentation";
     case EVENTSRC_ROUTER:           return "router";
+    case EVENTSRC_RESTAGE:          return "restage";
 
     default:                        return "(invalid source type)";
     }
@@ -469,7 +473,7 @@ public:
           prevhop_(prevhop),
           registration_(NULL)
     {
-        ASSERT((source == EVENTSRC_PEER));
+        ASSERT(((source == EVENTSRC_PEER) || (source == EVENTSRC_RESTAGE)));
         daemon_only_ = true;
     }
 
@@ -632,6 +636,54 @@ public:
     /// The registration that got it
     Registration* registration_;
 };
+
+/**
+ * Event class for a bundle restage
+ */
+class BundleRestagedEvent : public BundleEvent {
+public:
+    BundleRestagedEvent(Bundle* bundle, const ContactRef& contact,
+                           const LinkRef& link, uint64_t  disk_usage,
+                           bool success, bool blocks_deleted)
+        : BundleEvent(BUNDLE_RESTAGED, EVENT_PROCESSOR_OUTPUT),
+          bundleref_(bundle, "BundleRestageEvent"),
+          contact_(contact.object(), "BundleRestageEvent"),
+          disk_usage_(disk_usage),
+          link_(link.object(), "BundleRestageEvent"),
+          success_(success),
+          blocks_deleted_(blocks_deleted) {}
+
+    /// The transmitted bundle
+    BundleRef bundleref_;
+
+    /// The contact where the bundle was sent
+    ContactRef contact_;
+
+    /// Total number of bytes written to disk
+    uint64_t  disk_usage_;
+
+    /// The link over which the bundle was sent
+    /// (may not have a contact when the transmission result is reported)
+    LinkRef link_;
+
+    /// Flag indicating success or failure
+    bool success_;
+
+    /// Flag indicating if the xmits blocks have been deleted from the bundle
+    bool blocks_deleted_;
+};
+
+class BundleRestagedEvent_MainProcessor : public BundleRestagedEvent {
+public:
+    BundleRestagedEvent_MainProcessor(Bundle* bundle, const ContactRef& contact,
+                           const LinkRef& link, uint64_t  disk_usage,
+                           bool success, bool blocks_deleted)
+        : BundleRestagedEvent(bundle, contact, link, disk_usage, success, blocks_deleted)
+    {
+        event_processor_ = EVENT_PROCESSOR_MAIN;
+    }
+};
+
 
 /**
  * Event class for acknowledgement of bundle reciept by app.
@@ -1302,11 +1354,13 @@ public:
     // Used by External Router 
     BundleSendRequest(const BundleRef& bundle,
                       const std::string& link,
-                      int action)
+                      int action,
+                      bool restage=false)
         : BundleEvent(BUNDLE_SEND, EVENT_PROCESSOR_OUTPUT),
           bundle_(bundle.object(), "BundleSendRequest"),
           link_(link),
-          action_(action)
+          action_(action),
+          restage_(restage)
     {
         // should be processed only by the daemon
         daemon_only_ = true;
@@ -1324,6 +1378,9 @@ public:
 
     /// Forwarding action to use when sending bundle
     int action_;
+
+    /// Whether this requests is for a restage
+    bool restage_ = false;
 };
 
 /**

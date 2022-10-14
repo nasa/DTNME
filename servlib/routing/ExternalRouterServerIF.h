@@ -134,7 +134,7 @@ public:
      * @param bundle_vec A vector of bundle details 
      * @return CBORUTIL_SUCCESS (0) on success or CBORUTIL_FAIL (-1)
      */
-    virtual int server_send_bundle_report_msg(extrtr_bundle_vector_t& bundle_vec);
+    virtual int server_send_bundle_report_msg(extrtr_bundle_vector_t& bundle_vec, bool last_msg);
 
     /**
      * Encode and send a Bundle Received Message
@@ -205,6 +205,18 @@ public:
     virtual int server_send_agg_custody_signal_msg(std::string& acs_data);
 
 
+#ifdef BARD_ENABLED
+    /**
+     * Encode and send a Bundle Restaging Daemon Usage Report Message
+     * @param bard_usage_map A map of the BARD usage and quota details
+     * @param restage_cl_map A map of the Restage Convergence Layer details
+     * @return CBORUTIL_SUCCESS (0) on success or CBORUTIL_FAIL (-1)
+     */
+    virtual int server_send_bard_usage_report_msg(const BARDNodeStorageUsageMap& bard_usage_map,
+                                                 const RestageCLMap& restage_cl_map);
+#endif // BARD_ENABLED
+
+
 
     // decoders
     virtual int decode_client_msg_header(CborValue& cvElement, 
@@ -241,6 +253,14 @@ public:
     virtual int decode_bundle_id_v0(CborValue& rptElement, 
                                        extrtr_bundle_id_vector_t& bid_vec);
     
+#ifdef BARD_ENABLED
+    virtual int decode_bard_add_quota_req_msg_v0(CborValue& cvElement, 
+                                                BARDNodeStorageUsage& quota);
+
+    virtual int decode_bard_del_quota_req_msg_v0(CborValue& cvElement, 
+                                                BARDNodeStorageUsage& quota);
+#endif // BARD_ENABLED
+
 protected:
     /**
      * send_msg method must be defined by the derived class
@@ -283,7 +303,7 @@ protected:
 
 
     virtual int64_t encode_bundle_report_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
-                                                extrtr_bundle_vector_t& bundle_vec);
+                                                extrtr_bundle_vector_t& bundle_vec, bool last_msg);
     virtual int encode_bundle_v0(CborEncoder& bundleEncoder, extrtr_bundle_ptr_t& bundleptr);
 
     virtual int64_t encode_bundle_received_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
@@ -312,6 +332,20 @@ protected:
 
     virtual int64_t encode_agg_custody_signal_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
                                                      std::string& acs_data);
+
+#ifdef BARD_ENABLED
+    virtual int64_t encode_bard_usage_report_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
+                                                   const BARDNodeStorageUsageMap& bard_usage_map,
+                                                   const RestageCLMap& restage_cl_map);
+
+    virtual int encode_bard_usage_map_v0(CborEncoder& mapEncoder, const BARDNodeStorageUsageMap& bard_usage_map);
+
+    virtual int encode_bard_usage_entry_v0(CborEncoder& entryEncoder, SPtr_BARDNodeStorageUsage& sptr_usage);
+
+    virtual int encode_restage_cl_map_v0(CborEncoder& mapEncoder, const RestageCLMap& restage_cl_map);
+
+    virtual int encode_restage_cl_entry_v0(CborEncoder& entryEncoder, SPtr_RestageCLStatus& sptr_clstatus);
+#endif // BARD_ENABLED
 
 protected:
     oasys::SpinLock lock_;

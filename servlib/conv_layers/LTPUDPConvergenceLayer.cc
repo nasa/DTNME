@@ -1221,6 +1221,11 @@ LTPUDPConvergenceLayer::LTPUDPSender::LTPUDPSender(const ContactRef& contact,LTP
     link_ref_                 = contact_->link();
     ready_for_bundles_        = false;
     parent_                   = parent;
+
+    // only polling if all queues go empty
+    admin_eventq_.notify_when_empty();
+    ds_high_eventq_.notify_when_empty();
+    ds_low_eventq_.notify_when_empty();
 }
 
 //----------------------------------------------------------------------
@@ -1323,13 +1328,6 @@ LTPUDPConvergenceLayer::LTPUDPSender::run()
 
     poller_ = std::unique_ptr<SendPoller>(new SendPoller(this, contact_->link()));
     poller_->start();
-
-
-    // only polling if all queues go empty
-    admin_eventq_.notify_when_empty();
-    ds_high_eventq_.notify_when_empty();
-    ds_low_eventq_.notify_when_empty();
-
 
     struct pollfd pollfds[3];
 
@@ -1534,11 +1532,9 @@ LTPUDPConvergenceLayer::LTPUDPSender::Send_Admin_Seg_Highest_Priority(std::strin
 
         oasys::ScopeLock l(&eventq_lock_, __func__);
 
-	    if (back) {
-	        admin_eventq_.push_back(obj);
-        } else {
-	        admin_eventq_.push_front(obj);
-        }
+        // always pushing to back of queue to keep transmissions in same order as processing queues them
+        (void) back;
+        admin_eventq_.push_back(obj);
 
         eventq_bytes_ += obj->bytes_queued_;
         if (eventq_bytes_ > eventq_bytes_max_)

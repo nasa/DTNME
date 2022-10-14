@@ -65,6 +65,10 @@
 #include "cmd/ContactCommand.h"
 #include "cmd/VersionCommand.h"
 
+#ifdef BARD_ENABLED
+    #include "cmd/BundleRestagingCommand.h"
+#endif  // BARD_ENABLED
+
 
 #include "conv_layers/ConvergenceLayer.h"
 
@@ -83,6 +87,10 @@
 
 #include "cmd/AcsCommand.h"
 #include "storage/PendingAcsStore.h"
+
+#ifdef BARD_ENABLED
+#    include "storage/BARDQuotaStore.h"
+#endif  // BARD_ENABLED
 
 #ifdef DTPC_ENABLED
 #    include "dtpc/DtpcDaemon.h"
@@ -118,9 +126,19 @@ DTNServer::init()
 }
 
 void
+DTNServer::set_console_info(in_addr_t console_addr, u_int16_t console_port, bool console_stdio)
+{
+    console_addr_ = console_addr;
+    console_port_ = console_port;
+    console_stdio_ = console_stdio;
+}
+
+
+void
 DTNServer::start()
 {
     BundleDaemon* daemon = BundleDaemon::instance();
+    daemon->set_console_info(console_addr_, console_port_, console_stdio_);
     daemon->start();
     log_debug("started dtn server");
 }
@@ -182,6 +200,15 @@ DTNServer::init_datastore()
         return false;
     }
 
+#ifdef BARD_ENABLED
+    if (BARDQuotaStore::init(*storage_config_, store_)    != 0)  
+    {
+        log_crit("error initializing BARDQuota data store");
+        return false;
+    }
+#endif  // BARD_ENABLED
+
+
 #ifdef DTPC_ENABLED
     if ((DtpcProfileStore::init(*storage_config_, store_)    != 0))
     {
@@ -238,8 +265,8 @@ DTNServer::parse_conf_file(std::string& conf_file,
     }
     else if (!conf_file_set) 
     {
-        const char* default_conf[] = { INSTALL_SYSCONFDIR "/dtn.conf", 
-                                       "daemon/dtn.conf", 
+        const char* default_conf[] = { INSTALL_SYSCONFDIR "/dtnme_daemon.cfg", 
+                                       "daemon/dtnme_daemon.cfg", 
                                        0 };
         conf_file.clear();
         for (int i=0; default_conf[i] != 0; ++i) 
@@ -253,8 +280,8 @@ DTNServer::parse_conf_file(std::string& conf_file,
         if (conf_file.size() == 0)
         {
             log_warn("can't read default config file "
-                     "(tried " INSTALL_SYSCONFDIR "/dtn.conf "
-                     "and daemon/dtn.conf)...");
+                     "(tried " INSTALL_SYSCONFDIR "/dtnme_daemon.cfg "
+                     "and daemon/dtnme_daemon.cfg)...");
         }
     }
 
@@ -287,6 +314,10 @@ DTNServer::init_commands()
     interp->reg(new InterfaceCommand());
     interp->reg(new LinkCommand());
     interp->reg(new ParamCommand());
+
+#ifdef BARD_ENABLED
+    interp->reg(new BundleRestagingCommand());
+#endif  // BARD_ENABLED
 
     interp->reg(new RegistrationCommand());
     interp->reg(new RouteCommand());
@@ -332,6 +363,10 @@ DTNServer::close_datastore()
     
     PendingAcsStore::instance()->close();
 
+#ifdef BARD_ENABLED
+    BARDQuotaStore::instance()->close();
+#endif  // BARD_ENABLED
+
     RegistrationStore::instance()->close();
     LinkStore::instance()->close();
     BundleStore::instance()->close();
@@ -350,6 +385,10 @@ DTNServer::close_datastore()
     delete LinkStore::instance();
     delete BundleStore::instance();
     
+#ifdef BARD_ENABLED
+    delete BARDQuotaStore::instance();
+#endif  // BARD_ENABLED
+
 #ifdef DTPC_ENABLED
     delete DtpcProfileStore::instance();
     delete DtpcTopicStore::instance();

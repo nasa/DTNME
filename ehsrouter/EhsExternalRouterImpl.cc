@@ -1936,6 +1936,67 @@ EhsExternalRouterImpl::fwdlink_interval_stats_free(int count, EhsFwdLinkInterval
 
 //----------------------------------------------------------------------
 void
+EhsExternalRouterImpl::request_bard_usage_stats()
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->request_bard_usage_stats();
+    }
+}
+
+//----------------------------------------------------------------------
+bool
+EhsExternalRouterImpl::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, EhsRestageCLStatsVector& cl_stats)
+{
+    bool result = false;
+
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        result = node->bard_usage_stats(usage_stats, cl_stats);
+    }
+
+    return result;
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->bard_add_quota(quota);
+    }
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->bard_del_quota(quota);
+    }
+}
+
+//----------------------------------------------------------------------
+void
 EhsExternalRouterImpl::send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
                                          std::string& cl_name,  LinkParametersVector& params)
 {

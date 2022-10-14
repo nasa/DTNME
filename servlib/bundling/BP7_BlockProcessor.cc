@@ -1096,7 +1096,8 @@ BP7_BlockProcessor::decode_eid(CborValue& cvElement, EndpointID& eid, std::strin
             status = decode_text_string(cvEidElements, ssp, fld_name);
             CHECK_BP7_STATUS_RETURN
   
-            eid.assign("dtn:", ssp);
+            eid.assign("dtn", ssp);
+            //eid.assign("dtn:", ssp);   <---  BUG: the eid.assign handles adding the ":"
         }
     }
     else if (2 == schema_type)

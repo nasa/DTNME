@@ -21,7 +21,7 @@ AC_DEFUN(AC_CONFIG_XSD, [
     dnl Handle --with-xsd-tool=xsd
     dnl
     AC_ARG_WITH(xsd-tool,
-        AC_HELP_STRING([--with-xsd-tool=xsd],
+        AS_HELP_STRING([--with-xsd-tool=xsd],
             [name or path of the xsd tool (default: xsd)]),
         [ac_with_xsd_tool=$withval],
         [ac_with_xsd_tool=xsd])

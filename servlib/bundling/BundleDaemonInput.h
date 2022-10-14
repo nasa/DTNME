@@ -95,6 +95,7 @@ public:
     size_t get_rcvd_from_peer() { return stats_.rcvd_from_peer_; };
     size_t get_rcvd_from_app() { return stats_.rcvd_from_app_; };
     size_t get_rcvd_from_storage() { return stats_.rcvd_from_storage_; };
+    size_t get_rcvd_from_restage() { return stats_.rcvd_from_restage_; };
     size_t get_generated_bundles() { return stats_.generated_bundles_; };
     size_t get_rcvd_from_frag() { return stats_.rcvd_from_frag_; };
     size_t get_duplicate_bundles() { return stats_.duplicate_bundles_; };
@@ -224,6 +225,7 @@ protected:
         size_t rcvd_from_peer_ = 0;
         size_t rcvd_from_app_ = 0;
         size_t rcvd_from_storage_ = 0;
+        size_t rcvd_from_restage_ = 0;
         size_t generated_bundles_ = 0;
         size_t rcvd_from_frag_ = 0;
         size_t delivered_bundles_ = 0;
@@ -244,6 +246,7 @@ protected:
             rcvd_from_peer_ = 0;
             rcvd_from_app_ = 0;
             rcvd_from_storage_ = 0;
+            rcvd_from_restage_ = 0;
             generated_bundles_ = 0;
             rcvd_from_frag_ = 0;
             delivered_bundles_ = 0;

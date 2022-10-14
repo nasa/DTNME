@@ -304,7 +304,9 @@ TestEhsExternalRouter::output_header_provider_mode()
         printf("\n");
         printf("    t = toggle statistics update          z = send/recv stats\n");
         printf("    d = display this header               c = process config: update.cfg\n");
-        printf("    y = toggle show interval stats                            \n");
+        printf("    y = toggle show interval stats        q = BARD quota report\n");
+        printf("    9 = add a BARD quota                   8 = delete the BARD quota\n");
+        printf("    7 = add a Restage CL                  6 = delete the Restage CL\n");
         printf("    x = exit                              h = shutdown DTNME server\n\n");
     }
 
@@ -390,7 +392,6 @@ TestEhsExternalRouter::run()
     }
     output_header_provider_mode();
 
-    ssize_t read_stat;
     bool done = false;
     while ( !done )
     {
@@ -406,11 +407,7 @@ TestEhsExternalRouter::run()
 
         if( res > 0 )
         {
-            read_stat = read( fileno( stdin ), &key, 1 );
-            if (read_stat < 1) {
-                break;
-            }
-
+            read( fileno( stdin ), &key, 1 );
             switch (key) {
                 case 'x':
                 case 'X':
@@ -524,6 +521,28 @@ TestEhsExternalRouter::run()
                 case '5':
                     ehs_ext_router_->set_log_level(5);
                     break;
+
+                case 'q':
+                case 'Q':
+                    bard_usage_report();
+                    break;
+
+                case '9':
+                    bard_add_quota();
+                    break;
+
+                case '8':
+                    bard_del_quota();
+                    break;
+
+                case '7':
+                    add_restage_cl();
+                    break;
+
+                case '6':
+                    del_restage_cl();
+                    break;
+
 
                 default:
                     break;
@@ -860,6 +879,7 @@ TestEhsExternalRouter::bundle_stats_by_src_dst()
                stats[ix].total_ttl_abuse_, stats[ix].total_rejected_);
 //        stats[ix].total_pending_bulk_,
 //        stats[ix].total_pending_normal_,
+//        stats[ix].total_pending_expedited_,
 //        stats[ix].total_pending_reserved_,
     }
     printf("\n\n");
@@ -884,6 +904,170 @@ TestEhsExternalRouter::unrouted_bundle_stats_by_src_dst()
 
     do_stats_ = save_do_stats;
 }
+
+//----------------------------------------------------------------------
+void
+TestEhsExternalRouter::bard_usage_report()
+{
+    ehs_ext_router_->request_bard_usage_stats();
+
+
+    EhsBARDUsageStatsVector usage_stats;
+    EhsRestageCLStatsVector cl_stats;
+
+    bool save_do_stats = do_stats_;
+    do_stats_ = false;
+
+    bool got_report = ehs_ext_router_->bard_usage_stats(usage_stats, cl_stats);
+    while (!got_report) {
+        usleep(500000);
+        got_report = ehs_ext_router_->bard_usage_stats(usage_stats, cl_stats);
+    }
+
+
+    const char* quota_type_str;
+    const char* scheme_str;
+
+
+    printf("\n\nBundle Restaging Daemon Quota Stats:\n");
+    printf("Num Quota Entries: %zu\n", usage_stats.size());
+
+    printf("Quote   Name     Node    |        Internal Storage        : Quota  |        External Storage        : Quota  |  Refuse or   Auto     Link  \n");
+    printf("Type   Scheme   Number   |   Num Bundles : Payload Bytes  : Usage  |   Num Bundles :   File Bytes   : Usage  |  Link Name  Reload    State \n");
+    printf("-----  ------  --------  |  -------------:---------------   ------ |  -------------:---------------   ------ |  ---------  ------  ----------\n");
+
+    EhsBARDUsageStatsVector::iterator usage_iter = usage_stats.begin();
+    while (usage_iter != usage_stats.end()) {
+        
+        quota_type_str = ehs_ext_router_->quota_type_to_str((*usage_iter).quota_type_);
+        scheme_str = ehs_ext_router_->scheme_type_to_str((*usage_iter).quota_type_);
+
+
+        printf(" %3.3s     %3.3s   %8" PRIu64 "  |        \n", quota_type_str, scheme_str, (*usage_iter).node_number_); 
+
+        ++usage_iter;
+    }
+
+
+    printf("\n\n");
+    printf("Num Restage CL Entries: %zu\n", cl_stats.size());
+    printf("   Link Name       State   Pooled  Reload  Mount Pnt  VolSize   Free     Quota   Q Used   Q Free          Storage Path\n");
+    printf("----------------  -------  ------  ------  ---------  -------  -------  -------  -------  -------  ------------------------------\n");
+
+    EhsRestageCLStatsVector::iterator cl_iter = cl_stats.begin();
+    while (cl_iter != cl_stats.end()) {
+        const char* state_str = ehs_ext_router_->cl_state_to_str((*cl_iter).cl_state_);
+        const char* pooled_str = "true ";
+        const char* reload_str = " auto ";
+        const char* mount_pnt_str = "validated";
+
+        if (!(*cl_iter).part_of_pool_) {
+            pooled_str = "false";
+        }
+        if ((*cl_iter).auto_reload_interval_ == 0) {
+            reload_str = "manual";
+        }
+        if (!(*cl_iter).mount_point_) {
+            mount_pnt_str = "  false  ";
+        } else {
+            if (!(*cl_iter).mount_pt_validated_) {
+                mount_pnt_str = " offline ";
+            }
+        }
+
+        size_t disk_quota_free = 0;
+        if ((*cl_iter).disk_quota_in_use_ < (*cl_iter).disk_quota_) {
+            disk_quota_free = (*cl_iter).disk_quota_ - (*cl_iter).disk_quota_in_use_;
+        }
+
+ //      buf.append("    Link Name      State   Pooled  Reload  Mount Pnt  VolSize   Free     Quota  Q Used   Q Free          Storage Path\n");
+ //      buf.append("----------------  -------  ------  ------  ---------  -------  -------  ------- -------  -------  ------------------------------\n");
+
+        printf("%-16.16s  %7.7s   %5.5s  %6.6s  %9.9s   %5.5s    %5.5s    %5.5s    %5.5s    %5.5s   %s\n",
+                    (*cl_iter).restage_link_name_.c_str(),
+                    state_str, pooled_str, reload_str, mount_pnt_str,
+                    FORMAT_WITH_MAG((*cl_iter).vol_total_space_).c_str(),
+                    FORMAT_WITH_MAG((*cl_iter).vol_space_available_).c_str(),
+                    FORMAT_WITH_MAG((*cl_iter).disk_quota_).c_str(),
+                    FORMAT_WITH_MAG((*cl_iter).disk_quota_in_use_).c_str(),
+                    FORMAT_WITH_MAG(disk_quota_free).c_str(),
+                    (*cl_iter).storage_path_.c_str());
+
+
+        ++cl_iter;
+    }
+
+    printf("\n\n");
+    fflush(stdout);
+
+    do_stats_ = save_do_stats;
+}
+
+
+//----------------------------------------------------------------------
+void
+TestEhsExternalRouter::bard_add_quota()
+{
+    EhsBARDUsageStats quota;
+    quota.quota_type_ = EHSEXTRTR_BARD_QUOTA_TYPE_DST;
+    quota.naming_scheme_ = EHSEXTRTR_BARD_QUOTA_SCHEME_IPN;
+    quota.node_number_ = 77777;
+
+    // quota elements
+    quota.quota_internal_bundles_ = 111000;
+    quota.quota_internal_bytes_ = 222000;
+    quota.quota_external_bundles_ = 333000;
+    quota.quota_external_bytes_ = 444000;
+    quota.quota_refuse_bundle_ = false;
+    quota.quota_auto_reload_ = true;
+
+    quota.quota_restage_link_name_ = "restage555";
+
+    ehs_ext_router_->bard_add_quota(quota);
+}
+
+
+//----------------------------------------------------------------------
+void
+TestEhsExternalRouter::bard_del_quota()
+{
+    EhsBARDUsageStats quota;
+    quota.quota_type_ = EHSEXTRTR_BARD_QUOTA_TYPE_DST;
+    quota.naming_scheme_ = EHSEXTRTR_BARD_QUOTA_SCHEME_IPN;
+    quota.node_number_ = 77777;
+
+    ehs_ext_router_->bard_del_quota(quota);
+}
+
+//----------------------------------------------------------------------
+void
+TestEhsExternalRouter::add_restage_cl()
+{
+    std::string link_id = "restage555";
+    std::string next_hop = "/data06/restage_storage/restage555";
+    std::string link_mode = "ALWAYSON";
+    std::string cl_name = "restage";
+    LinkParametersVector params;
+
+    params.push_back("mount_point=true");
+    params.push_back("disk_quota=220g");
+    params.push_back("auot_reload_interval=3600");
+
+    ehs_ext_router_->send_link_add_msg(link_id, next_hop, link_mode, cl_name, params);
+}
+
+//----------------------------------------------------------------------
+void
+TestEhsExternalRouter::del_restage_cl()
+{
+    std::string link_id = "restage555";
+
+    ehs_ext_router_->send_link_del_msg(link_id);
+}
+
+
+
+
 
 
 //----------------------------------------------------------------------

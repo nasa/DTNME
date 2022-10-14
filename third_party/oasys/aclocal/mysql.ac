@@ -25,13 +25,13 @@ AC_DEFUN(AC_CONFIG_MYSQL, [
     ac_mysqldir='no'
 
     AC_ARG_WITH(mysql,
-        AC_HELP_STRING([--with-mysql=DIR],
+        AS_HELP_STRING([--with-mysql=DIR],
     		   [location of a mysql installation (default none)]),
         ac_mysqldir=$withval) 
 
     ac_mysqldaemon='no'
     AC_ARG_WITH(mysql-daemon,
-        AC_HELP_STRING([--with-mysql-daemon],
+        AS_HELP_STRING([--with-mysql-daemon],
     		   [use the daemon library (not the client library)]),
         ac_mysqldaemon=$withval)
 

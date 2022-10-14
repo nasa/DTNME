@@ -88,6 +88,7 @@ EhsBundle::init()
     exiting_ = false;
     deleted_ = false;
     received_from_link_id_ = "";
+    not_in_resync_report_ = false;
 }
 
 //----------------------------------------------------------------------
@@ -95,6 +96,8 @@ void
 EhsBundle::process_bundle_report(ExternalRouterIF::extrtr_bundle_ptr_t& bundleptr)
 {
     bundleid_ = bundleptr->bundleid_;
+    not_in_resync_report_ = false;
+
     gbofid_str_ = bundleptr->gbofid_str_;
     bp_version_ = bundleptr->bp_version_;
     custodyid_ = bundleptr->custodyid_;

@@ -169,12 +169,16 @@ public:
     virtual bool is_ecos_reliable()        { return (0 != (ecos_flags_ & 0x08)); }
 
     virtual bool is_fwd_link_destination() { return is_fwd_link_destination_; }
+    virtual bool not_in_resync_report() { return not_in_resync_report_; }
 
 
     /**
      * Setters
      */
     virtual void set_is_fwd_link_destination(bool t) { is_fwd_link_destination_ = t; }
+
+    /// Set the not_in_report flag to faciliate syncing the bundle list with the DTNME server
+    virtual void prepare_for_resync()         { not_in_resync_report_ = true; }
 
 
 protected:
@@ -294,6 +298,11 @@ protected:
 
     /// Indication if already deleted at DTNME node
     bool deleted_;
+
+    /// Flag used to resync EhsExtRouter with the DTNME server. Bundles are initially flagged 
+    /// as not in the bundle report and then changed while processing the received report. After 
+    /// report has been processed all bundles flagged as not in the report can be deleted.
+    bool not_in_resync_report_ = false;
 };
 
 } // namespace dtn

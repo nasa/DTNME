@@ -253,9 +253,15 @@ ExternalRouterClientIF::decode_link_unavailable_msg_v0(CborValue& cvElement,
 //----------------------------------------------------------------------
 int
 ExternalRouterClientIF::decode_bundle_report_msg_v0(CborValue& cvElement, 
-                                                    extrtr_bundle_vector_t& bundle_vec)
+                                                    extrtr_bundle_vector_t& bundle_vec,
+                                                    bool& last_msg)
 {
     int status;
+
+    // first field is flag indicating last message of the report
+    status = decode_boolean(cvElement, last_msg);
+    CHECK_CBORUTIL_STATUS_RETURN
+
 
     while (!cbor_value_at_end(&cvElement)) {
 
@@ -1440,6 +1446,555 @@ ExternalRouterClientIF::encode_bundle_id_v0(CborEncoder& bidEncoder, extrtr_bund
 
     return CBORUTIL_SUCCESS;
 }
+
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::client_send_bard_usage_req_msg()
+{
+#ifdef BARD_ENABLED
+    uint64_t msg_type = EXTRTR_MSG_BARD_USAGE_REQ;
+    uint64_t msg_version = 0;
+
+    int64_t msg_len;
+    int64_t encoded_len = 0;
+    
+    // first run through the encode process with a null buffer to determine the needed size of buffer
+    msg_len = encode_client_msg_with_no_data(nullptr, 0, encoded_len, msg_type, msg_version);
+
+    if (CBORUTIL_FAIL == msg_len)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Usage Request msg in first pass");
+        return CBORUTIL_FAIL;
+    }
+
+    oasys::ScratchBuffer<int8_t*,0> scratch;
+    uint8_t* buf = (uint8_t*) scratch.buf(msg_len);
+
+    int64_t status = encode_client_msg_with_no_data(buf, msg_len, encoded_len, msg_type, msg_version);
+    if (CBORUTIL_SUCCESS != status)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Usage Request msg in 2nd pass");
+        return CBORUTIL_FAIL;
+    }
+
+    serialize_send_msg(buf, encoded_len);
+
+    return CBORUTIL_SUCCESS;
+
+#else
+    log_warn_p(cborutil_logpath(), "BARD Usage req message not generated because BARD is not enabled");
+    return CBORUTIL_FAIL;
+#endif // BARD_ENABLED
+
+}
+
+#ifdef BARD_ENABLED
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::client_send_bard_add_quota_req_msg(BARDNodeStorageUsage& quota)
+{
+    int64_t msg_len;
+    int64_t encoded_len = 0;
+    
+    // first run through the encode process with a null buffer to determine the needed size of buffer
+    msg_len = encode_bard_add_quota_req_msg_v0(nullptr, 0, encoded_len, quota);
+
+    if (CBORUTIL_FAIL == msg_len)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Add Quota msg in first pass");
+        return CBORUTIL_FAIL;
+    }
+
+    oasys::ScratchBuffer<int8_t*,0> scratch;
+    uint8_t* buf = (uint8_t*) scratch.buf(msg_len);
+
+    int64_t status = encode_bard_add_quota_req_msg_v0(buf, msg_len, encoded_len, quota);
+
+    if (CBORUTIL_SUCCESS != status)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Add Quota msg in 2nd pass");
+        return CBORUTIL_FAIL;
+    }
+
+    serialize_send_msg(buf, encoded_len);
+
+    return CBORUTIL_SUCCESS;
+
+}
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::client_send_bard_del_quota_req_msg(BARDNodeStorageUsage& quota)
+{
+    int64_t msg_len;
+    int64_t encoded_len = 0;
+    
+    // first run through the encode process with a null buffer to determine the needed size of buffer
+    msg_len = encode_bard_del_quota_req_msg_v0(nullptr, 0, encoded_len, quota);
+
+    if (CBORUTIL_FAIL == msg_len)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Delete Quota msg in first pass");
+        return CBORUTIL_FAIL;
+    }
+
+    oasys::ScratchBuffer<int8_t*,0> scratch;
+    uint8_t* buf = (uint8_t*) scratch.buf(msg_len);
+
+    int64_t status = encode_bard_del_quota_req_msg_v0(buf, msg_len, encoded_len, quota);
+
+    if (CBORUTIL_SUCCESS != status)
+    {
+        log_crit_p(cborutil_logpath(), "Error encoding the BARD Delete Quota msg in 2nd pass");
+        return CBORUTIL_FAIL;
+    }
+
+    serialize_send_msg(buf, encoded_len);
+
+    return CBORUTIL_SUCCESS;
+}
+
+
+//----------------------------------------------------------------------
+int64_t
+ExternalRouterClientIF::encode_bard_add_quota_req_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
+                                                        BARDNodeStorageUsage& quota)
+{
+    uint64_t msg_type = EXTRTR_MSG_BARD_ADD_QUOTA_REQ;
+    uint64_t msg_version = 0;
+
+    CborEncoder encoder;
+    CborEncoder msgEncoder;
+
+    CborError err;
+
+    encoded_len = 0;
+
+    cbor_encoder_init(&encoder, buf, buflen, 0);
+
+    err = cbor_encoder_create_array(&encoder, &msgEncoder, CborIndefiniteLength);
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    int status = encode_client_msg_header(msgEncoder, msg_type, msg_version);
+    CHECK_CBORUTIL_STATUS_RETURN
+
+    // quota type
+    err = cbor_encode_text_string(&msgEncoder, quota.quota_type_cstr(), 
+                                                 strlen(quota.quota_type_cstr()));
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    // scheme type
+    err = cbor_encode_text_string(&msgEncoder, quota.naming_scheme_cstr(), 
+                                                 strlen(quota.naming_scheme_cstr()));
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    // node name/number
+    err = cbor_encode_text_string(&msgEncoder, quota.nodename().c_str(), 
+                                                 quota.nodename().length());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+
+    // quota info
+    err = cbor_encode_uint(&msgEncoder, quota.quota_internal_bundles());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    err = cbor_encode_uint(&msgEncoder, quota.quota_internal_bytes());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    err = cbor_encode_uint(&msgEncoder, quota.quota_external_bundles());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    err = cbor_encode_uint(&msgEncoder, quota.quota_external_bytes());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    // can determine whether to refuse bundle if link name is blank
+    err = cbor_encode_text_string(&msgEncoder, quota.quota_restage_link_name().c_str(), 
+                                                 quota.quota_restage_link_name().length());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    err = cbor_encode_boolean(&msgEncoder, quota.quota_auto_reload());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+
+    // close the message array
+    err = cbor_encoder_close_container(&encoder, &msgEncoder);
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+
+    // was the buffer large enough?
+    int64_t need_bytes = cbor_encoder_get_extra_bytes_needed(&encoder);
+
+    if (0 == need_bytes)
+    {
+        encoded_len = cbor_encoder_get_buffer_size(&encoder, buf);
+    }
+
+    return need_bytes;
+}
+
+
+//----------------------------------------------------------------------
+int64_t
+ExternalRouterClientIF::encode_bard_del_quota_req_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
+                                                        BARDNodeStorageUsage& quota)
+{
+    uint64_t msg_type = EXTRTR_MSG_BARD_DEL_QUOTA_REQ;
+    uint64_t msg_version = 0;
+
+    CborEncoder encoder;
+    CborEncoder msgEncoder;
+
+    CborError err;
+
+    encoded_len = 0;
+
+    cbor_encoder_init(&encoder, buf, buflen, 0);
+
+    err = cbor_encoder_create_array(&encoder, &msgEncoder, CborIndefiniteLength);
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    int status = encode_client_msg_header(msgEncoder, msg_type, msg_version);
+    CHECK_CBORUTIL_STATUS_RETURN
+
+    // quota type
+    err = cbor_encode_text_string(&msgEncoder, quota.quota_type_cstr(), 
+                                                 strlen(quota.quota_type_cstr()));
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    // scheme type
+    err = cbor_encode_text_string(&msgEncoder, quota.naming_scheme_cstr(), 
+                                                 strlen(quota.naming_scheme_cstr()));
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+    // node name/number
+    err = cbor_encode_text_string(&msgEncoder, quota.nodename().c_str(), 
+                                                 quota.nodename().length());
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+
+    // close the message array
+    err = cbor_encoder_close_container(&encoder, &msgEncoder);
+    CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
+
+
+    // was the buffer large enough?
+    int64_t need_bytes = cbor_encoder_get_extra_bytes_needed(&encoder);
+
+    if (0 == need_bytes)
+    {
+        encoded_len = cbor_encoder_get_buffer_size(&encoder, buf);
+    }
+
+    return need_bytes;
+}
+
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::decode_bard_usage_report_msg_v0(CborValue& cvElement, 
+                                                       BARDNodeStorageUsageMap& bard_usage_map,
+                                                       RestageCLMap& restage_cl_map)
+{
+    int status;
+
+    if (!cbor_value_at_end(&cvElement)) {
+        status = decode_bard_usage_map_v0(cvElement, bard_usage_map);
+        CHECK_CBORUTIL_STATUS_RETURN
+    } else {
+        return CBORUTIL_FAIL;
+    }
+
+    if (!cbor_value_at_end(&cvElement)) {
+        status = decode_restage_cl_map_v0(cvElement, restage_cl_map);
+        CHECK_CBORUTIL_STATUS_RETURN
+    } else {
+        return CBORUTIL_FAIL;
+    }
+
+    return CBORUTIL_SUCCESS;
+}
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::decode_bard_usage_map_v0(CborValue& rptElement, 
+                                                BARDNodeStorageUsageMap& bard_usage_map)
+{
+    CborValue mapElement;
+    CborError err;
+    int status;
+
+    err = cbor_value_enter_container(&rptElement, &mapElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+
+    while (!cbor_value_at_end(&mapElement)) {
+        status = decode_bard_usage_entry_v0(mapElement, bard_usage_map);
+        CHECK_CBORUTIL_STATUS_RETURN
+    }
+
+    err = cbor_value_leave_container(&rptElement, &mapElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    return CBORUTIL_SUCCESS;
+}
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::decode_bard_usage_entry_v0(CborValue& mapElement, 
+                                       BARDNodeStorageUsageMap& bard_usage_map)
+{
+    CborValue entryElement;
+    CborError err;
+    int status;
+
+    std::string tmp_str;
+    uint64_t    tmp_u64;
+    bool        tmp_bool;
+
+    SPtr_BARDNodeStorageUsage sptr_usage;
+
+    err = cbor_value_enter_container(&mapElement, &entryElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    sptr_usage = std::make_shared<BARDNodeStorageUsage>();
+
+
+    // quota type
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_type(str_to_bard_quota_type(tmp_str.c_str()));
+
+    // scheme type
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_naming_scheme(str_to_bard_naming_scheme(tmp_str.c_str()));
+
+    // node name/number
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_nodename(tmp_str);
+
+    // quota info
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_internal_bundles(tmp_u64);
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_internal_bytes(tmp_u64);
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_external_bundles(tmp_u64);
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_external_bytes(tmp_u64);
+
+
+    // can determine whether to refuse bundle if link name is blank
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_restage_link_name(tmp_str);
+    sptr_usage->set_quota_refuse_bundle(tmp_str.empty());
+
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->set_quota_auto_reload(tmp_bool);
+    
+
+
+    // in-use uinfo
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->inuse_internal_bundles_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->inuse_internal_bytes_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->inuse_external_bundles_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->inuse_external_bytes_ = tmp_u64;
+
+
+    // reserved info
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->reserved_internal_bundles_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->reserved_internal_bytes_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->reserved_external_bundles_ = tmp_u64;
+
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_usage->reserved_external_bytes_ = tmp_u64;
+
+
+
+    err = cbor_value_leave_container(&mapElement, &entryElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    bard_usage_map[sptr_usage->key()] = sptr_usage;
+
+
+    return CBORUTIL_SUCCESS;
+}
+
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::decode_restage_cl_map_v0(CborValue& rptElement, 
+                                                 RestageCLMap& restage_cl_map)
+{
+    CborValue mapElement;
+    CborError err;
+    int status;
+
+    err = cbor_value_enter_container(&rptElement, &mapElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+
+    while (!cbor_value_at_end(&mapElement)) {
+        status = decode_restage_cl_entry_v0(mapElement, restage_cl_map);
+        CHECK_CBORUTIL_STATUS_RETURN
+    }
+
+    err = cbor_value_leave_container(&rptElement, &mapElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    return CBORUTIL_SUCCESS;
+}
+
+//----------------------------------------------------------------------
+int
+ExternalRouterClientIF::decode_restage_cl_entry_v0(CborValue& mapElement, 
+                                                   RestageCLMap& restage_cl_map)
+{
+    CborValue entryElement;
+    CborError err;
+    int status;
+
+    std::string tmp_str;
+    uint64_t    tmp_u64;
+    bool        tmp_bool;
+
+    SPtr_RestageCLStatus sptr_clstatus;
+
+    err = cbor_value_enter_container(&mapElement, &entryElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    sptr_clstatus = std::make_shared<RestageCLStatus>();
+
+
+    // link name
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->restage_link_name_ = tmp_str;
+
+    // storage path
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->storage_path_ = tmp_str;
+
+    // mount point flag
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->mount_point_ = tmp_bool;
+
+    //validated mount point 
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->validated_mount_pt_ = tmp_str;
+
+    // mount point validated flag
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->mount_pt_validated_ = tmp_bool;
+
+    // storage path exists flag
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->storage_path_exists_= tmp_bool;
+
+    // part of pool flag
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->part_of_pool_ = tmp_bool;
+
+    // Total volume space
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->vol_total_space_ = tmp_u64;
+
+    // Available volume space
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->vol_space_available_ = tmp_u64;
+
+    // Max disk quota
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->disk_quota_ = tmp_u64;
+
+    // Disk quota in use
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->disk_quota_in_use_ = tmp_u64;
+
+    // Num files restaged
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->disk_num_files_ = tmp_u64;
+
+    // Num days retention
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->days_retention_ = tmp_u64;
+
+    // Expire bundles flag
+    status = decode_boolean(entryElement, tmp_bool);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->expire_bundles_ = tmp_bool;
+
+    // Time to live override when reloading bundles
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->ttl_override_ = tmp_u64;
+
+    // Auto-reload interval (seconds)
+    status = decode_uint(entryElement, tmp_u64);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->auto_reload_interval_ = tmp_u64;
+
+    // current state of the restage CL
+    status = decode_text_string(entryElement, tmp_str);
+    CHECK_CBORUTIL_STATUS_RETURN
+    sptr_clstatus->cl_state_ = str_to_restage_cl_state(tmp_str.c_str());
+
+
+    err = cbor_value_leave_container(&mapElement, &entryElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
+
+    restage_cl_map[sptr_clstatus->restage_link_name_] = sptr_clstatus;
+
+
+    return CBORUTIL_SUCCESS;
+}
+
+
+
+#endif // BARD_ENABLED
 
 
 } // namespace dtn

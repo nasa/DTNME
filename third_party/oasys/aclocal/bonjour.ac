@@ -41,7 +41,7 @@ EOF
 AC_DEFUN(AC_CONFIG_BONJOUR, [
 
     AC_ARG_WITH(bonjour,
-      [AC_HELP_STRING([--with-bonjour],
+      [AS_HELP_STRING([--with-bonjour],
                       [compile in bonjour support (default try)])],
       [ac_use_bonjour=$withval],
       [ac_use_bonjour=try])

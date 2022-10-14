@@ -47,6 +47,9 @@ BUNDLING_SRCS := 												\
 	bundling/BP7_PreviousNodeBlockProcessor.cc					\
 	bundling/BP7_PrimaryBlockProcessor.cc						\
 	bundling/BP7_UnknownBlockProcessor.cc						\
+	bundling/BARDForceRestageThread.cc	\
+	bundling/BARDNodeStorageUsage.cc		\
+	bundling/BARDRestageCLIF.cc			\
 	bundling/Bundle.cc					\
 	bundling/BundleActions.cc			\
 	bundling/BundleDaemon.cc			\
@@ -68,6 +71,7 @@ BUNDLING_SRCS := 												\
 	bundling/BundleProtocol.cc			\
 	bundling/BundleProtocolVersion6.cc	\
 	bundling/BundleProtocolVersion7.cc	\
+	bundling/BundleArchitecturalRestagingDaemon.cc	\
 	bundling/BundleStatusReport.cc		\
 	bundling/BundleTimestamp.cc			\
 	bundling/CborUtil.cc				\
@@ -119,6 +123,7 @@ CONV_LAYER_SRCS :=								\
 	conv_layers/STCPConvergenceLayer.cc     	\
 	conv_layers/RecvRawConvergenceLayer.cc		\
 	conv_layers/MinimalTCPConvergenceLayer.cc	\
+	conv_layers/RestageConvergenceLayer.cc		\
 
 
 CMD_SRCS :=						\
@@ -130,6 +135,7 @@ CMD_SRCS :=						\
 	cmd/InterfaceCommand.cc		\
 	cmd/LinkCommand.cc          \
 	cmd/ParamCommand.cc			\
+	cmd/BundleRestagingCommand.cc			\
 	cmd/RegistrationCommand.cc	\
 	cmd/RouteCommand.cc			\
 	cmd/ShutdownCommand.cc		\
@@ -173,6 +179,7 @@ ROUTING_SRCS :=							\
 	routing/TableBasedRouter.cc			\
 
 STORAGE_SRCS :=						\
+	storage/BARDQuotaStore.cc		\
 	storage/BundleStore.cc			\
 	storage/LinkStore.cc			\
 	storage/GlobalStore.cc			\

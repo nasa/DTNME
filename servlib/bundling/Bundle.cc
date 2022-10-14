@@ -276,6 +276,19 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
 #endif
 
 
+#ifdef BARD_ENABLED
+    buf->appendf("\nBARD debug info:\n");
+    buf->appendf("src in use: %zu\n", bard_in_use_by_src_);
+    buf->appendf("src quota reserved: %zu\n", bard_quota_reserved_by_src_);
+    buf->appendf("src extquota rsrvd: %zu\n", bard_extquota_reserved_by_src_);
+    buf->appendf("dst in use: %zu\n", bard_in_use_by_dst_);
+    buf->appendf("dst quota reserved: %zu\n", bard_quota_reserved_by_dst_);
+    buf->appendf("dst extquota rsrvd: %zu\n", bard_extquota_reserved_by_dst_);
+    buf->appendf("    restage by src: %s\n", bool_to_str(bard_restage_by_src_));
+    buf->appendf(" restage link name: %s\n", bard_restage_link_name_.c_str());
+    buf->appendf("\n");
+#endif // BARD_ENABLED
+
     buf->appendf("          refcount: %d\n", refcount_);
 
     buf->append("\n");
@@ -554,6 +567,9 @@ Bundle::del_ref(const char* what1, const char* what2)
         if (queued_for_datastore_) {
             BundleDaemon::instance()->bundle_delete_from_storage(this);
             queued_for_datastore_ = false; // prevent BundleDaemon from posting delete also
+        } else if (payload_space_reserved_) {
+           BundleStore::instance()->release_payload_space(durable_size());
+           payload_space_reserved_ = false;
         }
 
         freed_ = true;
@@ -725,5 +741,74 @@ Bundle::clear_expiration_timer()
 
     expiration_timer_ = nullptr;
 }
+
+#ifdef BARD_ENABLED
+//----------------------------------------------------------------------
+size_t
+Bundle::bard_in_use(bool by_src)
+{
+    if (by_src) {
+        return bard_in_use_by_src_;
+    } else {
+        return bard_in_use_by_dst_;
+    }
+}
+
+//----------------------------------------------------------------------
+size_t
+Bundle::bard_quota_reserved(bool by_src)
+{
+    if (by_src) {
+        return bard_quota_reserved_by_src_;
+    } else {
+        return bard_quota_reserved_by_dst_;
+    }
+}
+
+//----------------------------------------------------------------------
+size_t
+Bundle::bard_extquota_reserved(bool by_src)
+{
+    if (by_src) {
+        return bard_extquota_reserved_by_src_;
+    } else {
+        return bard_extquota_reserved_by_dst_;
+    }
+}
+
+//----------------------------------------------------------------------
+void
+Bundle::set_bard_in_use(bool by_src, size_t t)
+{
+    if (by_src) {
+        bard_in_use_by_src_ = t;
+    } else {
+        bard_in_use_by_dst_ = t;
+    }
+}
+
+//----------------------------------------------------------------------
+void
+Bundle::set_bard_quota_reserved(bool by_src, size_t t)
+{
+    if (by_src) {
+        bard_quota_reserved_by_src_ = t;
+    } else {
+        bard_quota_reserved_by_dst_ = t;
+    }
+}
+
+//----------------------------------------------------------------------
+void
+Bundle::set_bard_extquota_reserved(bool by_src, size_t t)
+{
+    if (by_src) {
+        bard_extquota_reserved_by_src_ = t;
+    } else {
+        bard_extquota_reserved_by_dst_ = t;
+    }
+}
+
+#endif // BARD_ENABLED
 
 } // namespace dtn

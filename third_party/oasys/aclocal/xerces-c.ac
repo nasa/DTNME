@@ -28,7 +28,7 @@ AC_DEFUN(AC_CONFIG_XERCES, [
     dnl Handle --with-xerces-c=DIR
     dnl
     AC_ARG_WITH(xerces-c,
-        AC_HELP_STRING([--with-xerces-c=DIR],
+        AS_HELP_STRING([--with-xerces-c=DIR],
             [location of a xerces-c installation (default try)]),
         [ac_with_xerces_c=$withval],
         [ac_with_xerces_c=try])

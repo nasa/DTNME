@@ -147,6 +147,13 @@ public:
     virtual void bundle_stats_by_src_dst(int* count, EhsBundleStats** stats);
     virtual void fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats);
 
+    virtual void request_bard_usage_stats();
+    virtual bool bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, 
+                                 EhsRestageCLStatsVector& cl_stats);
+
+    virtual void bard_add_quota(EhsBARDUsageStats& quota);
+    virtual void bard_del_quota(EhsBARDUsageStats& quota);
+
     virtual void send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
                                    std::string& cl_name,  LinkParametersVector& params);
     virtual void send_link_del_msg(std::string& link_id);
@@ -244,6 +251,7 @@ protected:
     virtual void process_custody_accepted_v0(CborValue& cvElement);
     virtual void process_custody_signal_v0(CborValue& cvElement);
     virtual void process_agg_custody_signal_v0(CborValue& cvElement);
+    virtual void process_bard_usage_rpt_v0(CborValue& cvElement);
 
 
     virtual void finalize_bundle_delivered_event(uint64_t id);
@@ -255,6 +263,8 @@ protected:
     virtual bool is_local_destination(EhsBundleRef& bref);
 
     virtual bool accept_custody_before_routing(EhsBundleRef& bref);
+
+    virtual void do_resync_processing();
 
 protected:
     /// Lock for sequential access
@@ -344,6 +354,14 @@ protected:
     uint64_t last_hello_bundles_received_ = 0;
     uint64_t last_hello_bundles_pending_ = 0;
 
+
+    /// variables to keep track of asynchonous BARD Quota Stats Report
+    bool have_bard_usage_reprt_  = false;
+    bool bard_usage_report_requested_ = false;
+    EhsBARDUsageStatsVector bard_usage_rpt_usage_stats_;
+    EhsRestageCLStatsVector bard_usage_rpt_cl_stats_;
+    
+    bool resync_bundles_in_process_ = false;
 };
 
 } // namespace dtn

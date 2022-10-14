@@ -1471,19 +1471,20 @@ LTPNode::Receiver::erase_incoming_session(LTPSession* session_ptr)
 {
 
     SPtr_LTPNodeRcvrSndrIF rcvr_if = parent_node_->receiver_rsif_sptr();
-    session_ptr->Start_Closeout_Timer(rcvr_if, inactivity_interval_);
+    session_ptr->Start_Closeout_Timer(rcvr_if, inactivity_interval_ * retran_retries_);
 
     oasys::ScopeLock scoplok(&session_list_lock_, __func__);
 
     incoming_sessions_.erase(session_ptr);
 
-    update_session_counts(session_ptr, LTPSession::LTP_SESSION_STATE_UNDEFINED); 
-
     uint64_t session_size = 0;  // 0 indicates session was cancelled
     if (!session_ptr->Is_LTP_Cancelled()) {
         session_size = session_ptr->Red_Bytes_Received();
     }
-        
+
+    // this changes the session state so it must be after checking for cancelled
+    update_session_counts(session_ptr, LTPSession::LTP_SESSION_STATE_UNDEFINED); 
+
     closed_session_map_[session_ptr->Session_ID()] = session_size;
 
     if (closed_session_map_.size() > max_closed_sessions_) {
@@ -1683,7 +1684,7 @@ LTPNode::Receiver::process_data_for_receiver(LTPDataReceivedEvent* event)
         }
         else if (seg_ptr->Segment_Type() == LTP_SEGMENT_DS) {
             if (cancelled) {
-                build_CS_segment(seg_ptr, LTP_SEGMENT_CS_BS, 
+                build_CS_segment(seg_ptr, LTP_SEGMENT_CS_BR, 
                                  LTPCancelSegment::LTP_CS_REASON_SYS_CNCLD);
             } else {
                 LTPDataSegment* ds_seg = (LTPDataSegment*)seg_ptr;
@@ -2225,19 +2226,16 @@ LTPNode::Receiver::RecvBundleProcessor::extract_bundles_from_data(LTP_DS_MAP* ds
             buf_ptr = sptr_ds_seg->Payload();
             buf_len = sptr_ds_seg->Payload_Length();
         } else {
-            // not enough data left in current segment to process the next block of a bundle
-            // copy remaining data to a temp buffer and add the next segment's data to it
+            // there was not enough data left from the last segment to process a CBOR element so
+            // add this segment's data to the left over and try again
             new_tmp_buf_size = buf_len + sptr_ds_seg->Payload_Length();
             if (new_tmp_buf_size > tmp_buf_size) {
                 tmp_buf_size = new_tmp_buf_size + 8;
                 tmp_buf = (u_char*) realloc(tmp_buf, tmp_buf_size);
             }
 
-            // buf_ptr is still good even though the sptr_ds_seg has been changed
-            memmove(tmp_buf, buf_ptr, buf_len);
             memcpy(tmp_buf+buf_len, sptr_ds_seg->Payload(), sptr_ds_seg->Payload_Length());
-
-            buf_ptr = tmp_buf;
+            buf_ptr = tmp_buf;  // update in case of a newly allocated buffer
             buf_len += sptr_ds_seg->Payload_Length();
         }
 
@@ -2274,6 +2272,15 @@ LTPNode::Receiver::RecvBundleProcessor::extract_bundles_from_data(LTP_DS_MAP* ds
                 break;
             } else if (cc == 0) {
                 // need more data to parse a bundle block
+                // Move left over data to the temp buffer before deleting the DS segment
+                if (buf_len > tmp_buf_size) {
+                    tmp_buf_size = new_tmp_buf_size + 8;
+                    tmp_buf = (u_char*) realloc(tmp_buf, tmp_buf_size);
+                }
+
+                // buf_ptr is still good even though the sptr_ds_seg has been changed
+                memmove(tmp_buf, buf_ptr, buf_len);
+                buf_ptr = tmp_buf;  // switch to use our temp buffer
                 break;
             } else {
                 buf_ptr += cc;

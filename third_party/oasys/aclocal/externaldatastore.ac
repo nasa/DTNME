@@ -5,7 +5,7 @@ dnl
 AC_DEFUN(AC_CONFIG_EXTERNAL_DS, [
     ac_eds='no'
     AC_ARG_ENABLE(eds,
-        AC_HELP_STRING([--enable-eds],
+        AS_HELP_STRING([--enable-eds],
     		   	[enable external data store support]),
         ac_eds=$enableval) 
     dnl

@@ -62,6 +62,12 @@
 #include "BundleActions.h"
 #include "BundleStatusReport.h"
 
+#ifdef BARD_ENABLED
+    #include "BARDNodeStorageUsage.h"
+    #include "BARDRestageCLIF.h"
+#endif //BARD_ENABLED
+
+
 namespace dtn {
 
 class AdminRegistration;
@@ -86,6 +92,12 @@ class RegistrationInitialLoadThread;
 
 class LTPEngine;
 typedef std::shared_ptr<LTPEngine> SPtr_LTPEngine;
+
+#ifdef BARD_ENABLED
+    class BundleArchitecturalRestagingDaemon;
+    typedef std::shared_ptr<BundleArchitecturalRestagingDaemon> SPtr_BundleArchitecturalRestagingDaemon;
+#endif  // BARD_ENABLED
+
 
 // XXX/dz Set the typedefs to the type of list you want to use for each of the 
 // bundle lists and enable the #define for those that are maps 
@@ -502,13 +514,32 @@ public:
     SPtr_LTPEngine ltp_engine() { return ltp_engine_; }
 
     /**
-     * Query to see if the incoming bundle can be accepted based on the overall payload quota
+     * pass through methods to the Bundle Restaging Daemon
+     */
+
+#ifdef BARD_ENABLED
+    /**
+     * Get pointer to the BundleRestagingDaaemon
+     */
+    SPtr_BundleArchitecturalRestagingDaemon bundle_restaging_daemon() { return bundle_restaging_daemon_; }
+
+    void bundle_restaged(Bundle* bundle, size_t bytes_written);
+
+    void bard_generate_usage_report_for_extrtr(BARDNodeStorageUsageMap& bard_usage_map,
+                                              RestageCLMap& restage_cl_map);
+
+#endif  // BARD_ENABLED
+    
+    /**
+     * Query to see if the incoming bundle can be accepted based on the overall payload quota and 
+     * then based on the Bundle Restaging Daemon individual quotas. It will try for up to 5 seconds
+     * to reserve from the overall payload quota and then if successful it will cehck with the BARD.
      *
      * Some convergence layers previously reserved payload quota space based on the incoming 
      * length of bundle data which is larger than the actual payload length. If so then the
      * amount_previously_reserved_space must be passed in so that the bundle can be officially
      * added to the quota usage and the reserved amount release (usually larger than the 
-     * actual payloas length)
+     * actual payloas length) and zeroes out in case of subsequent calls due to the BARD quotas.
      * 
      * @param [in-out] bundle  The incoming bundle object
      * @param [out] payload_space_reserved Whether space was resrerved in the overall payoad quota
@@ -516,14 +547,15 @@ public:
      *
      * @return Whether the bundle can be accepted or not. If not then the caller can check the
      *         payload_space_reserved variable to determine if the bundle was rejected due to the
-     *         overall payload quota (or possibly other quotas in a future release).
+     *         overall payload quota or the BARD quotas.
      */
     bool query_accept_bundle_based_on_quotas(Bundle* bundle, bool& payload_space_reserved, 
                                              uint64_t& amount_previously_reserved_space);
 
     /**
      * Releases reserved payload space for those bundles that are not yet managed with a 
-     * BundleRef and are about to be deleted because they were rejected.
+     * BundleRef and are about to be deleted because they were rejected. Also releases space
+     * reserved by the Bundle Restaging Daemon if it is active.
      *
      * @param bundle  The Bundle object about to be deleted
      */
@@ -709,6 +741,12 @@ protected:
      */
     void close_standard_transfer_links();
 
+    /**
+     * Second stage of shutting fown is to close the restage links
+     * (and any others that might have been left open).
+     */
+    void close_restage_links();
+
 protected:
     /// The active bundle router
     BundleRouter* router_;
@@ -767,11 +805,13 @@ protected:
     struct Stats {
         size_t delivered_bundles_;
         size_t transmitted_bundles_;
+        size_t restaged_bundles_;
         size_t expired_bundles_;
         size_t deleted_bundles_;
         size_t injected_bundles_;
         size_t events_processed_;
         size_t suppressed_delivery_;
+        size_t rejected_bundles_;
     };
 
     /// Stats instance
@@ -813,6 +853,11 @@ protected:
 
     /// Shared Pointer to the singleton LTP Engine
     SPtr_LTPEngine ltp_engine_;
+
+#ifdef BARD_ENABLED
+    /// Shared Pointer to the singleton BundleArchitecturalRestagingDaemon
+    SPtr_BundleArchitecturalRestagingDaemon bundle_restaging_daemon_;
+#endif  // BARD_ENABLED
 
     /// The Bundle Daemon Input thread
     std::unique_ptr<BundleDaemonInput> daemon_input_;

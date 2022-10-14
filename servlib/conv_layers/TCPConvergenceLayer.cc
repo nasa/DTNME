@@ -3121,7 +3121,7 @@ TCPConvergenceLayer::Connection4::handle_poll_activity()
     // finally, check for incoming data
     if (sock_pollfd_->revents & POLLIN) {
         if (delay_reads_to_free_some_storage_) {
-            // this can happen if a future feature refuses a bundle
+            // this can happen if the BundleArchitecturalRestagingDaemon refuses a bundle
             // after the TCP CL has reserved the payload quota space
             note_data_rcvd();   // prevent keep_alive timeout
             if (delay_reads_timer_.elapsed_ms() >= 1000) {

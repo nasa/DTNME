@@ -240,6 +240,7 @@ public:
      * list is empty.
      */
     virtual BundleRef find(bundleid_t key) const;
+    virtual BundleRef find_prev(bundleid_t key) const;
     virtual BundleRef find_next(bundleid_t key) const;
     virtual BundleRef find_for_storage(bundleid_t key) const;
 

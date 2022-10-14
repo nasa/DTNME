@@ -59,6 +59,10 @@ BundleEventHandler::dispatch_event(BundleEvent* e)
         handle_bundle_transmitted((BundleTransmittedEvent*)e);
         break;
 
+    case BUNDLE_RESTAGED:
+        handle_bundle_restaged((BundleRestagedEvent*)e);
+        break;
+
     case BUNDLE_DELIVERED:
         handle_bundle_delivered((BundleDeliveredEvent*)e);
         break;
@@ -435,6 +439,14 @@ BundleEventHandler::handle_bundle_received(BundleReceivedEvent*)
  */
 void
 BundleEventHandler::handle_bundle_transmitted(BundleTransmittedEvent*)
+{
+}
+
+/**
+ * Default event handler when bundles are restaged
+ */
+void
+BundleEventHandler::handle_bundle_restaged(BundleRestagedEvent*)
 {
 }
 

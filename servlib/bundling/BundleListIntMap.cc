@@ -416,6 +416,28 @@ BundleListIntMap::find_next(bundleid_t key) const
 
 //----------------------------------------------------------------------
 BundleRef
+BundleListIntMap::find_prev(bundleid_t key) const
+{
+    BundleRef ret(__func__);
+
+    oasys::ScopeLock l(lock_, __func__);
+
+    const_iterator itr = list_.lower_bound(key);
+
+    if (itr != list_.begin())
+    {
+        --itr;
+        if (itr != list_.begin())
+        {
+            ret = itr->second;
+        }
+    }
+
+    return ret;
+}
+
+//----------------------------------------------------------------------
+BundleRef
 BundleListIntMap::find_for_storage(bundleid_t key) const
 {
     BundleRef ret("BundleListIntMap::find() temporary (by key)");

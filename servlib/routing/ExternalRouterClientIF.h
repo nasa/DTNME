@@ -140,6 +140,29 @@ public:
      */
     virtual int client_send_link_del_req_msg(std::string& link_id_);
 
+    /**
+     * Issue command to request a BARD Usage report (no data returned if BARD is not active)
+     * @return 0 on success or -1 on failure of building and sending the message (not the result of the command itself)
+     */
+    virtual int client_send_bard_usage_req_msg();
+
+#ifdef BARD_ENABLED
+    /**
+     * Issue command to add a Bundle Restaging Daemon Quota
+     * @param quota A BARDNodeStorageUsage object with all of the key and quota information filled in
+     * @return 0 on success or -1 on failure of building and sending the message (not the result of the command itself)
+     */
+    virtual int client_send_bard_add_quota_req_msg(BARDNodeStorageUsage& quota);
+
+    /**
+     * Issue command to delete a Bundle Restaging Daemon Quota
+     * @param quota A BARDNodeStorageUsage object with all of the key information filled in
+     * @return 0 on success or -1 on failure of building and sending the message (not the result of the command itself)
+     */
+    virtual int client_send_bard_del_quota_req_msg(BARDNodeStorageUsage& quota);
+#endif // BARD_ENABLED
+
+
 
 
     // decoders
@@ -230,7 +253,7 @@ public:
      * @param bundle_vec A vector used to return the details of the bundles currently in the DTN server
      * @return 0 on success or -1 on failure
      */
-    virtual int decode_bundle_report_msg_v0(CborValue& cvElement, extrtr_bundle_vector_t& bundle_vec);
+    virtual int decode_bundle_report_msg_v0(CborValue& cvElement, extrtr_bundle_vector_t& bundle_vec, bool& last_msg);
     /**
      * Decode the data for a single bundle witthin the Bundle Report Message
      * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
@@ -319,6 +342,51 @@ public:
      * @return 0 on success or -1 on failure
      */
     virtual int decode_agg_custody_signal_msg_v0(CborValue& cvElement, std::string& acs_data);
+
+#ifdef BARD_ENABLED
+    /**
+     * Decode the Bundle Restaging Daemon Usage Report Message
+     * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
+     * @param bard_usage_map A map used to return the usage details
+     * @param restage_cl_map A map used to return the deatils about the Restage Convergence Layer(s)
+     * @return 0 on success or -1 on failure
+     */
+    virtual int decode_bard_usage_report_msg_v0(CborValue& cvElement, BARDNodeStorageUsageMap& bard_usage_map,
+                                               RestageCLMap& restage_cl_map);
+
+protected:
+    /**
+     * Decode the BARD Usage details of the Bundle Restaging Daemon Usage Report Message
+     * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
+     * @param bard_usage_map A map used to return the usage details
+     * @return 0 on success or -1 on failure
+     */
+    virtual int decode_bard_usage_map_v0(CborValue& rptElement, BARDNodeStorageUsageMap& bard_usage_map);
+
+    /**
+     * Decode a single entry in BARD Usage details of the Bundle Restaging Daemon Usage Report Message
+     * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
+     * @param bard_usage_map A map used to return the usage details
+     * @return 0 on success or -1 on failure
+     */
+    virtual int decode_bard_usage_entry_v0(CborValue& mapElement, BARDNodeStorageUsageMap& bard_usage_map);
+
+    /**
+     * Decode the Restage Convergence Layer details of the Bundle Restaging Daemon Usage Report Message
+     * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
+     * @param restage_cl_map A map used to return the deatils about the Restage Convergence Layer(s)
+     * @return 0 on success or -1 on failure
+     */
+    virtual int decode_restage_cl_map_v0(CborValue& rptElement, RestageCLMap& restage_cl_map);
+
+    /**
+     * Decode a single entry of the Restage Convergence Layer details of the Bundle Restaging Daemon Usage Report Message
+     * @param cvElement The CBOR iterator that keep track of the current location and context within a CBOR string that is being parsed
+     * @param restage_cl_map A map used to return the deatils about the Restage Convergence Layer(s)
+     * @return 0 on success or -1 on failure
+     */
+    virtual int decode_restage_cl_entry_v0(CborValue& mapElement, RestageCLMap& restage_cl_map);
+#endif // BARD_ENABLED                                      
 
 protected:
     /**
@@ -470,6 +538,31 @@ protected:
     virtual int64_t encode_link_del_req_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
                                                std::string& link_id);
 
+
+#ifdef BARD_ENABLED
+    /**
+     * Encode a Bundle Restaging Daemon Add Quota Request Message
+     * @param buf A pointer to a buffer to place the encoded message in or nullptr to calculate the size needed to hold the encoded message
+     * @param buflen The length of the passed in buffer os zero to calculate the size needed to hold the encoded message
+     * @param encoded_len Returns the length of the encoded message if it was successful
+     * @param quota The BARD quota details for the quota to be added
+     * @return CBORUTIL_SUCCESS (0) on success or CBORUTIL_FAIL (-1) else the length of the [additional] space needed to encode the message if buflen was too small
+     */
+    virtual int64_t encode_bard_add_quota_req_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
+                                                    BARDNodeStorageUsage& quota);
+
+    /**
+     * Encode a Bundle Restaging Daemon Delete Quota Request Message
+     * @param buf A pointer to a buffer to place the encoded message in or nullptr to calculate the size needed to hold the encoded message
+     * @param buflen The length of the passed in buffer os zero to calculate the size needed to hold the encoded message
+     * @param encoded_len Returns the length of the encoded message if it was successful
+     * @param quota The BARD quota details for the quota to be deleted
+     * @return CBORUTIL_SUCCESS (0) on success or CBORUTIL_FAIL (-1) else the length of the [additional] space needed to encode the message if buflen was too small
+     */
+    virtual int64_t encode_bard_del_quota_req_msg_v0(uint8_t* buf, uint64_t buflen, int64_t& encoded_len,
+                                                    BARDNodeStorageUsage& quota);
+
+#endif // BARD_ENABLED                                      
 
 protected:
     oasys::SpinLock lock_;

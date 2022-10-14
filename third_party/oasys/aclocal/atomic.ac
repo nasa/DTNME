@@ -23,7 +23,7 @@ AC_DEFUN(AC_OASYS_CONFIG_ATOMIC, [
     dnl
     dnl
     AC_ARG_ENABLE(atomic_nonatomic,
-                  AC_HELP_STRING([--enable-atomic-nonatomic],
+                  AS_HELP_STRING([--enable-atomic-nonatomic],
                     [compile with non-atomic "atomic" routines (testing only)]),
                   [atomic_nonatomic=$enableval],
                   [atomic_nonatomic=no])
@@ -45,7 +45,7 @@ AC_DEFUN(AC_OASYS_CONFIG_ATOMIC, [
     dnl        --disable-atomic-asm
     dnl
     AC_ARG_ENABLE(atomic_asm,
-                  AC_HELP_STRING([--disable-atomic-asm],
+                  AS_HELP_STRING([--disable-atomic-asm],
                          [compile without assembly-based atomic functions]),
                   [atomic_asm=$enableval],
                   [atomic_asm=yes])

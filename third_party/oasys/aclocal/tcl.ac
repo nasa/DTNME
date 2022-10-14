@@ -26,17 +26,17 @@ AC_DEFUN(AC_CONFIG_TCL, [
     ac_tcldir='system'
 
     AC_ARG_WITH(tcl,
-        AC_HELP_STRING([--with-tcl=DIR],
+        AS_HELP_STRING([--with-tcl=DIR],
     		   [location of a tcl installation (default system)]),
         ac_tcldir=$withval) 
 
     AC_ARG_WITH(tcldir,
-        AC_HELP_STRING([--with-tcldir=DIR],
+        AS_HELP_STRING([--with-tcldir=DIR],
     		   [same as --with-tcl]),
         ac_tcldir=$withval) 
 
     AC_ARG_WITH(tclver,
-        AC_HELP_STRING([--with-tclver=VERSION],
+        AS_HELP_STRING([--with-tclver=VERSION],
     		   [tcl version to use (default 8.5 - 8.3)]),
         ac_tclvers=$withval)
 

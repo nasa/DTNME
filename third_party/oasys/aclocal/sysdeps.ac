@@ -57,17 +57,6 @@ AC_DEFUN(AC_OASYS_SYSTEM_LIBRARIES, [
                    AC_DEFINE_UNQUOTED(HAVE_GETHOSTBYNAME_R, 1, [wether gethostbyname_r exists]),
                    [])
 
-    AC_SEARCH_LIBS(xdr_int, rpc, [],
-      AC_MSG_ERROR([can't find required library function (xdr_int)]))
-
-    AC_SEARCH_LIBS(xdr_u_int64_t, rpc,
-                   AC_DEFINE_UNQUOTED(HAVE_XDR_U_INT64_T, 1, [whether xdr_u_int64_t exists]),
-                   [])
-
-    AC_SEARCH_LIBS(xdr_u_quad_t, rpc,
-                   AC_DEFINE_UNQUOTED(HAVE_XDR_U_QUAD_T, 1, [whether xdr_u_quad_t exists]),
-                   [])
-
     AC_SEARCH_LIBS(inet_aton, [nsl resolv socket],
                    AC_DEFINE_UNQUOTED(HAVE_INET_ATON, 1, [wether inet_aton exists]),
                    [])
@@ -75,6 +64,47 @@ AC_DEFUN(AC_OASYS_SYSTEM_LIBRARIES, [
     AC_SEARCH_LIBS(inet_pton, [nsl resolv socket],
                    AC_DEFINE_UNQUOTED(HAVE_INET_PTON, 1, [wether inet_pton exists]),
                    [])
+
+    AC_EXTLIB_SAVE
+])
+
+dnl -------------------------------------------------------------------------
+dnl Checks for RPC [and XDR] header files and library
+dnl -------------------------------------------------------------------------
+AC_DEFUN(AC_OASYS_RPC_FUNCS, [
+    AC_EXTLIB_PREPARE
+
+    ac_rpc_in_stdc_lib=no
+    ac_rpc_in_tiprpc_lib=no
+    AC_CHECK_FILE(/usr/include/rpc/rpc.h, [ac_rpc_in_stdc_lib=yes], [])
+
+    if test $ac_rpc_in_stdc_lib = yes ; then
+        AC_SEARCH_LIBS(xdr_int, rpc, [],
+              AC_MSG_ERROR([can't find required library function (xdr_int) in std c lib]))
+
+        AC_SEARCH_LIBS(xdr_u_int64_t, ,
+                       AC_DEFINE_UNQUOTED(HAVE_XDR_U_INT64_T, 1, [whether xdr_u_int64_t exists]),
+                       [])
+
+        AC_SEARCH_LIBS(xdr_u_quad_t, ,
+                       AC_DEFINE_UNQUOTED(HAVE_XDR_U_QUAD_T, 1, [whether xdr_u_quad_t exists]),
+                       [])
+
+    else
+        AC_CHECK_FILE(/usr/include/tirpc/rpc/rpc.h, [CFLAGS=-I/usr/include/tirpc], [])
+
+        AC_SEARCH_LIBS(xdr_int, tirpc, [LIBS=-ltirpc],
+              AC_MSG_ERROR([can't find required library function (xdr_int)]))
+
+        AC_SEARCH_LIBS(xdr_u_int64_t, tirpc,
+                       AC_DEFINE_UNQUOTED(HAVE_XDR_U_INT64_T, 1, [whether xdr_u_int64_t exists]),
+                       [])
+
+        AC_SEARCH_LIBS(xdr_u_quad_t, tirpc,
+                       AC_DEFINE_UNQUOTED(HAVE_XDR_U_QUAD_T, 1, [whether xdr_u_quad_t exists]),
+                       [])
+
+    fi
 
     AC_EXTLIB_SAVE
 ])
@@ -98,7 +128,7 @@ AC_DEFUN(AC_OASYS_SYSTEM_TYPES, [
     AC_MSG_CHECKING([value for _FILE_OFFSET_BITS preprocessor symbol])
     ac_file_offset_bits=64
     AC_ARG_WITH(file-offset-bits,
-	AC_HELP_STRING([--with-file-offset-bits=N],
+	AS_HELP_STRING([--with-file-offset-bits=N],
 		       [value for _FILE_OFFSET_BITS (default 64)]),
 		       ac_file_offset_bits=$withval)
     AC_MSG_RESULT($ac_file_offset_bits)
@@ -153,5 +183,6 @@ AC_DEFUN(AC_OASYS_CONFIG_SYSTEM, [
     AC_OASYS_SYSTEM_HEADERS
     AC_OASYS_SYSTEM_TYPES
     AC_OASYS_SYSTEM_FUNCTIONS
+    AC_OASYS_RPC_FUNCS
 ])
 

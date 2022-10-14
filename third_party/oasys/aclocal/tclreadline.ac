@@ -54,7 +54,7 @@ AC_DEFUN(AC_CONFIG_TCLREADLINE, [
 #ac_tclreadlinedir='system'
 
     AC_ARG_WITH(tclreadline,
-        AC_HELP_STRING([--with-tclreadline],
+        AS_HELP_STRING([--with-tclreadline],
     		   [enable or disable tclreadline (default try)]),
         [ac_tclreadline=$withval],
         [ac_tclreadline=try])

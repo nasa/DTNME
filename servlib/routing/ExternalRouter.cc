@@ -58,6 +58,7 @@
 #include "bundling/GbofId.h"
 #include "bundling/BundleActions.h"
 #include "bundling/BundleDaemon.h"
+#include "bundling/BundleArchitecturalRestagingDaemon.h"
 #include "bundling/BP6_MetadataBlockProcessor.h"
 #include "contacts/ContactManager.h"
 #include "contacts/NamedAttribute.h"
@@ -742,6 +743,7 @@ ExternalRouter::handle_bundle_report(BundleReportEvent *event)
     extrtr_bundle_ptr_t bundleptr;
     extrtr_bundle_vector_t bundle_vec;
 
+    bool last_msg = false;
     // build vector of bundles
 
     while (bref != nullptr) {
@@ -782,12 +784,15 @@ ExternalRouter::handle_bundle_report(BundleReportEvent *event)
         }
 
         if (bundle_vec.size() > 0) {
-            server_send_bundle_report_msg(bundle_vec);
+            server_send_bundle_report_msg(bundle_vec, last_msg);
 
             //XXX/dz could get real efficient and re-use the loaded vector...
             bundle_vec.clear();
         }
     }
+
+    last_msg = true;
+    server_send_bundle_report_msg(bundle_vec, last_msg);
 }
 
 
@@ -808,6 +813,22 @@ ExternalRouter::handle_route_report(RouteReportEvent* event)
     //dzdebug
     return;
 }
+
+//----------------------------------------------------------------------
+void
+ExternalRouter::generate_bard_usge_report()
+{
+#ifdef BARD_ENABLED
+    BARDNodeStorageUsageMap bard_usage_map;
+    RestageCLMap restage_cl_map;
+
+    BundleDaemon *bd = BundleDaemon::instance();
+    bd->bard_generate_usage_report_for_extrtr(bard_usage_map, restage_cl_map);
+    
+    server_send_bard_usage_report_msg(bard_usage_map, restage_cl_map);
+#endif //BARD_ENABLED    
+}
+
 
 //----------------------------------------------------------------------
 void
@@ -1081,6 +1102,28 @@ ExternalRouter::ModuleServer::process_action(std::string* msg)
                 process_shutdown_req_msg_v0(cvElement);
             }
             break;
+
+        case EXTRTR_MSG_BARD_USAGE_REQ:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bard_usage_req_msg_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BARD_ADD_QUOTA_REQ:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bard_add_quota_req_msg_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BARD_DEL_QUOTA_REQ:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bard_del_quota_req_msg_v0(cvElement);
+            }
+            break;
+
 
         default: break;
     }
@@ -1459,6 +1502,83 @@ ExternalRouter::ModuleServer::process_shutdown_req_msg_v0(CborValue& cvElement)
         oasys::TclCommandInterp::instance()->exit_event_loop();
     }
 }
+
+
+//----------------------------------------------------------------------
+void
+ExternalRouter::ModuleServer::process_bard_usage_req_msg_v0(CborValue& cvElement)
+{
+    // Version zero of this message does not have any additional data
+    (void) cvElement;
+
+    // the report must be sent via the External Router to get the correct sequence number
+    parent_->generate_bard_usge_report();
+}
+
+
+//----------------------------------------------------------------------
+void
+ExternalRouter::ModuleServer::process_bard_add_quota_req_msg_v0(CborValue& cvElement)
+{
+#ifdef BARD_ENABLED
+    BARDNodeStorageUsage quota;
+
+    if (CBORUTIL_SUCCESS != decode_bard_add_quota_req_msg_v0(cvElement, quota))
+    {
+        log_err("%s: error parsing CBOR", __func__);
+        return;
+    }
+
+    std::string nodename = quota.nodename();
+    std::string link_name = quota.quota_restage_link_name();
+    std::string warning_msg;
+
+    // add the quota in the BundleArchitecturalRestagingDaemon
+    SPtr_BundleArchitecturalRestagingDaemon sptr_bard = BundleDaemon::instance()->bundle_restaging_daemon();
+
+    sptr_bard->bardcmd_add_quota(quota.quota_type(), quota.naming_scheme(), nodename,
+                               quota.quota_internal_bundles(), quota.quota_internal_bytes(), 
+                               quota.quota_refuse_bundle(),
+                               link_name, quota.quota_auto_reload(),
+                               quota.quota_external_bundles(), quota.quota_external_bytes(),
+                               warning_msg);
+
+#endif // BARD_ENABLED
+}
+
+
+//----------------------------------------------------------------------
+void
+ExternalRouter::ModuleServer::process_bard_del_quota_req_msg_v0(CborValue& cvElement)
+{
+#ifdef BARD_ENABLED
+    BARDNodeStorageUsage quota;
+
+    if (CBORUTIL_SUCCESS != decode_bard_del_quota_req_msg_v0(cvElement, quota))
+    {
+        log_err("%s: error parsing CBOR", __func__);
+        return;
+    }
+
+    std::string nodename = quota.nodename();
+
+    // delete the quota in the BundleArchitecturalRestagingDaemon
+    SPtr_BundleArchitecturalRestagingDaemon sptr_bard = BundleDaemon::instance()->bundle_restaging_daemon();
+
+    sptr_bard->bardcmd_delete_quota(quota.quota_type(), quota.naming_scheme(), nodename);
+
+#endif // BARD_ENABLED
+}
+
+
+
+
+
+
+
+
+
+
 
 
 

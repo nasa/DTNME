@@ -152,7 +152,24 @@ BundleDaemonOutput::handle_bundle_send(BundleSendRequest* event)
     LinkRef link = contactmgr_->find_link(event->link_.c_str());
     if (link == NULL){
         if (!BundleDaemon::shutting_down()) {
+
+#ifdef BARD_ENABLED
+            if (event->restage_) {
+                // unable to send the bundle to the restage link so re-issue a 
+                // BundleReceived event after clearing the restage link name
+                br->clear_bard_restage_link_name();
+
+                BundleDaemon::post( new BundleReceivedEvent(br.object(), 
+                                                            EVENTSRC_RESTAGE, 
+                                                            br->payload().length(), 
+                                                            EndpointID::NULL_EID()));
+            } else {
+                log_err("Cannot send bundle on unknown link %s", event->link_.c_str()); 
+            }
+#else
             log_err("Cannot send bundle on unknown link %s", event->link_.c_str()); 
+            
+#endif // BARD_ENABLED
         }
         return;
     }
@@ -384,6 +401,196 @@ BundleDaemonOutput::handle_bundle_transmitted(BundleTransmittedEvent* event)
 
 
 //----------------------------------------------------------------------
+void
+BundleDaemonOutput::handle_bundle_restaged(BundleRestagedEvent* event)
+{
+    (void) event;
+
+#ifdef BARD_ENABLED
+    Bundle* bundle = event->bundleref_.object();
+
+    LinkRef link = event->link_;
+    ASSERT(link != NULL);
+
+    SPtr_BlockInfoVec sptr_blocks;
+
+    if (!event->blocks_deleted_)
+    {
+        sptr_blocks = bundle->xmit_blocks()->find_blocks(link);
+    
+        // Because a CL is running in another thread or process (External CLs),
+        // we cannot prevent all redundant transmit/cancel/transmit_failed messages.
+        // If an event about a bundle bound for particular link is posted after another,
+        // which it might contradict, the BundleDaemon need not reprocess the event.
+        // The router (DP) might, however, be interested in the new status of the send.
+        if (sptr_blocks == nullptr)
+        {
+            log_info("received a redundant/conflicting bundle_restaged event about "
+                     "bundle id:%" PRIbid " -> %s (%s)",
+                     bundle->bundleid(),
+                     link->name(),
+                     link->nexthop());
+            return;
+        }
+    }
+    
+    /*
+     * Update statistics and remove the bundle from the link inflight
+     * queue. Note that the link's queued length statistics must
+     * always be decremented by the full size of the bundle payload,
+     * yet the transmitted length is only the amount reported by the
+     * event.
+     */
+    // remove the bundle from the link's in flight queue
+    if (link->del_from_inflight(event->bundleref_)) {
+#ifdef BDOUTPUT_LOG_DEBUG_ENABLED
+        log_debug("removed bundle id:%" PRIbid " from link %s inflight queue",
+                 bundle->bundleid(),
+                 link->name());
+#endif
+    } else {
+        if (!bundle->expired()) {
+            log_warn("bundle id:%" PRIbid " not on link %s inflight queue",
+                     bundle->bundleid(),
+                     link->name());
+        }
+    }
+    
+    // verify that the bundle is not on the link's to-be-sent queue
+    if (link->del_from_queue(event->bundleref_)) {
+        log_warn("bundle id:%" PRIbid " unexpectedly on link %s queue in restaged event",
+                 bundle->bundleid(),
+                 link->name());
+    }
+    
+    if (!event->success_)
+    { 
+        // needed for LTPUDP CLA and TableBasedRouter to
+        // trigger sending more bundles if the queue is full
+        // and no new bundles are incoming when LTP is not successful
+        if (!event->blocks_deleted_) {
+            BundleProtocol::delete_blocks(bundle, link);
+        }
+
+        //XXX/dz Schedule a custody timer if we have custody as a precaution
+        if (bundle->local_custody() || bundle->bibe_custody()) {
+            ForwardingInfo fwdinfo;
+            bundle->fwdlog()->get_latest_entry(link, &fwdinfo);
+
+            SPtr_CustodyTimer ct_sptr = std::make_shared<CustodyTimer>(bundle, link);
+
+            bundle->custody_timers()->push_back(ct_sptr);
+
+            ct_sptr->start(fwdinfo.timestamp(), fwdinfo.custody_spec(), ct_sptr);
+        }
+
+        bundle->fwdlog()->update(link, ForwardingInfo::TRANSMIT_FAILED);
+
+        // can it be restaged to a pooled instance instead?
+        std::string old_restage_link_name = bundle->bard_restage_link_name();
+
+        bundle->clear_bard_restage_link_name();
+
+        bool space_reserved = false;  // an output not an input
+        uint64_t prev_amount_reserved = 0;
+        daemon_->query_accept_bundle_based_on_quotas(bundle, space_reserved, prev_amount_reserved);
+
+        if (0 == old_restage_link_name.compare(bundle->bard_restage_link_name())) {
+            // just trying to send it back to the same link so 
+            // nix that and let it go into internal storage
+            bundle->clear_bard_restage_link_name();
+        }
+
+        BundleDaemon::post( new BundleReceivedEvent(bundle,
+                                                    EVENTSRC_RESTAGE, 
+                                                    bundle->payload().length(), 
+                                                    EndpointID::NULL_EID()));
+        return;
+    } else {
+//dzdebug - moved to RestageCL        daemon_->bundle_restaged(bundle, event->disk_usage_);  // have the BD inform the BARD
+    }
+
+
+    stats_.transmitted_bundles_++;
+    
+    link->stats()->bundles_transmitted_++;
+    link->stats()->bytes_transmitted_ += event->disk_usage_;
+
+#ifdef BDOUTPUT_LOG_DEBUG_ENABLED
+    log_info("BUNDLE_RESTAGED id:%" PRIbid " (%u disk_usage) -> %s (%s)",
+             bundle->bundleid(),
+             event->disk_usage_,
+             link->name(),
+             link->nexthop());
+#endif
+
+
+    /*
+     * Grab the latest forwarding log state so we can find the custody
+     * timer information (if any).
+     */
+    ForwardingInfo fwdinfo;
+    bool ok = bundle->fwdlog()->get_latest_entry(link, &fwdinfo);
+    if(!ok)
+    {
+#ifdef BDOUTPUT_LOG_DEBUG_ENABLED
+        oasys::StringBuffer buf;
+        bundle->fwdlog()->dump(&buf);
+        log_debug("%s",buf.c_str());
+#endif
+    }
+    ASSERTF(ok, "no forwarding log entry for transmission");
+    // ASSERT(fwdinfo.state() == ForwardingInfo::QUEUED);
+    if (fwdinfo.state() != ForwardingInfo::QUEUED) {
+        log_err("*%p fwdinfo state %s != expected QUEUED on link %s in BundleTransmittedEvent processing",
+                bundle, ForwardingInfo::state_to_str(fwdinfo.state()),
+                link->name());
+    }
+    
+    /*
+     * Update the forwarding log indicating that the bundle is no
+     * longer in flight.
+     */
+#ifdef BDOUTPUT_LOG_DEBUG_ENABLED
+    log_debug("updating forwarding log entry on *%p for *%p to TRANSMITTED",
+              bundle, link.object());
+#endif
+    bundle->fwdlog()->update(link, ForwardingInfo::TRANSMITTED);
+                            
+    // just in case - no harm if there are no blocks
+    BundleProtocol::delete_blocks(bundle, link);
+
+    /*
+     * Generate the forwarding status report if requested
+     */
+    if (bundle->forward_rcpt()) {
+        BundleDaemon::instance()->generate_status_report(bundle, BundleStatusReport::STATUS_FORWARDED);
+    }
+    
+    /*
+     * Schedule a custody timer if we have custody.
+     */
+    if (bundle->local_custody() || bundle->bibe_custody()) {
+        SPtr_CustodyTimer ct_sptr = std::make_shared<CustodyTimer>(bundle, link);
+
+        bundle->custody_timers()->push_back(ct_sptr);
+
+        ct_sptr->start(fwdinfo.timestamp(), fwdinfo.custody_spec(), ct_sptr);
+        
+        // XXX/TODO: generate failed custodial signal for "forwarded
+        // over unidirectional link" if the bundle has the retention
+        // constraint "custody accepted" and all of the nodes in the
+        // minimum reception group of the endpoint selected for
+        // forwarding are known to be unable to send bundles back to
+        // this node
+    }
+#endif //BARD_ENABLED
+}
+
+
+
+
+//----------------------------------------------------------------------
 void 
 BundleDaemonOutput::handle_link_cancel_all_bundles_request(LinkCancelAllBundlesRequest* event)
 {
@@ -412,6 +619,20 @@ BundleDaemonOutput::event_handlers_completed(BundleEvent* event)
             new BundleTransmittedEvent_MainProcessor(bte->bundleref_.object(),
                         bte->contact_, bte->link_, bte->bytes_sent_, bte->reliably_sent_, 
                         bte->success_, bte->blocks_deleted_);
+        ev->daemon_only_ = true;
+
+        BundleDaemon::post(ev);
+
+    } else if (event->type_ == BUNDLE_RESTAGED) {
+        /*
+         * Generate a new event to be processed by the main BundleDaemon
+         * to check to see if the bundle can be deleted.
+         */
+        BundleRestagedEvent* bre = dynamic_cast<BundleRestagedEvent*>(event);
+        BundleRestagedEvent* ev = 
+            new BundleRestagedEvent_MainProcessor(bre->bundleref_.object(),
+                        bre->contact_, bre->link_, bre->disk_usage_,
+                        bre->success_, bre->blocks_deleted_);
         ev->daemon_only_ = true;
 
         BundleDaemon::post(ev);

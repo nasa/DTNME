@@ -25,7 +25,7 @@ AC_DEFUN(AC_CONFIG_POSTGRES, [
     ac_postgresdir='no'
 
     AC_ARG_WITH(postgres,
-        AC_HELP_STRING([--with-postgres=DIR],
+        AS_HELP_STRING([--with-postgres=DIR],
     		   [location of a postgres installation (default none)]),
         ac_postgresdir=$withval) 
 

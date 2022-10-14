@@ -215,6 +215,11 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         source_str = " (from router)";
         break;
 
+    case EVENTSRC_RESTAGE:
+        ++stats_.rcvd_from_restage_;
+        source_str = " (from restage)";
+        break;
+        
     default:
         NOTREACHED;
     }
@@ -397,6 +402,21 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
         }
 
     }
+
+#ifdef BARD_ENABLED
+        // If restaging then don't add_to_pending
+        if (bundle->bard_requested_restage()) {
+            // post to the BDOutput to handle the restage to avoid impacting ingest rate
+            int action = ForwardingInfo::FORWARD_ACTION;
+            std::string link_name = bundle->bard_restage_link_name();
+
+            BundleSendRequest *request = new BundleSendRequest(bundleref, link_name, action, true);
+            BundleDaemon::post(request);
+
+            return;
+        }
+#endif //BARD_ENABLED
+
 
     /*
      * Add the bundle to the master pending queue and the data store

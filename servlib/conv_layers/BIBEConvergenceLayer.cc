@@ -545,6 +545,7 @@ BIBEConvergenceLayer::BIBE::encapsulate_bundle(BundleRef& bref)
     bs->release_payload_space(max_total_len);
 
 
+    // bounce the new BIBE bundle off the BARD to see if it needs to be restaged
     // - not checking results since already reserved and not going to reject the bundle anyway
     bool space_reserved = false;
     uint64_t prev_reserved_space = 0;

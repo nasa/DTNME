@@ -146,7 +146,7 @@ installlib: installdirs
 
 installetc: installdirs
 	[ -d $(DESTDIR)$(sysconfdir) ] || mkdir -p $(DESTDIR)$(sysconfdir)
-		$(INSTALL_DATA) daemon/dtn.conf $(DESTDIR)$(sysconfdir)/dtn.conf; \
+		$(INSTALL_DATA) daemon/dtnme_daemon.cfg $(DESTDIR)$(sysconfdir)/dtnme_daemon.cfg; \
 
 #
 # And a rule to make sure that configure has been run recently enough.
@@ -164,4 +164,4 @@ $(SRCDIR)/configure $(OASYS_ETCDIR)/Rules.make.in:
 	@echo error -- Makefile did not set SRCDIR properly
 	@exit 1
 
-CFGFILES = Rules.make System.make 
+CFGFILES = Rules.make System.make aclocal.m4 config.log config.status configure dtn-config.h dtn-config.h.in

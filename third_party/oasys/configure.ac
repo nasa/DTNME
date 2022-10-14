@@ -67,12 +67,12 @@ fi
 #  First set srcdir and builddir, calculated above in AC_CONFIG_SRCDIR
 AC_MSG_CHECKING([location of source directory])
 SRCDIR=`(cd $srcdir && pwd)`
-AC_MSG_RESULT([\"$SRCDIR\"])
+AC_MSG_RESULT(["$SRCDIR"])
 AC_SUBST([SRCDIR])
 
 builddir=`pwd`
 AC_MSG_CHECKING([location of build directory])
-AC_MSG_RESULT([\"$builddir\"])
+AC_MSG_RESULT(["$builddir"])
 BUILDDIR=$builddir
 AC_SUBST([BUILDDIR])
 
@@ -104,6 +104,7 @@ AC_CONFIG_ODBC
 AC_OASYS_CONFIG_GCC
 AC_OASYS_CONFIG_SYSTEM
 AC_OASYS_CONFIG_ATOMIC
+AC_OASYS_CONFIG_CPP11_ABI
 
 # -------------------------------------------------------------------------
 # Output

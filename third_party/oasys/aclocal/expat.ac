@@ -23,7 +23,7 @@ dnl Main macro for finding a usable db installation
 dnl
 AC_DEFUN(AC_CONFIG_EXPAT, [
     AC_ARG_WITH(expat,
-        AC_HELP_STRING([--with-expat=DIR],
+        AS_HELP_STRING([--with-expat=DIR],
     		   [location of an expat installation (default try)]),
         [ac_expatdir=$withval],
         [ac_expatdir=try])

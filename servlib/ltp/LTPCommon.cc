@@ -1225,13 +1225,12 @@ LTPSession::HaveReportSegmentsToSend(LTPDataSegment * ds_seg, int32_t segsize, s
 {
     oasys::ScopeLock scoplok(&segmap_lock_, __func__);
 
-    bytes_claimed = 0;
-
     bool result = false;
     bool found_checkpoint = false;
     size_t lower_bounds = 0;
     size_t upper_bounds = ds_seg->Stop_Byte() + 1;
 
+    bytes_claimed = 0;
     LTP_U64_MAP::iterator offset_iter = ds_offset_to_upperbounds_.lower_bound(ds_seg->Offset());
     if (offset_iter != ds_offset_to_upperbounds_.begin()) {
         // backup to the entry that would come before this DS offset
@@ -1249,8 +1248,8 @@ LTPSession::HaveReportSegmentsToSend(LTPDataSegment * ds_seg, int32_t segsize, s
     LTP_RS_MAP::iterator rs_iter;
     SPtr_LTPReportSegment rptseg;
 
-    rs_iter = report_segments_.find(ds_seg->Serial_ID());
-    if (rs_iter != report_segments_.end())
+    rs_iter = report_segments_.begin();
+    while (rs_iter != report_segments_.end())
     {
         rptseg = rs_iter->second;
 
@@ -1264,11 +1263,17 @@ LTPSession::HaveReportSegmentsToSend(LTPDataSegment * ds_seg, int32_t segsize, s
             {
                 result = true;
             }
+            break;
         }
-        else
+        else if (rptseg->Report_Serial_Number() == ds_seg->Serial_ID())
         {
             // generate new reports based on the bounds of the original report
             lower_bounds = rptseg->LowerBounds();
+            break;
+        }
+        else
+        {
+            ++rs_iter;
         }
     }
 
@@ -1376,7 +1381,6 @@ LTPSession::GenerateReportSegments(uint64_t chkpt, size_t lower_bounds, size_t c
             // but its stop byte can still extend past the our start/stop bytes
             --iter;
         }
-
 
         while (iter != red_contig_blocks_.end())
         {

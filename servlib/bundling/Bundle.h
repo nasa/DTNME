@@ -293,6 +293,15 @@ public:
     bool     expired_in_link_queue()      const { return expired_in_link_queue_; }
     bundleid_t frag_created_from_bundleid() const { return frag_created_from_bundleid_; }
 
+#ifdef BARD_ENABLED
+    size_t bard_quota_reserved(bool by_src);
+    size_t bard_extquota_reserved(bool by_src);
+    size_t bard_in_use(bool by_src);
+    bool bard_restage_by_src()             const { return bard_restage_by_src_; }
+    std::string bard_restage_link_name()   const { return bard_restage_link_name_; }
+    bool bard_requested_restage()          const { return ! bard_restage_link_name_.empty(); }
+#endif // BARD_ENABLED
+
     bool is_freed()                       const { return freed_; }
 
 #ifdef ECOS_ENABLED
@@ -406,6 +415,14 @@ public:
     void set_ecos_flowlabel(uint64_t t)   { ecos_flowlabel_ = t; }
 #endif
 
+#ifdef BARD_ENABLED
+    void set_bard_quota_reserved(bool by_src, size_t t);
+    void set_bard_extquota_reserved(bool by_src, size_t t);
+    void set_bard_in_use(bool by_src, size_t t);
+    void set_bard_restage_by_src(bool t)            { bard_restage_by_src_ = t; }
+    void set_bard_restage_link_name(std::string& t) { bard_restage_link_name_ = t; }
+    void clear_bard_restage_link_name() { bard_restage_link_name_.clear(); }
+#endif //BARD_ENABLED
     /// @}
    
 private:
@@ -508,6 +525,17 @@ private:
     uint8_t ecos_ordinal_;                   ///< Extended Class of Service (BP6 only) ordinal value
     uint64_t ecos_flowlabel_;                ///< Extended Class of Service (BP6 only) flow label
 #endif
+
+#ifdef BARD_ENABLED
+    size_t bard_quota_reserved_by_src_ = 0;      ///< num bytes reserved for internal storage by source
+    size_t bard_quota_reserved_by_dst_ = 0;      ///< num bytes reserved for internal storage by destination
+    size_t bard_extquota_reserved_by_src_ = 0;   ///< num bytes reserved for external storage by source
+    size_t bard_extquota_reserved_by_dst_ = 0;   ///< num bytes reserved for external storage by destination
+    size_t bard_in_use_by_src_ = 0;              ///< num bytes tracked as in_use in internal storage by source
+    size_t bard_in_use_by_dst_ = 0;              ///< num bytes tracked as in_use in internal storage by destination
+    bool bard_restage_by_src_ = false;           ///< whether restaging begin done by src or dst
+    std::string bard_restage_link_name_;         ///< restage CL link name to use
+#endif //BARD_ENABLED
 
     /**
      * Initialization helper function.

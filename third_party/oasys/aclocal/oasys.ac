@@ -58,7 +58,7 @@ AC_DEFUN(AC_OASYS_CONFIG, [
     ac_oasysdir=
 
     AC_ARG_WITH(oasys,
-        AC_HELP_STRING([--with-oasys=DIR],
+        AS_HELP_STRING([--with-oasys=DIR],
     		   [location of an oasys installation (default ./third_party/oasys or or ../oasys-<major>.<minor>.* or ../oasys or /usr)]),
         ac_oasysdir=$withval)
 

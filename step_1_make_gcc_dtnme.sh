@@ -1,12 +1,26 @@
 #/bin/bash
 
+MAKE=make
+
+re='^[0-9]+$'
+
+if ! [[ $1 =~ $re ]]; then
+MAKE=$1
+fi
+
 cd third_party/oasys
+
+#chmod +x tools/extract-version
+#chmod +x tools/subst-version
 
 if [ $? -ne 0 ]
 then
 printf "Uh Oh, something went wrong\nAn error occured while trying to change directory to the oasys_source directory\n"
 exit 1
 fi
+
+#autoheader must have this generated to work
+touch oasys-version.h
 
 sh build-configure.sh
 
@@ -17,11 +31,7 @@ exit 1
 fi
 
 # The OASYS default configuration is usually sufficient for DTNME. 
-./configure \
---with-cc=/usr/local/clang+llvm/bin/clang --with-cxx=/usr/local/clang+llvm/bin/clang++ \
---with-extra-ldflags="-L/usr/local/clang+llvm/lib" \
---with-extra-cflags="-fsanitize=address -fno-omit-frame-pointer -fno-common -fsanitize-address-use-after-scope -fno-optimize-sibling-calls -std=c11" \
---with-extra-cxxflags="-fsanitize=address -fno-omit-frame-pointer -fno-common -std=c++14 -g -fstandalone-debug -fsanitize-address-use-after-scope -fno-optimize-sibling-calls -Wno-undefined-var-template"
+./configure
 
 if [ $? -ne 0 ]
 then
@@ -45,6 +55,9 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to change dir
 exit 1
 fi
 
+#autoheader must have this generated to work
+touch dtn-version.h
+
 sh build-configure.sh
 
 if [ $? -ne 0 ]
@@ -56,11 +69,7 @@ fi
 # The DTNME default configuration is usually sufficient for DTNME
 #  add --without-dtpc if you do not want to enable DTPC
 #  add --with-wolfssl if you want to use TLS secourity in TCP CLv4 (and install wolfssl in third_party directory)
-./configure \
---with-cc=/usr/local/clang+llvm/bin/clang --with-cxx=/usr/local/clang+llvm/bin/clang++ \
---with-extra-ldflags="-L/usr/local/clang+llvm/lib" \
---with-extra-cflags="-fsanitize=address -fno-omit-frame-pointer -fno-common -fno-optimize-sibling-calls -std=c11" \
---with-extra-cxxflags="-fsanitize=address -fno-omit-frame-pointer -fno-common -std=c++14 -g -fsanitize-address-use-after-scope -fno-optimize-sibling-calls -fstandalone-debug -Wno-undefined-var-template"
+./configure
 
 
 if [ $? -ne 0 ]

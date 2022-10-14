@@ -1,0 +1,26 @@
+dnl
+dnl Autoconf support for compiling with C++11 Application Binary Interface compatibility
+dnl
+
+AC_DEFUN(AC_OASYS_CONFIG_CPP11_ABI, [
+    ac_cpp11abi='yes'
+    AC_ARG_ENABLE(cpp11abi,
+        AS_HELP_STRING([--disable-cpp11abi],
+    		   	[compile using C++11 vs C++14 Application Binary Interface compatibility]),
+        ac_cpp11abi=$enableval) 
+
+    AC_MSG_CHECKING([whether to compile using C++11 Application Binary Interface compatibility])
+
+    dnl
+    dnl Define the compiler option if so configured
+    dnl
+    if test "$ac_cpp11abi" = no; then
+        AC_MSG_RESULT(no)
+
+    else
+        AC_MSG_RESULT($ac_cpp11abi)
+
+        SYS_CFLAGS="$SYS_CFLAGS -D_GLIBCXX_USE_CXX11_ABI"
+        AC_SUBST(SYS_CFLAGS)
+    fi
+])

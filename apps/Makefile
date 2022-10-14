@@ -47,7 +47,7 @@ include ../Rules.make
 include $(SRCDIR)/dtn-version.mk
 
 DTN_LIBS_STATIC := ../applib/libdtnapi.a ../applib/libdtnapi++.a
-DTN_LIBS := ../applib/libdtnapi.a $(OASYS_COMPAT_LDFLAGS)
+DTN_LIBS := ../applib/libdtnapi.a $(OASYS_COMPAT_LDFLAGS) $(EXTLIB_LDFLAGS)
 DTN_LIBS++ := $(DTN_LIBS) ../applib/libdtnapi++.a $(OASYS_LDFLAGS) $(EXTLIB_LDFLAGS)
 
 # Fake build target in case the api lib doesn't exist, but allows us

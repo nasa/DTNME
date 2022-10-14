@@ -146,6 +146,13 @@ public:
     virtual void fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats);
     virtual void fwdlink_interval_stats_free(int count, EhsFwdLinkIntervalStats** stats);
 
+    virtual void request_bard_usage_stats();
+    virtual bool bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, 
+                                 EhsRestageCLStatsVector& cl_stats);
+
+    virtual void bard_add_quota(EhsBARDUsageStats& quota);
+    virtual void bard_del_quota(EhsBARDUsageStats& quota);
+
     virtual void send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
                                    std::string& cl_name,  LinkParametersVector& params);
     virtual void send_link_del_msg(std::string& link_id);

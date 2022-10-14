@@ -163,6 +163,8 @@ public:
     virtual void handle_bundle_attributes_report(BundleAttributesReportEvent *event) override;
     virtual void handle_route_report(RouteReportEvent* event) override;
 
+    virtual void generate_bard_usge_report();
+
 
     // for handling ACS and BIBE custody releases on individual bundles
     virtual void handle_custody_released(uint64_t bundleid, bool succeeded, int reason) override;
@@ -256,6 +258,9 @@ public:
     void process_delete_bundle_req_msg_v0(CborValue& cvElement);
     void process_delete_all_bundles_req_msg_v0(CborValue& cvElement);
     void process_shutdown_req_msg_v0(CborValue& cvElement);
+    void process_bard_usage_req_msg_v0(CborValue& cvElement);
+    void process_bard_add_quota_req_msg_v0(CborValue& cvElement);
+    void process_bard_del_quota_req_msg_v0(CborValue& cvElement);
 
 
     /**

@@ -84,6 +84,8 @@ public:
     virtual EhsBundleRef bundle_custody_released(uint64_t bundleid);
     virtual EhsBundleRef bundle_transmitted(uint64_t bundleid, bool success);
     virtual EhsBundleRef bundle_delivered(uint64_t bundleid);
+    virtual void prepare_for_resync();
+    virtual size_t finalize_resync(EhsBundleMap& undelivered_bmap, EhsBundleMap& custody_bmap);
 
     /**
      * Utility reporting functions

@@ -31,13 +31,13 @@ Deliver_Me::Deliver_Me()
     : App("Deliver_Me", "deliver_me"),
       api_address_(""),
       api_port_(0),
+      bundle_version_(7),
       local_entity_id_(""),
       file_segment_size_(0),
       ttl_(0),
       log_path_(""),
-      sequence_number_(0),
-      bundle_version_(7),
-      should_shutdown_(false)
+      should_shutdown_(false),
+      sequence_number_(0)
 {
 }
 
@@ -170,7 +170,7 @@ Deliver_Me::main(int argc, char* argv[])
     while (!should_shutdown_) {
       cli();
       transaction_lock_.lock("Deliver_Me::main");
-      for(int i=0;i<transaction_pool_.size();i++){
+      for(size_t i=0;i<transaction_pool_.size();i++){
         if(!transaction_pool_[i]->should_work_){
           transaction_pool_.erase(transaction_pool_.begin()+i);
         }
@@ -282,7 +282,7 @@ Deliver_Me::Bundle_Receiver::Bundle_Receiver(Deliver_Me *handle)
 
     dtn_parse_eid_string(&receive_eid_, receive_eid.c_str());
 
-    dtn_handle_t r_handle;
+    dtn_handle_t r_handle = nullptr;
     receive_handle_ = r_handle;
     //Attempt to connect the Receive Handle to the DTN API
     int size = handle_->api_address_.size()+1;
@@ -385,7 +385,7 @@ Deliver_Me::Bundle_Transmitter::Bundle_Transmitter(Deliver_Me *handle)
 
     dtn_parse_eid_string(&transmit_eid_, transmit_eid.c_str());
 
-    dtn_handle_t t_handle;
+    dtn_handle_t t_handle = nullptr;
     transmit_handle_ = t_handle;
     //Attempt to connect the Receive Handle to the DTN API
     int size = handle_->api_address_.size()+1;
@@ -641,7 +641,7 @@ Deliver_Me::Process_Primitive::run()
             if (bytes_read == 0){
                 if (!storage_.eof()) {
                     // error ...
-                    printf("Error reading file - bytes read = %d\n", bytes_read);
+                    printf("Error reading file - bytes read = %ld\n", bytes_read);
                     break;
                 }
             }
@@ -683,7 +683,7 @@ Deliver_Me::Process_Primitive::run()
 
             //create bundle payload
             handle_->transmit_lock_.lock("Deliver_Me::Process_Primitive::run");
-            handle_->transmit_buffer_.push_back({spec,fpdu,9+value_size+bytes_read});
+            handle_->transmit_buffer_.push_back({spec,fpdu,9+value_size+(int)bytes_read});
             handle_->transmit_lock_.unlock();
             handle_->stats_lock_.lock("Deliver_Me::Process_Primitive::run");
             handle_->stats_buffer_[stats_index].bytes_processed = offset;
@@ -737,8 +737,8 @@ Deliver_Me::Process_Primitive::run()
         handle_->stats_lock_.lock("Deliver_Me::Process_Primitive::run");
         fprintf(stdout,"\nTransaction ID | Total Bytes | Bytes Processed | EOF Processed | Source Entity | Destination Entity | Source Filename | Destination Filename\n");
         fprintf(stdout,"------------------------------------------------------------------------------------------------------\n");
-        for(int i=0;i<handle_->stats_buffer_.size();i++){
-          fprintf(stdout,"%d  |  %lu  |  %lu  |  %s  |  %s  |  %s  |  %s  |  %s\n",handle_->stats_buffer_[i].transaction_id,handle_->stats_buffer_[i].total_bytes,handle_->stats_buffer_[i].bytes_processed,(handle_->stats_buffer_[i].eof_processed?"true":"false"),handle_->stats_buffer_[i].source_entity.c_str(),handle_->stats_buffer_[i].destination_entity.c_str(),handle_->stats_buffer_[i].source_filename.c_str(),handle_->stats_buffer_[i].destination_filename.c_str());
+        for(size_t i=0;i<handle_->stats_buffer_.size();i++){
+          fprintf(stdout,"%ld  |  %llu  |  %llu  |  %s  |  %s  |  %s  |  %s  |  %s\n",handle_->stats_buffer_[i].transaction_id,handle_->stats_buffer_[i].total_bytes,handle_->stats_buffer_[i].bytes_processed,(handle_->stats_buffer_[i].eof_processed?"true":"false"),handle_->stats_buffer_[i].source_entity.c_str(),handle_->stats_buffer_[i].destination_entity.c_str(),handle_->stats_buffer_[i].source_filename.c_str(),handle_->stats_buffer_[i].destination_filename.c_str());
           fflush(stdout);
         }
         handle_->stats_lock_.unlock();
@@ -757,6 +757,7 @@ Deliver_Me::Process_Primitive::run()
 void
 Deliver_Me::Process_Primitive::put(Put_Request request)
 {
+  (void) request;
 }
 
 //----------------------------------------------------------------------
@@ -764,7 +765,7 @@ Deliver_Me::Process_PDU::Process_PDU(Deliver_Me *handle)
      : Thread("Deliver_Me::Process_PDU", Thread::DELETE_ON_EXIT),
        handle_(handle)
 {
-
+  (void) handle;
 }
 
 //----------------------------------------------------------------------
@@ -796,7 +797,7 @@ Deliver_Me::Process_PDU::run()
             break;
           default:
             //Invalid File Directive
-            std::string error = "Error: File Directive does not match any Class 1 directives: "+file_directive;
+            std::string error = "Error: File Directive does not match any Class 1 directives: "+std::to_string(file_directive);
             handle_->log_lock_.lock("Deliver_Me::Process_PDU::run");
             handle_->log_buffer_.push_back(error);
             handle_->log_lock_.unlock();
@@ -810,8 +811,8 @@ Deliver_Me::Process_PDU::run()
       handle_->receive_buffer_.pop_front();
       handle_->transaction_lock_.lock("Deliver_Me::Process_PDU::run");
       if(!handle_->transaction_pool_.empty() && !file_buffer_.empty()){
-        for(int i=0;i<handle_->transaction_pool_.size();i++){
-          for(int l=0;l<file_buffer_.size();l++){
+        for(size_t i=0;i<handle_->transaction_pool_.size();i++){
+          for(size_t l=0;l<file_buffer_.size();l++){
             if(handle_->transaction_pool_[i]->header_.source_entity_id == file_buffer_[l].header.source_entity_id && handle_->transaction_pool_[i]->header_.sequence_number == file_buffer_[l].header.sequence_number){
               handle_->transaction_pool_[i]->process_file(file_buffer_[l].pdu);
               std::deque<Deliver_Me::File_Standby_PDU>::iterator nth = file_buffer_.begin() + l;
@@ -832,6 +833,7 @@ Deliver_Me::Process_PDU::run()
 Deliver_Me::Fixed_Header
 Deliver_Me::Process_PDU::process_header(char* buffer, int length)
 {
+  (void) length;
   Deliver_Me::Fixed_Header header;
   std::string bin_buffer = std::bitset<8>(buffer[0]).to_string()+std::bitset<8>(buffer[1]).to_string()+std::bitset<8>(buffer[2]).to_string()+std::bitset<8>(buffer[3]).to_string();
   std::bitset<32> fixed_header(bin_buffer);
@@ -882,26 +884,23 @@ Deliver_Me::Process_PDU::process_header(char* buffer, int length)
   header.sequence_number_length++;
   u_int id_length = header.entity_id_length;
   u_int sn_length = header.sequence_number_length;
-  char* tmp_source_id[id_length];
-  char* tmp_destination_id[id_length];
-  char* tmp_sn[sn_length];
   index = 4;
   std::string str_sid;
-  for(int i=0;i<id_length;i++){
+  for(size_t i=0;i<id_length;i++){
     std::bitset<8> bb(buffer[index+i]);
     str_sid += bb.to_string();
   }
   u_int int_sid= std::stoi(str_sid,nullptr,2);
   index+=id_length;
   std::string str_sn;
-  for(int i=0;i<sn_length;i++){
+  for(size_t i=0;i<sn_length;i++){
     std::bitset<8> bb(buffer[index+i]);
     str_sn += bb.to_string();
   }
   u_int int_sn= std::stoi(str_sn,nullptr,2);
   index+=sn_length;
   std::string str_did;
-  for(int i=0;i<id_length;i++){
+  for(size_t i=0;i<id_length;i++){
     std::bitset<8> bb(buffer[index+i]);
     str_did += bb.to_string();
   }
@@ -958,7 +957,7 @@ Deliver_Me::Process_PDU::process_meta(char* buffer, int length, Fixed_Header hea
   processed_offset += 1;
   
   //Extract Source Filename
-  for(int i=0;i<pdu.source_filename_length;i++){
+  for(size_t i=0;i<pdu.source_filename_length;i++){
     pdu.source_filename.push_back(buffer[processed_offset+i]);
   }
   processed_offset += pdu.source_filename_length;
@@ -969,7 +968,7 @@ Deliver_Me::Process_PDU::process_meta(char* buffer, int length, Fixed_Header hea
   processed_offset += 1;
   
   //Extract Destination Filename
-  for(int i=0;i<pdu.destination_filename_length;i++){
+  for(size_t i=0;i<pdu.destination_filename_length;i++){
     pdu.destination_filename.push_back(buffer[processed_offset+i]);
   }
   processed_offset += pdu.destination_filename_length;
@@ -988,7 +987,7 @@ Deliver_Me::Process_PDU::process_meta(char* buffer, int length, Fixed_Header hea
 
     //Extract Value Field
     std::string value_field;
-    for(int i=0;i<length_field;i++){
+    for(size_t i=0;i<length_field;i++){
       value_field.push_back(buffer[processed_offset+i]);
     }
     pdu.tlv_buffer.push_back({type_field,length_field,value_field});
@@ -998,7 +997,7 @@ Deliver_Me::Process_PDU::process_meta(char* buffer, int length, Fixed_Header hea
   handle_->transaction_lock_.lock("Deliver_Me::Process_PDU::process_meta");
   if(!handle_->transaction_pool_.empty()){
     bool found = false;
-    for(int i=0;i<handle_->transaction_pool_.size();i++){
+    for(size_t i=0;i<handle_->transaction_pool_.size();i++){
       if(handle_->transaction_pool_[i]->header_.source_entity_id == header.source_entity_id && handle_->transaction_pool_[i]->header_.sequence_number == header.sequence_number){
         handle_->transaction_pool_[i]->process_meta(pdu);
         found = true;
@@ -1021,6 +1020,8 @@ Deliver_Me::Process_PDU::process_meta(char* buffer, int length, Fixed_Header hea
 void
 Deliver_Me::Process_PDU::process_eof(char* buffer, int length, Fixed_Header header)
 {
+  (void) length;
+
   Deliver_Me::EOF_PDU pdu;
   int processed_offset = header.length;
 
@@ -1051,7 +1052,7 @@ Deliver_Me::Process_PDU::process_eof(char* buffer, int length, Fixed_Header head
   handle_->transaction_lock_.lock("Deliver_Me::Process_PDU::process_eof");
   if(!handle_->transaction_pool_.empty()){
     bool found = false;
-    for(int i=0;i<handle_->transaction_pool_.size();i++){
+    for(size_t i=0;i<handle_->transaction_pool_.size();i++){
       if(handle_->transaction_pool_[i]->header_.source_entity_id == header.source_entity_id && handle_->transaction_pool_[i]->header_.sequence_number == header.sequence_number){
         handle_->transaction_pool_[i]->process_eof(pdu);
         found = true;
@@ -1094,7 +1095,7 @@ Deliver_Me::Process_PDU::process_file(char* buffer, int length, Fixed_Header hea
   handle_->transaction_lock_.lock("Deliver_Me::Process_PDU::process_file");
   if(!handle_->transaction_pool_.empty()){
     bool found = false;
-    for(int i=0;i<handle_->transaction_pool_.size();i++){
+    for(size_t i=0;i<handle_->transaction_pool_.size();i++){
       if(handle_->transaction_pool_[i]->header_.source_entity_id == header.source_entity_id && handle_->transaction_pool_[i]->header_.sequence_number == header.sequence_number){
         handle_->transaction_pool_[i]->process_file(pdu);
         found = true;
@@ -1119,11 +1120,11 @@ Deliver_Me::Process_PDU::process_file(char* buffer, int length, Fixed_Header hea
 //----------------------------------------------------------------------
 Deliver_Me::Transaction_Worker::Transaction_Worker(Deliver_Me *handle, Fixed_Header header, Meta_PDU pdu, dtn_bundle_spec_t spec)
      : Thread("Deliver_Me::Transaction_Worker"),                    
-       handle_(handle),
+       should_work_(true),
        header_(header),
-       spec_(spec),
        eof_({0,0,0,0,0,false}),
-       should_work_(true)
+       spec_(spec),
+       handle_(handle)
 {
   oasys::ScopeLock scoplok(&meta_buffer_lock_, __func__);
   meta_buffer_.push_back(pdu);
@@ -1185,7 +1186,7 @@ Deliver_Me::Transaction_Worker::run()
           handle_->stats_lock_.unlock();
           //fill file with fill data
           if(meta_buffer_.front().file_size > 0){
-            for(int i=0;i<meta_buffer_.front().file_size;i++){
+            for(size_t i=0;i<meta_buffer_.front().file_size;i++){
               //To-Do Change Fill to be configurable
               //create buffer based on the file_segment_size and write to storage
 	          const char* fill = "Z";

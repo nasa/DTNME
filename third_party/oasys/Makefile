@@ -22,8 +22,9 @@
 # Source lists
 #
 
+
 COMPAT_SRCS :=					\
-	compat/getopt_long.c			\
+        compat/getopt_long.c                    \
 	compat/inet_aton.c			\
 	compat/rpc_compat.c			\
 	compat/xdr_int64_compat.c		\
@@ -223,10 +224,10 @@ all: checkconfigure libs $(TOOLS)
 # If srcdir/builddir aren't set by some other makefile, 
 # then default to .
 #
-ifeq ($(SRCDIR),)
+#ifeq (.,)
 SRCDIR	 := .
 BUILDDIR := .
-endif
+#endif
 
 #
 # Special override rules for objects that can't use the default build options
@@ -243,7 +244,7 @@ tclcmd/tclreadline.o: tclcmd/tclreadline.c
 #
 # Include the Makefile for tests
 #
-include $(SRCDIR)/test/Makefile
+include ./test/Makefile
 
 #
 # Define other clean rules
@@ -274,7 +275,7 @@ libs: $(LIBFILES)
 # And a special rule to build the command-init-tcl.c file from command.tcl
 #
 tclcmd/TclCommand.o: tclcmd/command-init-tcl.c
-tclcmd/command-init-tcl.c: $(SRCDIR)/tclcmd/command-init.tcl
+tclcmd/command-init-tcl.c: ./tclcmd/command-init.tcl
 	rm -f $@
 	echo "static const char* INIT_COMMAND = " > $@;
 	cat $^ | sed 's|\\|\\\\|g' |\
@@ -290,18 +291,18 @@ oasys-version.o: oasys-version.c
 oasys-version.c: oasys-version.h
 oasys-version.h: oasys-version.h.in oasys-version.dat  FORCE
 	tools/subst-version oasys-version.dat <  \
-	   $(SRCDIR)/oasys-version.h.in > oasys-version.h
+	   ./oasys-version.h.in > oasys-version.h
 
 .PHONY: FORCE
 FORCE:
 
-vpath oasys-version.h.in $(SRCDIR)
-vpath oasys-version.h    $(SRCDIR)
-vpath oasys-version.c    $(SRCDIR)
-vpath oasys-version.dat  $(SRCDIR)
+vpath oasys-version.h.in .
+vpath oasys-version.h    .
+vpath oasys-version.c    .
+vpath oasys-version.dat  .
 
 bump-version:
-	cd $(SRCDIR) && tools/bump-version oasys-version.dat
+	cd . && tools/bump-version oasys-version.dat
 
 #
 # Rule to generate the doxygen documentation
@@ -315,7 +316,7 @@ doxygen:
 .PHONY: checkconfigure
 checkconfigure: Rules.make
 
-Rules.make: $(SRCDIR)/Rules.make.in $(SRCDIR)/configure
+Rules.make: ./Rules.make.in ./configure
 	@[ ! x`echo "$(MAKECMDGOALS)" | grep clean` = x ] || \
 	(echo "$@ is out of date, need to rerun configure" && \
 	exit 1)
@@ -323,12 +324,12 @@ Rules.make: $(SRCDIR)/Rules.make.in $(SRCDIR)/configure
 #
 # Make sure the clean rule knows about which files need cleaning
 #
-CFGFILES := Rules.make oasys-config.h config.cache config.log config.status \
+CFGFILES := Rules.make System.make oasys-config.h oasys-config.h.in config.cache config.log config.status aclocal.m4 configure  \
 CFGDIRS  := 
-$(SRCDIR)/Rules.make.in:
-	@echo SRCDIR: $(SRCDIR)
-	@echo error -- Makefile did not set SRCDIR properly
-	@exit 1
+#./Rules.make.in:
+#	@echo SRCDIR: .
+#	@echo error -- Makefile did not set SRCDIR properly
+#	@exit 1
 
 lib/liboasys-$(OASYS_VERSION).a: $(OBJS)
 	@rm -f $@; mkdir -p $(@D)
@@ -408,29 +409,29 @@ installbin: installdirs
 	done
 
 installinclude: installdirs
-	for f in $(SRCDIR)/*.h ; do \
+	for f in ./*.h ; do \
 	    ($(INSTALL_PROGRAM) -c $$f $(DESTDIR)$(includedir)/oasys) ; \
 	done
 
-	for f in $(BUILDDIR)/*.h ; do \
+	for f in ./*.h ; do \
 	    ($(INSTALL_PROGRAM) -c $$f $(DESTDIR)$(includedir)/oasys) ; \
 	done
 
 	for dir in $(INCDIRS) ; do \
-        for f in $(SRCDIR)/$$dir/*.h ; do \
+        for f in ./$$dir/*.h ; do \
 	    $(INSTALL_PROGRAM) -c $$f $(DESTDIR)$(includedir)/oasys/$$dir ; \
 	done \
 	done
 
 	for dir in $(INCDIRS) ; do \
-        if test ! -z "`ls $(SRCDIR)/$$dir/*.tcc 2>/dev/null`" ; then \
-	for f in $(SRCDIR)/$$dir/*.tcc ; do \
+        if test ! -z "`ls ./$$dir/*.tcc 2>/dev/null`" ; then \
+	for f in ./$$dir/*.tcc ; do \
 	    $(INSTALL_PROGRAM) -c $$f $(DESTDIR)$(includedir)/oasys/$$dir ; \
 	done \
 	fi \
 	done
 
-	cp -rp $(SRCDIR)/ext $(DESTDIR)$(includedir)/oasys
+	cp -rp ./ext $(DESTDIR)$(includedir)/oasys
 
 installlib: installdirs
 	[ $(DESTDIR) = . ] || \
@@ -447,20 +448,20 @@ installlib: installdirs
 	done
 
 installdata: installdirs
-	for f in $(SRCDIR)/Rules.make.in \
-		 System.make \
-		 $(SRCDIR)/oasys-version.dat ; do \
+	for f in ./Rules.make.in \
+	         System.make \
+		 ./oasys-version.dat ; do \
 	    ($(INSTALL_PROGRAM) $$f $(DESTDIR)$(datadir)/oasys) ; \
         done
 
-	for f in $(SRCDIR)/aclocal/* ; do \
+	for f in ./aclocal/* ; do \
 	    ($(INSTALL_PROGRAM) $$f $(DESTDIR)$(datadir)/oasys/aclocal) ; \
 	done
 
-	for f in $(SRCDIR)/tools/subst-version \
-	         $(SRCDIR)/tools/extract-version \
-	         $(SRCDIR)/tools/bump-version \
-	         $(SRCDIR)/tools/print-leaked-refs \
+	for f in ./tools/subst-version \
+	         ./tools/extract-version \
+	         ./tools/bump-version \
+	         ./tools/print-leaked-refs \
 	         ; do \
 	    ($(INSTALL_PROGRAM) $$f $(DESTDIR)$(datadir)/oasys/tools) ; \
 	done

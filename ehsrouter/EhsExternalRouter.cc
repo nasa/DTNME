@@ -290,6 +290,36 @@ EhsExternalRouter::bundle_stats(std::string& buf)
 
 //----------------------------------------------------------------------
 void
+EhsExternalRouter::request_bard_usage_stats()
+{
+    ehs_ext_router_->request_bard_usage_stats();
+}
+
+//----------------------------------------------------------------------
+bool
+EhsExternalRouter::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, EhsRestageCLStatsVector& cl_stats)
+{
+    return ehs_ext_router_->bard_usage_stats(usage_stats, cl_stats);
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    ehs_ext_router_->bard_add_quota(quota);
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    ehs_ext_router_->bard_del_quota(quota);
+}
+
+
+//----------------------------------------------------------------------
+void
 EhsExternalRouter::send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
                                    std::string& cl_name,  LinkParametersVector& params)
 {
@@ -396,6 +426,46 @@ EhsExternalRouter::set_log_level(int level)
     if (level > 7) level = 7;  // 7 = oasys::LOG_ALWAYS
     ehs_ext_router_->set_log_level(level);
 }
+
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::quota_type_to_str(uint64_t quota_type)
+{
+    switch (quota_type) {
+        case EHSEXTRTR_BARD_QUOTA_TYPE_SRC: return "src";
+        case EHSEXTRTR_BARD_QUOTA_TYPE_DST: return "dst";
+        default:
+            return "unk";
+    }
+}
+
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::scheme_type_to_str(uint64_t scheme)
+{
+    switch (scheme) {
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_IPN: return "ipn";
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_DTN: return "dtn";
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_IMC: return "imc";
+        default:
+            return "unk";
+    }
+}
+
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::cl_state_to_str(uint64_t cl_state)
+{
+    switch (cl_state) {
+        case EHSEXTRTR_RESTAGE_CL_STATE_ONLINE: return "online";
+        case EHSEXTRTR_RESTAGE_CL_STATE_FULL: return "full";
+        case EHSEXTRTR_RESTAGE_CL_STATE_ERROR: return "error";
+        case EHSEXTRTR_RESTAGE_CL_STATE_DELETED: return "deleted";
+        default:
+            return "unknown";
+    }
+}
+
 
 } // namespace dtn
 

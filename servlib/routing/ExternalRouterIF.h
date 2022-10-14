@@ -43,6 +43,9 @@
 #include <vector>
 #include <string>
 
+#include "bundling/BARDNodeStorageUsage.h"
+#include "bundling/BARDRestageCLIF.h"
+
 
 namespace dtn {
 
@@ -78,6 +81,8 @@ public:
         EXTRTR_MSG_CUSTODY_SIGNAL,
         EXTRTR_MSG_AGG_CUSTODY_SIGNAL,
 
+        EXTRTR_MSG_BARD_USAGE_REPORT,
+
         // client sourced messages
         EXTRTR_MSG_LINK_QUERY = 100,
         EXTRTR_MSG_BUNDLE_QUERY,
@@ -89,6 +94,10 @@ public:
         EXTRTR_MSG_TAKE_CUSTODY_REQ,
         EXTRTR_MSG_DELETE_BUNDLE_REQ,
         EXTRTR_MSG_DELETE_ALL_BUNDLES_REQ,
+
+        EXTRTR_MSG_BARD_USAGE_REQ,
+        EXTRTR_MSG_BARD_ADD_QUOTA_REQ,
+        EXTRTR_MSG_BARD_DEL_QUOTA_REQ,
 
         EXTRTR_MSG_SHUTDOWN_REQ,
         
@@ -118,6 +127,8 @@ public:
             case EXTRTR_MSG_CUSTODY_SIGNAL: return "Custody Signal Event";
             case EXTRTR_MSG_AGG_CUSTODY_SIGNAL: return "Aggregate Custody Signal Event";
 
+            case EXTRTR_MSG_BARD_USAGE_REPORT: return "BARD Usage Report";
+
 
 
             // client sourced messages
@@ -132,6 +143,10 @@ public:
             case EXTRTR_MSG_DELETE_BUNDLE_REQ: return "Delete Bundle Request";
             case EXTRTR_MSG_DELETE_ALL_BUNDLES_REQ: return "Delete All Bundles Request";
 
+
+            case EXTRTR_MSG_BARD_USAGE_REQ: return "BARD Usage Request";
+            case EXTRTR_MSG_BARD_ADD_QUOTA_REQ: return "BARD Add Quota Request";
+            case EXTRTR_MSG_BARD_DEL_QUOTA_REQ: return "BARD Delete Quota Request";
 
             case EXTRTR_MSG_SHUTDOWN_REQ: return "Shutdown Request";
 
@@ -210,6 +225,11 @@ public:
     typedef std::shared_ptr<extrtr_bundle_id_t> extrtr_bundle_id_ptr_t;
     typedef std::vector<extrtr_bundle_id_ptr_t> extrtr_bundle_id_vector_t;
     typedef extrtr_bundle_id_vector_t::iterator extrtr_bundle_id_vector_iter_t;
+
+
+    // Structures for the Bundle Restaging Daemon usage report
+    // are defned in bundling/BARDNodeStorageUsage.h and
+    // BARDRestageCLIF.h only if BARD_ENABLED
 
 
     /**

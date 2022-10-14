@@ -53,12 +53,12 @@ AC_DEFUN(AC_CONFIG_DB, [
     ac_dbdir='yes'
 
     AC_ARG_WITH(db,
-        AC_HELP_STRING([--with-db=DIR],
+        AS_HELP_STRING([--with-db=DIR],
     		   [location of a Berkeley DB installation (default system)]),
         ac_dbdir=$withval)
 
     AC_ARG_WITH(dbver,
-        AC_HELP_STRING([--with-dbver=VERSION],
+        AS_HELP_STRING([--with-dbver=VERSION],
     		   Berkeley DB versions to try (default 5.1-4.2)),
         ac_dbvers=$withval)
 

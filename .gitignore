@@ -17,4 +17,6 @@ zz*
 *.o
 *.so
 *.swp
-
+compile_commands.json
+.cache/
+.vscode/
