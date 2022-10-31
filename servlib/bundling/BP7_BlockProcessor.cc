@@ -539,7 +539,7 @@ BP7_BlockProcessor::encode_bundle_timestamp(CborEncoder& blockArrayEncoder, cons
     CHECK_CBOR_ENCODE_ERROR_RETURN
 
     // dtn time
-    err = cbor_encode_uint(&timeArrayEncoder, bundle->creation_ts().seconds_);
+    err = cbor_encode_uint(&timeArrayEncoder, bundle->creation_ts().secs_or_millisecs_);
     CHECK_CBOR_ENCODE_ERROR_RETURN
 
     // sequence ID
@@ -1245,7 +1245,7 @@ int
 BP7_BlockProcessor::decode_bundle_timestamp(CborValue& cvElement, BundleTimestamp& timestamp, std::string& fld_name)
 {
     // default to dtn:none (NULL_EID)
-    timestamp.seconds_ = 0;
+    timestamp.secs_or_millisecs_ = 0;
     timestamp.seqno_ = 0;
     
 
@@ -1258,8 +1258,8 @@ BP7_BlockProcessor::decode_bundle_timestamp(CborValue& cvElement, BundleTimestam
     CborError err = cbor_value_enter_container(&cvElement, &cvTsElements);
     CHECK_CBOR_DECODE_ERR_RETURN
 
-    // first element of the array is the seconds
-    status = decode_uint(cvTsElements, timestamp.seconds_, fld_name);
+    // first element of the array is the milliseconds
+    status = decode_uint(cvTsElements, timestamp.secs_or_millisecs_, fld_name);
     CHECK_BP7_STATUS_RETURN
 
     // sedond element of the array is the sequence number

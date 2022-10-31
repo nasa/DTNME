@@ -40,8 +40,8 @@
 #endif
 
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "bundling/BARDNodeStorageUsage.h"
 #include "bundling/BARDRestageCLIF.h"

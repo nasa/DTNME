@@ -894,6 +894,9 @@ BundleDaemon::handle_bundle_delete(BundleDeleteRequest* request)
         log_info("BUNDLE_DELETE_REQUEST: bundle *%p (reason %s)",
                  request->bundle_.object(),
                  BundleStatusReport::reason_to_str(request->reason_));
+
+        ++stats_.rejected_bundles_;
+
         delete_bundle(request->bundle_, request->reason_);
     } else if (request->delete_all_) {
 
@@ -920,6 +923,8 @@ BundleDaemon::handle_bundle_delete(BundleDeleteRequest* request)
             // it from the pending_bundles_ list
             ++iter;
 
+            ++stats_.rejected_bundles_;
+
             delete_bundle(bref, request->reason_);
         }
 
@@ -945,7 +950,7 @@ BundleDaemon::handle_bundle_acknowledged_by_app(BundleAckEvent* ack)
     log_debug("ack from regid(%d): (%s: (%" PRIu64 ", %" PRIu64 "))",
               ack->regid_,
               ack->sourceEID_.c_str(),
-              ack->creation_ts_.seconds_, ack->creation_ts_.seqno_);
+              ack->creation_ts_.secs_or_millisecs_, ack->creation_ts_.seqno_);
 #endif
 
     // Make sure we're happy with the registration provided.
@@ -1974,14 +1979,14 @@ BundleDaemon::handle_custody_signal(CustodySignalEvent* event)
 {
     log_info("CUSTODY_SIGNAL: %s %" PRIu64 ".%" PRIu64 " %s (%s)",
              event->data_.orig_source_eid_.c_str(),
-             event->data_.orig_creation_tv_.seconds_,
+             event->data_.orig_creation_tv_.secs_or_millisecs_,
              event->data_.orig_creation_tv_.seqno_,
              event->data_.succeeded_ ? "succeeded" : "failed",
              CustodySignal::reason_to_str(event->data_.reason_));
 
     GbofId gbof_id;
     gbof_id.set_source( event->data_.orig_source_eid_ );
-    gbof_id.set_creation_ts( event->data_.orig_creation_tv_.seconds_, event->data_.orig_creation_tv_.seqno_);
+    gbof_id.set_creation_ts( event->data_.orig_creation_tv_.secs_or_millisecs_, event->data_.orig_creation_tv_.seqno_);
     gbof_id.set_is_fragment(event->data_.admin_flags_ & 
                             BundleProtocolVersion6::ADMIN_IS_FRAGMENT);
     gbof_id.set_frag_length(gbof_id.is_fragment() ? 
@@ -1996,7 +2001,7 @@ BundleDaemon::handle_custody_signal(CustodySignalEvent* event)
         log_warn("received custody signal for bundle %s %" PRIu64 ".%" PRIu64 " "
                  "but don't have custody",
                  event->data_.orig_source_eid_.c_str(),
-                 event->data_.orig_creation_tv_.seconds_,
+                 event->data_.orig_creation_tv_.secs_or_millisecs_,
                  event->data_.orig_creation_tv_.seqno_);
         return;
     }
@@ -2013,7 +2018,7 @@ BundleDaemon::handle_custody_signal(CustodySignalEvent* event)
         log_notice("releasing custody for bundle %s %" PRIu64 ".%" PRIu64 " "
                    "due to redundant reception",
                    event->data_.orig_source_eid_.c_str(),
-                   event->data_.orig_creation_tv_.seconds_,
+                   event->data_.orig_creation_tv_.secs_or_millisecs_,
                    event->data_.orig_creation_tv_.seqno_);
         
         release = true;

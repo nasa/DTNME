@@ -557,8 +557,9 @@ LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len
 
         if(params_.no_filter_ || params_.dest_pattern_.match(bundle->dest())) {
 
-            int now =  BundleTimestamp::get_current_time();
-            bundle->set_expiration_secs((now - bundle->creation_ts().seconds_) + params_.ttl_); // update expiration time
+            uint64_t now =  BundleTimestamp::get_current_time_secs();
+            // update expiration time
+            bundle->set_expiration_secs((now - bundle->creation_time_secs()) + params_.ttl_);
 
             // allow the Bundle Restaging Daemon to redirect the bundle to external storage if needed
             // - too late to reject the bundle so not checking the result

@@ -172,8 +172,12 @@ BP6_UnknownBlockProcessor::validate(const Bundle*           bundle,
 
 //----------------------------------------------------------------------
 int
-BP6_UnknownBlockProcessor::format(oasys::StringBuffer* buf)
+BP6_UnknownBlockProcessor::format(oasys::StringBuffer* buf, BlockInfo *b)
 {
-    return buf->append("Unknown");
+	(void) b;
+
+	buf->append("BP6_Unknown_Block");
+	return 0;
 }
+
 } // namespace dtn

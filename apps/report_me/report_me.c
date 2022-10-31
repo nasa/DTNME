@@ -165,38 +165,54 @@ main(int argc, const char** argv)
 
             if (sr_data->flags & STATUS_RECEIVED)
             {
-                clock = sr_data->receipt_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->receipt_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->receipt_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: received bundle (%s %"PRIu64".%"PRIu64") at %.*s UTC\n",
                        reply_spec.source.uri,
-                       theSource->uri, theCreationTimestamp->secs, theCreationTimestamp->seqno,
+                       theSource->uri, theCreationTimestamp->secs_or_millisecs, theCreationTimestamp->seqno,
                        24, asctime(tm_buf));
             }
             if (sr_data->flags & STATUS_FORWARDED)
             {
-                clock = sr_data->forwarding_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->forwarding_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->forwarding_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: forwarded bundle (%s %"PRIu64".%"PRIu64") at %.*s UTC\n",
                        reply_spec.source.uri,
-                       theSource->uri, theCreationTimestamp->secs, theCreationTimestamp->seqno,
+                       theSource->uri, theCreationTimestamp->secs_or_millisecs, theCreationTimestamp->seqno,
                        24, asctime(tm_buf));
             }
             if (sr_data->flags & STATUS_DELIVERED)
             {
-                clock = sr_data->delivery_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->delivery_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->delivery_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: delivered bundle (%s %"PRIu64".%"PRIu64") at %.*s UTC\n",
                        reply_spec.source.uri,
-                       theSource->uri, theCreationTimestamp->secs, theCreationTimestamp->seqno,
+                       theSource->uri, theCreationTimestamp->secs_or_millisecs, theCreationTimestamp->seqno,
                        24, asctime(tm_buf));
             }
             if (sr_data->flags & STATUS_DELETED)
             {
-                clock = sr_data->deletion_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->deletion_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->deletion_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: deleted bundle (%s %"PRIu64".%"PRIu64") at %.*s UTC\n",
                        reply_spec.source.uri,
-                       theSource->uri, theCreationTimestamp->secs, theCreationTimestamp->seqno,
+                       theSource->uri, theCreationTimestamp->secs_or_millisecs, theCreationTimestamp->seqno,
                        24, asctime(tm_buf));
                 break;
             }

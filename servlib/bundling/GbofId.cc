@@ -109,20 +109,6 @@ bool
 GbofId::equals(const GbofId& id) const
 {
     return (0 == str().compare(id.str()));
-/*
-    //TODO: dz - gbofid_str_ string compare faster?
-    if (creation_ts_.seconds_ == id.creation_ts_.seconds_ &&
-        creation_ts_.seqno_   == id.creation_ts_.seqno_ &&
-        is_fragment_          == id.is_fragment_ &&
-        (!is_fragment_ || 
-         (frag_length_ == id.frag_length_ && frag_offset_ == id.frag_offset_)) &&
-        source_.equals(id.source_)) 
-    {
-        return true;
-    } else {
-        return false;
-    }
-*/
 }
 
 //----------------------------------------------------------------------
@@ -130,28 +116,6 @@ bool
 GbofId::operator<(const GbofId& other) const
 {
     return (-1 == str().compare(other.str()));
-/*
-    //TODO: dz - gbofid_str string compare safe here?
-    //      string may not compare to the same order but okay for our purposes
-    if (source_ < other.source_) return true;
-    if (other.source_ < source_) return false;
-
-    if (creation_ts_ < other.creation_ts_) return true;
-    if (creation_ts_ > other.creation_ts_) return false;
-
-    if (is_fragment_  && !other.is_fragment_) return true;
-    if (!is_fragment_ && other.is_fragment_) return false;
-    
-    if (is_fragment_) {
-        if (frag_length_ < other.frag_length_) return true;
-        if (other.frag_length_ < frag_length_) return false;
-
-        if (frag_offset_ < other.frag_offset_) return true;
-        if (other.frag_offset_ < frag_offset_) return false;
-    }
-
-    return false; // all equal
-*/
 }
 
 //----------------------------------------------------------------------
@@ -162,11 +126,12 @@ GbofId::equals(EndpointID source,
                size_t frag_length,
                size_t frag_offset) const
 {
-    if (creation_ts_.seconds_ == creation_ts.seconds_ &&
-	creation_ts_.seqno_ == creation_ts.seqno_ &&
-	is_fragment_ == is_fragment &&
-	(!is_fragment || 
-	 (frag_length_ == frag_length && frag_offset_ == frag_offset)) &&
+    if ((creation_ts_.secs_or_millisecs_ == creation_ts.secs_or_millisecs_) &&
+        (creation_ts_.seqno_ == creation_ts.seqno_) &&
+        (is_fragment_ == is_fragment) &&
+        (!is_fragment || 
+            ((frag_length_ == frag_length) && 
+             (frag_offset_ == frag_offset))) &&
         source_.equals(source))
     {
         return true;
@@ -184,12 +149,12 @@ GbofId::set_gbofid_str()
     if (!is_fragment_) {
         snprintf(buf, sizeof(buf), "<%s, %" PRIu64 ".%" PRIu64 ">",
                      source_.c_str(),
-                     creation_ts_.seconds_,
+                     creation_ts_.secs_or_millisecs_,
                      creation_ts_.seqno_);
     } else {
         snprintf(buf, sizeof(buf), "<%s, %" PRIu64 ".%" PRIu64 ", FRAG len %zu offset %zu>",
                      source_.c_str(),
-                     creation_ts_.seconds_,
+                     creation_ts_.secs_or_millisecs_,
                      creation_ts_.seqno_,
                      frag_length_,
                      frag_offset_);
@@ -217,9 +182,9 @@ GbofId::set_source(std::string& eid)
 
 //----------------------------------------------------------------------
 void
-GbofId::set_creation_ts(uint64_t seconds, uint64_t seqno)
+GbofId::set_creation_ts(uint64_t secs_or_millisecs, uint64_t seqno)
 {
-    creation_ts_.seconds_ = seconds;
+    creation_ts_.secs_or_millisecs_ = secs_or_millisecs;
     creation_ts_.seqno_ = seqno;
     set_gbofid_str();
 }

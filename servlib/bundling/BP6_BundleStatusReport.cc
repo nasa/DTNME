@@ -107,7 +107,7 @@ BP6_BundleStatusReport::create_status_report(Bundle*           bundle,
     // Time field, set to the current time (with no sub-second
     // accuracy defined at all)
     BundleTimestamp now;
-    now.seconds_ = BundleTimestamp::get_current_time();
+    now.secs_or_millisecs_ = BundleTimestamp::get_current_time_secs();
     now.seqno_   = 0;
 
     // dz - multiple timestamps
@@ -242,7 +242,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->receipt_tv_.seconds_ = 0;
+        data->receipt_tv_.secs_or_millisecs_ = 0;
         data->receipt_tv_.seqno_   = 0;
     }
 
@@ -252,7 +252,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->custody_tv_.seconds_ = 0;
+        data->custody_tv_.secs_or_millisecs_ = 0;
         data->custody_tv_.seqno_   = 0;
     }
 
@@ -262,7 +262,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->forwarding_tv_.seconds_ = 0;
+        data->forwarding_tv_.secs_or_millisecs_ = 0;
         data->forwarding_tv_.seqno_   = 0;
     }
 
@@ -272,7 +272,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->delivery_tv_.seconds_ = 0;
+        data->delivery_tv_.secs_or_millisecs_ = 0;
         data->delivery_tv_.seqno_   = 0;
     }
 
@@ -282,7 +282,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->deletion_tv_.seconds_ = 0;
+        data->deletion_tv_.secs_or_millisecs_ = 0;
         data->deletion_tv_.seqno_   = 0;
     }
 
@@ -292,7 +292,7 @@ bool BP6_BundleStatusReport::parse_status_report(data_t* data,
         bp  += ts_len;
         len -= ts_len;
     } else {
-        data->ack_by_app_tv_.seconds_ = 0;
+        data->ack_by_app_tv_.secs_or_millisecs_ = 0;
         data->ack_by_app_tv_.seqno_   = 0;
     }
     

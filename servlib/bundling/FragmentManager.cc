@@ -387,7 +387,7 @@ FragmentManager::get_hash_key(const Bundle* bundle, std::string* key)
 {
     char buf[128];
     snprintf(buf, 128, "%" PRIu64 ".%" PRIu64,
-             bundle->creation_ts().seconds_,
+             bundle->creation_ts().secs_or_millisecs_,
              bundle->creation_ts().seqno_);
     
     key->append(buf);

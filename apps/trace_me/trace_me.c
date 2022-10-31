@@ -235,7 +235,11 @@ main(int argc, const char** argv)
             sr_data = reply_payload.status_report;
             if (sr_data->flags & STATUS_RECEIVED)
             {
-                clock = sr_data->receipt_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->receipt_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->receipt_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: received at %.*s UTC (%ld ms rtt)\n",
                        reply_spec.source.uri, 24, asctime(tm_buf),
@@ -243,7 +247,11 @@ main(int argc, const char** argv)
             }
             if (sr_data->flags & STATUS_FORWARDED)
             {
-                clock = sr_data->forwarding_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->forwarding_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->forwarding_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: forwarded at %.*s UTC (%ld ms rtt)\n",
                        reply_spec.source.uri, 24, asctime(tm_buf),
@@ -251,7 +259,11 @@ main(int argc, const char** argv)
             }
             if (sr_data->flags & STATUS_DELIVERED)
             {
-                clock = sr_data->delivery_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->delivery_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->delivery_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: delivered at %.*s UTC (%ld ms rtt)\n",
                        reply_spec.source.uri, 24, asctime(tm_buf),
@@ -259,7 +271,11 @@ main(int argc, const char** argv)
             }
             if (sr_data->flags & STATUS_DELETED)
             {
-                clock = sr_data->deletion_ts.secs + DTNTIME_OFFSET;
+                if (reply_spec.bp_version == 6) {
+                    clock = sr_data->deletion_ts.secs_or_millisecs + DTNTIME_OFFSET;
+                } else {
+                    clock = (sr_data->deletion_ts.secs_or_millisecs / 1000) + DTNTIME_OFFSET;
+                }
                 tm_buf = gmtime(&clock);
                 printf("%s: deleted at %.*s UTC (%s) (%ld ms rtt)\n",
                        reply_spec.source.uri, 24, asctime(tm_buf),
@@ -308,7 +324,11 @@ main(int argc, const char** argv)
                        (long unsigned int)send_time.tv_sec);
             }
                 
-            clock = reply_spec.creation_ts.secs + DTNTIME_OFFSET;
+            clock = reply_spec.creation_ts.secs_or_millisecs;
+            if (reply_spec.bp_version != 6) {
+                clock /= 1000;
+            }
+            clock += DTNTIME_OFFSET;
             tm_buf = gmtime(&clock);
             printf("%s: echo reply at %.*s UTC (%ld ms rtt)\n",
                    reply_spec.source.uri, 24, asctime(tm_buf),

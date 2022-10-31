@@ -159,46 +159,46 @@ AdminRegistrationIpn::deliver_bundle_bp6(Bundle* bundle)
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_RECEIVED)
             {
                 rpt_text.append("RECEIVED at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.receipt_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.receipt_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_CUSTODY_ACCEPTED)
             {
                 if (rpt_text.length() > 0) rpt_text.append(" & ");
                 rpt_text.append("CUSTODY_ACCEPTED at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.custody_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.custody_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_FORWARDED)
             {
                 if (rpt_text.length() > 0) rpt_text.append(" & ");
                 rpt_text.append("FORWARDED at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.forwarding_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.forwarding_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_DELIVERED)
             {
                 if (rpt_text.length() > 0) rpt_text.append(" & ");
                 rpt_text.append("DELIVERED at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.delivery_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.delivery_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_ACKED_BY_APP)
             {
                 if (rpt_text.length() > 0) rpt_text.append(" & ");
                 rpt_text.append("ACKED_BY_APP at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.receipt_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.receipt_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
             if (sr_data.status_flags_ & BP6_BundleStatusReport::STATUS_DELETED)
             {
                 if (rpt_text.length() > 0) rpt_text.append(" & ");
                 rpt_text.append("DELETED at ");
-                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.deletion_tv_.seconds_);
+                snprintf(tmptxt, sizeof(tmptxt), "%" PRIu64, sr_data.deletion_tv_.secs_or_millisecs_);
                 rpt_text.append(tmptxt);
             }
 
-            log_info_p("/statusrpt", "Report from %s: Bundle %s status(%d): %s : %s",
+            log_info_p("/statusrpt", "BPv6 Status Report from %s: Bundle %s status(%d): %s : %s",
                        bundle->source().c_str(),
                        source_gbofid.str().c_str(),
                        sr_data.status_flags_,
@@ -402,7 +402,7 @@ AdminRegistrationIpn::deliver_bundle_bp7(Bundle* bundle)
                 rpt_text.append(tmptxt);
             }
 
-            log_info_p("/statusrpt", "Report from %s: Bundle %s status: %s : %s",
+            log_info_p("/statusrpt", "BPv7 Status Report from %s: Bundle %s status: %s : %s",
                        bundle->source().c_str(),
                        source_gbofid.str().c_str(),
                        rpt_text.c_str(),

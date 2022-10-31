@@ -53,11 +53,13 @@
 #include "contacts/ContactPlanner.h"
 
 #include "cmd/CompletionNotifier.h"
+#include "cmd/AcsCommand.h"
 #include "cmd/BPCommand.h"
 #include "cmd/BundleCommand.h"
 #include "cmd/InterfaceCommand.h"
 #include "cmd/LinkCommand.h"
 #include "cmd/ParamCommand.h"
+#include "cmd/RegCommand.h"
 #include "cmd/RegistrationCommand.h"
 #include "cmd/RouteCommand.h"
 #include "cmd/ShutdownCommand.h"
@@ -82,11 +84,10 @@
 #include "storage/BundleStore.h"
 #include "storage/LinkStore.h"
 #include "storage/GlobalStore.h"
+#include "storage/PendingAcsStore.h"
 #include "storage/RegistrationStore.h"
 #include "storage/DTNStorageConfig.h"
 
-#include "cmd/AcsCommand.h"
-#include "storage/PendingAcsStore.h"
 
 #ifdef BARD_ENABLED
 #    include "storage/BARDQuotaStore.h"
@@ -319,6 +320,7 @@ DTNServer::init_commands()
     interp->reg(new BundleRestagingCommand());
 #endif  // BARD_ENABLED
 
+    interp->reg(new RegCommand());
     interp->reg(new RegistrationCommand());
     interp->reg(new RouteCommand());
     interp->reg(new ShutdownCommand(this, "shutdown"));
@@ -339,9 +341,9 @@ DTNServer::init_components()
 {
     ContactPlanner::init();
     SchemeTable::create();
+    BundleDaemon::init();
     ConvergenceLayer::init_clayers();
     InterfaceTable::init();
-    BundleDaemon::init();
 
 #ifdef DTPC_ENABLED
     DtpcDaemon::init();

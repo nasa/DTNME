@@ -493,7 +493,7 @@ BIBEConvergenceLayer::BIBE::encapsulate_bundle(BundleRef& bref)
 
         //XXX/dz - hard coded to 15 minutes for now
         //         TODO: better determine the retransmit time
-        retransmit_time = BundleTimestamp::get_current_time() + (15 * 60);
+        retransmit_time = BundleTimestamp::get_current_time_millis() + (15 * 60 * 1000);
     }
     need_bytes = cborutil_.encode_uint64(scratch_.end(), scratch_.nfree(), 
                                          0, transmission_id, encoded_len);

@@ -14,34 +14,17 @@
  *    limitations under the License.
  */
 
-#ifndef _REGISTRATION_COMMAND_H_
-#define _REGISTRATION_COMMAND_H_
+#ifdef HAVE_CONFIG_H
+#  include <dtn-config.h>
+#endif
 
-#include <third_party/oasys/tclcmd/TclCommand.h>
+#include "RegCommand.h"
 
 namespace dtn {
 
-/**
- * The "registration" command.
- */
-class RegistrationCommand : public oasys::TclCommand {
-public:
-    /**
-     * Default Constructor
-     */
-    RegistrationCommand();
-
-    /**
-     * Alternate constructor to specify a command string
-     */
-    RegistrationCommand(const char* cmd_str);
-    
-    /**
-     * Virtual from CommandModule.
-     */
-    virtual int exec(int argc, const char** argv, Tcl_Interp* interp);
-};
+RegCommand::RegCommand()
+    : RegistrationCommand("reg")
+{
+}
 
 } // namespace dtn
-
-#endif /* _REGISTRATION_COMMAND_H_ */

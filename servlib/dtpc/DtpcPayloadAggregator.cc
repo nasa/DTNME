@@ -570,7 +570,7 @@ DtpcPayloadAggregator::transmit_pdu()
     // create and queue a PDU if Transmission Service is indicated
     if (profile->retransmission_limit() > 0) {
         DtpcProtocolDataUnit* pdu = new DtpcProtocolDataUnit(dest_eid(), profile_id_, seq_ctr_);
-        pdu->set_creation_ts(bref->creation_ts().seconds_);
+        pdu->set_creation_ts(bref->creation_time_secs());
         pdu->set_buf(buf_);
 
         // create a new buffer for the next PDU
@@ -599,7 +599,7 @@ DtpcPayloadAggregator::retransmit_pdu(DtpcProtocolDataUnit* pdu)
 
     // note that this is unsigned arithmetic
     u_int64_t expiration_remaining = pdu->creation_ts() + profile->expiration() -
-                                         BundleTimestamp::get_current_time();
+                                         BundleTimestamp::get_current_time_secs();
 
     if (pdu->retransmit_count() >= profile->retransmission_limit()) {
         // post a delete PDU event

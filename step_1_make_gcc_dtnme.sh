@@ -1,13 +1,38 @@
 #/bin/bash
 
 MAKE=make
+JOBS=1
 
 re='^[0-9]+$'
 
-if ! [[ $1 =~ $re ]]; then
-MAKE=$1
+if [ $# -gt 2 ]; then
+    printf "\nUsage: $0 [make_executable_name [num_jobs]]\n"
+    printf "\n\t[make_executable_name] allows for compatibility with systems\n\tthat use a different naming convention such as 'make' vs 'gmake' \n\n"
+    exit 1
 fi
 
+if [ $# -gt 0 ]; then
+    if ! [[ $1 =~ $re ]]; then
+        MAKE=$1
+    else
+        if [ $1 -gt 0 ]; then
+            JOBS=$1
+        fi
+    fi
+fi
+    
+if [ $# -eq 2 ]; then
+    if ! [[ $2 =~ $re ]]; then
+        printf "\nUsage: $0 [make_executable_name [num_jobs]]\n"
+        printf "\n\t[make_executable_name] allows for compatibility with systems\n\tthat use a different naming convention such as 'make' vs 'gmake' \n\n"
+        exit 1
+    else
+        if [ $2 -gt 0 ]; then
+            JOBS=$2
+        fi
+    fi
+fi
+    
 cd third_party/oasys
 
 #chmod +x tools/extract-version
@@ -39,7 +64,7 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to configure 
 exit 1
 fi
 
-make
+$MAKE
 
 if [ $? -ne 0 ]
 then
@@ -78,11 +103,11 @@ printf "Uh Oh, something went wrong\nAn error occured while trying to configure 
 exit 1
 fi
 
-if [ $1 -gt 0 ]
+if [ $JOBS -gt 0 ]
 then
-  make -j $1
+  $MAKE -j $JOBS
 else
-  make
+  $MAKE
 fi
 
 printf $?

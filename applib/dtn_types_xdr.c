@@ -112,13 +112,16 @@ xdr_dtn_timeval_t (XDR *xdrs, dtn_timeval_t *objp)
  #define u_hyper u_quad_t
  #define xdr_u_hyper_t xdr_u_quad_t
 #endif
+/**
+ * BPv6 uses seconds and BPv7 uses milliseconds
+ */
 
 bool_t
 xdr_dtn_timestamp_t (XDR *xdrs, dtn_timestamp_t *objp)
 {
 	register int32_t *buf;
 
-	 if (!xdr_u_hyper (xdrs, &objp->secs))
+	 if (!xdr_u_hyper (xdrs, &objp->secs_or_millisecs))
 		 return FALSE;
 	 if (!xdr_u_hyper (xdrs, &objp->seqno))
 		 return FALSE;

@@ -48,8 +48,8 @@ public:
         EndpointID      orig_source_eid_;
         BundleTimestamp orig_creation_ts_;
 
-        u_int64_t       orig_frag_offset_    = 0;
-        u_int64_t       orig_frag_length_    = 0 ;
+        uint64_t        orig_frag_offset_    = 0;
+        uint64_t        orig_frag_length_    = 0 ;
     };
 
     /**

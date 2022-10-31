@@ -111,6 +111,7 @@ public:
 
         /**
          * Operator copy assignment
+         * (why was this added/needed? and is it still necessary?)
          */
         TCPLinkParams& operator=(const TCPLinkParams& other)
         {
@@ -142,6 +143,26 @@ public:
                 tls_link_private_key_file_ = other.tls_link_private_key_file_;
                 tls_link_verify_cert_file_ = other.tls_link_verify_cert_file_;
                 tls_link_verify_certs_dir_ = other.tls_link_verify_certs_dir_;
+
+                // params from StreamConvergenceLayer
+                segment_ack_enabled_ = other.segment_ack_enabled_;
+                negative_ack_enabled_ = other.negative_ack_enabled_;
+                keepalive_interval_ = other.keepalive_interval_;
+                break_contact_on_keepalive_fault_ = other.break_contact_on_keepalive_fault_;
+                segment_length_ = other.segment_length_;
+                max_inflight_bundles_ = other.max_inflight_bundles_;
+
+                // params from ConnectionConvergenceLayer
+                reactive_frag_enabled_ = reactive_frag_enabled_;
+                sendbuf_len_ = other.sendbuf_len_;
+                recvbuf_len_ = other.recvbuf_len_;
+                data_timeout_ = other.data_timeout_;
+        
+                test_read_delay_ = other.test_read_delay_;
+                test_write_delay_ = other.test_write_delay_;
+
+                test_read_limit_ = other.test_read_limit_;
+                test_write_limit_ = other.test_write_limit_;
             }
 
             return *this;

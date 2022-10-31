@@ -32,7 +32,8 @@
 namespace dtn {
 
 /**
- * CommandModule for the "quota" command.
+ * CommandModule for the "bard" command to configure/control
+ * the BundleArchitecturalRestagingDaemon
  */
 class BundleRestagingCommand : public oasys::TclCommand {
 public:

@@ -662,7 +662,7 @@ main(int argc, char** argv)
                 printf("bundle %d received successfully: id %s,%"PRIu64".%"PRIu64"  payload len: %"PRIu64"\n",
                        i,
                        spec.source.uri,
-                       spec.creation_ts.secs,
+                       spec.creation_ts.secs_or_millisecs,
                        spec.creation_ts.seqno,
                        size
                    );

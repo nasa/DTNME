@@ -1520,6 +1520,8 @@ ExternalRouter::ModuleServer::process_bard_usage_req_msg_v0(CborValue& cvElement
 void
 ExternalRouter::ModuleServer::process_bard_add_quota_req_msg_v0(CborValue& cvElement)
 {
+    (void) cvElement;
+
 #ifdef BARD_ENABLED
     BARDNodeStorageUsage quota;
 
@@ -1551,6 +1553,8 @@ ExternalRouter::ModuleServer::process_bard_add_quota_req_msg_v0(CborValue& cvEle
 void
 ExternalRouter::ModuleServer::process_bard_del_quota_req_msg_v0(CborValue& cvElement)
 {
+    (void) cvElement;
+
 #ifdef BARD_ENABLED
     BARDNodeStorageUsage quota;
 

@@ -99,7 +99,6 @@ public:
      * Returns a string version of the gbof
      */
     std::string str() const { return gbofid_str_; }
-    const char* c_str() const { return gbofid_str_.c_str(); }
 
     /// @{ Accessors
     const EndpointID& source()           const { return source_; }
@@ -113,7 +112,7 @@ public:
     void set_source(const EndpointID& eid);
     void set_source(std::string& eid);
     void set_creation_ts(const BundleTimestamp& ts);
-    void set_creation_ts(uint64_t seconds, uint64_t seqno);
+    void set_creation_ts(uint64_t secs_or_millisecs, uint64_t seqno);
     void set_fragment(bool t, size_t offset=0, size_t length=0);
     void set_is_fragment(bool t);
     void set_frag_offset(size_t offset);

@@ -504,12 +504,12 @@ RestageConvergenceLayer::list_link_opts(oasys::StringBuffer& buf)
     buf.append("Example:\n");
     buf.append("link add restage1 /data01/ext_storage ALWAYSON restage mount_point=true ttl_override=86400 auto_reload_interval=3600\n");
     buf.append("    (create a link named \"restage1\" with top level storage location of /data01/ext_storage;\n");
-    buf.append("     verify that /data01/ext_storage or /data01 is mounted;\n");
+    buf.append("     * verify that /data01/ext_storage or /data01 is mounted;\n");
     buf.append("         if /data01 is a mount point but /data01/ext_storage does not exist then it will be created; \n");
-    buf.append("     retain bundles for up to 7 days regardless of their expiration time;\n");
-    buf.append("     try to reload bundles to internal storage every hour and override the bundle TTL if needed to provide a minimum of 1 day\n");
-    buf.append("     it is part of the BARD pool and if it fills up, bundles configured to restage here can be sent to other members of the pool and vice versa;\n");
-    buf.append("     email alerts are enabled but no email addresses were specified;\n");
+    buf.append("     * retain bundles for up to 7 days regardless of their expiration time;\n");
+    buf.append("     * try to reload bundles to internal storage every hour and override the bundle TTL if needed to provide a minimum of 1 day;\n");
+    buf.append("     * it is part of the BARD pool and if it fills up, bundles configured to restage here can be sent to other members of the pool and vice versa;\n");
+    buf.append("     * email alerts are enabled but no email addresses were specified so none will be sent;\n");
     buf.append("\n");
 }
 
@@ -872,6 +872,23 @@ RestageConvergenceLayer::ExternalStorageController::dump_link(oasys::StringBuffe
     buf->appendf("expire_bundles: %s\n", sptr_clstatus_->expire_bundles_ ? "true" : "false");
     buf->appendf("ttl_override: %" PRIu64 "\n", sptr_clstatus_->ttl_override_);
     buf->appendf("auto_reload_interval: %" PRIu64 "\n", sptr_clstatus_->auto_reload_interval_);
+    if (sptr_clstatus_->auto_reload_interval_ > 0) {
+        const char *fmtstr="%Y-%m-%d %H:%M:%S";
+        struct tm tmval_buf;
+        struct tm *tmval;
+        char date_str[64];
+
+        time_t tmp_secs = auto_reload_timer_.sec_;
+
+        // convert seconds to a time string
+        tmval = gmtime_r(&tmp_secs, &tmval_buf);
+        strftime(date_str, 64, fmtstr, tmval);
+
+        size_t time_to_next = sptr_clstatus_->auto_reload_interval_ - 
+                              (auto_reload_timer_.elapsed_ms() / 1000);
+        buf->appendf("last reload attempt: %s GMT  (next in %zu seconds)\n", 
+                     date_str, time_to_next);
+    }
 
     buf->appendf("\n");
     buf->appendf("========== Statistics and Status ==========\n");
@@ -1134,14 +1151,13 @@ RestageConvergenceLayer::ExternalStorageController::run()
 
 
     oasys::Time error_state_timer;
-    oasys::Time auto_reload_timer;
     oasys::Time garbage_collection_timer;
 
     uint64_t five_minutes_in_ms = 5 * 60 * 1000;
     uint64_t one_hour_in_ms = 60 * 60 * 1000;
 
     error_state_timer.get_time();
-    auto_reload_timer.get_time();
+    auto_reload_timer_.get_time();
     garbage_collection_timer.get_time();
 
     while (!should_stop()) {
@@ -1162,10 +1178,10 @@ RestageConvergenceLayer::ExternalStorageController::run()
         if (sptr_params_->auto_reload_interval_ > 0) {
             uint64_t interval = sptr_params_->auto_reload_interval_ * 1000;
 
-            if (auto_reload_timer.elapsed_ms() >= interval) {
+            if (auto_reload_timer_.elapsed_ms() >= interval) {
                 size_t ttl_override = sptr_params_->ttl_override_;
                 reload_all(ttl_override);
-                auto_reload_timer.get_time();
+                auto_reload_timer_.get_time();
             }
         }
 
@@ -1639,10 +1655,10 @@ RestageConvergenceLayer::ExternalStorageController::bts_to_tokens(Bundle* bundle
 {
     BundleTimestamp bts = bundle->creation_ts();
 
-    dtn_time = std::to_string(bts.seconds_);
+    dtn_time = std::to_string(bts.secs_or_millisecs_);
     seq_num = std::to_string(bts.seqno_);
 
-    time_t timer = bts.seconds_ + BundleTimestamp::TIMEVAL_CONVERSION;
+    time_t timer = bundle->creation_time_secs() + BundleTimestamp::TIMEVAL_CONVERSION_SECS;
     struct tm tmval_buf;
     struct tm* tmval;
 
@@ -1680,12 +1696,12 @@ void
 RestageConvergenceLayer::ExternalStorageController::exp_to_tokens(Bundle* bundle,
                                                                   std::string& human_readable, std::string& dtn_time)
 {
-    time_t timer = bundle->creation_ts().seconds_ + bundle->expiration_secs();
+    time_t timer = bundle->creation_time_secs() + bundle->expiration_secs();
 
     dtn_time = std::to_string(timer);
 
     // adjust from DTN time to unix time
-    timer += BundleTimestamp::TIMEVAL_CONVERSION;
+    timer += BundleTimestamp::TIMEVAL_CONVERSION_SECS;
 
     struct tm tmval_buf;
     struct tm* tmval;
@@ -1798,23 +1814,18 @@ RestageConvergenceLayer::ExternalStorageController::parse_filename(std::string f
     // note that these functions strip off the parsed data from the filename string 
     result = parse_fname_src_eid(filename, sptr_bfd.get());
     if (result) {
-        //log_always("%s: got good src eid", __func__);
         result = parse_fname_dst_eid(filename, sptr_bfd.get());
     }
     if (result) {
-        //log_always("%s: got good dst eid", __func__);
         result = parse_fname_bts(filename, sptr_bfd.get());
     }
     if (result) {
-        //log_always("%s: got good bts", __func__);
         result = parse_fname_frag(filename, sptr_bfd.get());
     }
     if (result) {
-        //log_always("%s: got good frag", __func__);
         result = parse_fname_payload(filename, sptr_bfd.get());
     }
     if (result) {
-        //log_always("%s: got good payload", __func__);
         result = parse_fname_exp(filename, sptr_bfd.get());
     }
 
@@ -2002,7 +2013,7 @@ RestageConvergenceLayer::ExternalStorageController::parse_fname_bts(std::string&
             if (result) {
                 // convert the string to numeric values
                 char* end;
-                bfd_ptr->bts_seconds_ = std::strtoull(bts_seconds.c_str(), &end, 10);
+                bfd_ptr->bts_secs_or_millisecs_ = std::strtoull(bts_seconds.c_str(), &end, 10);
                 if (*end != '\0') {
                     // extraneous characters after the number - abort
                     result = false;
@@ -2509,7 +2520,7 @@ RestageConvergenceLayer::ExternalStorageController::load_bfd_bundle_data(BundleF
     load_bfd_eid_dst_data(bfd_ptr, bundle->dest());
 
     // load the bundle timestamp data
-    bfd_ptr->bts_seconds_ = bundle->creation_ts().seconds_;
+    bfd_ptr->bts_secs_or_millisecs_ = bundle->creation_ts().secs_or_millisecs_;
     bfd_ptr->bts_seq_num_ = bundle->creation_ts().seqno_;
 
      bfd_ptr->payload_length_ = bundle->payload().length();
@@ -2526,7 +2537,7 @@ RestageConvergenceLayer::ExternalStorageController::load_bfd_bundle_data(BundleF
     }
 
     // bundle expiration
-    bfd_ptr->exp_seconds_ = bundle->creation_ts().seconds_ + bundle->expiration_secs();
+    bfd_ptr->exp_seconds_ = bundle->creation_time_secs() + bundle->expiration_secs();
 }
 
 //----------------------------------------------------------------------
@@ -3176,7 +3187,7 @@ RestageConvergenceLayer::ExternalStorageController::garbage_collect_dir(const st
 
         // check first by the bundle expiration time
         if (sptr_params_->expire_bundles_) {
-            bundle_exp_time = sptr_bfd->exp_seconds_ + BundleTimestamp::TIMEVAL_CONVERSION;
+            bundle_exp_time = sptr_bfd->exp_seconds_ + BundleTimestamp::TIMEVAL_CONVERSION_SECS;
             delete_the_file = (bundle_exp_time <= now.tv_sec);
         }
 
@@ -3666,8 +3677,8 @@ RestageConvergenceLayer::ExternalStorageController::Reloader::process_reload(Rel
 
                 // override the expiration time if needed
                 if ((event->new_expiration_ > 0) && (ttl_remaining < (int64_t)event->new_expiration_)) {
-                    uint64_t creation_time = bundle->creation_ts().seconds_; // Seconds since 1/1/2000
-                    uint64_t now = BundleTimestamp::get_current_time();
+                    uint64_t creation_time = bundle->creation_time_secs(); // Seconds since 1/1/2000
+                    uint64_t now = BundleTimestamp::get_current_time_secs();
                     uint64_t new_exp = now - creation_time + event->new_expiration_;
                     bundle->set_expiration_secs(new_exp);
                 }

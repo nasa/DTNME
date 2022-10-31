@@ -438,7 +438,7 @@ BundleList::find(const EndpointID& source_eid,
     oasys::ScopeLock l(lock_, "BundleList::find");
 
     for (iterator iter = begin(); iter != end(); ++iter) {
-        if ((*iter)->creation_ts().seconds_ == creation_ts.seconds_ &&
+        if ((*iter)->creation_ts().secs_or_millisecs_ == creation_ts.secs_or_millisecs_ &&
             (*iter)->creation_ts().seqno_ == creation_ts.seqno_ &&
             (*iter)->source().equals(source_eid) &&
             !((*iter)->is_freed()))
@@ -496,31 +496,6 @@ BundleList::find(std::string gbofid_str) const
 }
 
 //----------------------------------------------------------------------
-BundleRef
-BundleList::find(const GbofId& gbof_id, const BundleTimestamp& extended_id) const
-{
-    BundleRef ret("BundleList::find() temporary (by gbof_id and timestamp)");
-    
-    oasys::ScopeLock l(lock_, "BundleList::find (by gbof_id and timestamp");
-
-    for (iterator iter = begin(); iter != end(); ++iter) {
-        if (extended_id == (*iter)->extended_id() &&
-            gbof_id.equals((*iter)->source(),
-                           (*iter)->creation_ts(),
-                           (*iter)->is_fragment(),
-                           (*iter)->payload().length(),
-                           (*iter)->frag_offset()) &&
-            !((*iter)->is_freed()))
-        {
-            ret = *iter;
-            return ret;
-        }
-    }
-
-    return ret;
-}
-
-//----------------------------------------------------------------------
 void
 BundleList::move_contents(BundleList* other)
 {
@@ -539,13 +514,6 @@ void
 BundleList::clear()
 {
     oasys::ScopeLock l(lock_, "BundleList::clear");
-    
-//dzdebug    BundleRef b("BundleList::clear temporary");
-//dzdebug    while (!list_.empty()) {
-//dzdebug        b = pop_front();
-//dzdebug    }
-
-    // empty the list without triggering the Bundle::add_ref and Bundle::del_ref methods
     list_.clear();
 }
 

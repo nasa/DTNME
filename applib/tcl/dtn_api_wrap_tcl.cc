@@ -2146,7 +2146,7 @@ _wrap_dtn_timestamp_t_secs_set(ClientData clientData SWIGUNUSED, Tcl_Interp *int
       arg2 = *(reinterpret_cast< u_int * >(argp2));
     }
   }
-  if (arg1) (arg1)->secs = arg2;
+  if (arg1) (arg1)->secs_or_millisecs = arg2;
   
   
   return TCL_OK;
@@ -2168,7 +2168,7 @@ _wrap_dtn_timestamp_t_secs_get(ClientData clientData SWIGUNUSED, Tcl_Interp *int
     SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "dtn_timestamp_t_secs_get" "', argument " "1"" of type '" "dtn_timestamp_t *""'"); 
   }
   arg1 = reinterpret_cast< dtn_timestamp_t * >(argp1);
-  result =  ((arg1)->secs);
+  result =  ((arg1)->secs_or_millisecs);
   Tcl_SetObjResult(interp,SWIG_NewInstanceObj((new u_int(static_cast< const u_int& >(result))), SWIGTYPE_p_u_int, SWIG_POINTER_OWN | 0 ));
   return TCL_OK;
 fail:

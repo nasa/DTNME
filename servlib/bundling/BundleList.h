@@ -290,15 +290,6 @@ public:
     BundleRef find(std::string gbofid_str) const;
     
     /**
-     * Search the list for a bundle with the given GBOF ID and extended
-     * (local) ID
-     *
-     * @return the bundle or NULL if not found.
-     */
-    BundleRef find(const GbofId& gbof_id,
-                   const BundleTimestamp& extended_id) const;
-
-    /**
      * Move all bundles from this list to another.
      */
     void move_contents(BundleList* other);

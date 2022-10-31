@@ -242,17 +242,15 @@ BundleDaemonInput::handle_bundle_received(BundleReceivedEvent* event)
 
     bool ok_to_route = true;
 
-
-    // XXX/kscott Logging bundle reception to forwarding log moved to below.
-
     // log a warning if the bundle has a creation time that's in the future
-    u_int32_t now = BundleTimestamp::get_current_time();
-    if ((bundle->creation_ts().seconds_ > now) &&
-        (bundle->creation_ts().seconds_ - now > 30000))
+    size_t now = BundleTimestamp::get_current_time_secs();
+    size_t creation_time_secs = bundle->creation_time_secs();
+    if ((creation_time_secs > now) &&
+        (creation_time_secs - now > 30))
     {
-        log_warn("bundle id %" PRIbid " arrived with creation time in the future "
-                 "(%" PRIu64 " > %u)",
-                 bundle->bundleid(), bundle->creation_ts().seconds_, now);
+        log_warn("*%p arrived with creation time in the future "
+                 "(%" PRIu64 " > %" PRIu64 " secs)",
+                 bundle, creation_time_secs, now);
     }
    
     /*

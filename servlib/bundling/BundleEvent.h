@@ -690,11 +690,11 @@ public:
  */
 class BundleAckEvent : public BundleEvent {
 public:
-    BundleAckEvent(u_int reg, std::string source, u_quad_t secs, u_quad_t seq)
+    BundleAckEvent(u_int reg, std::string source, size_t secs_or_millisecs, size_t seq)
         : BundleEvent(BUNDLE_ACK, EVENT_PROCESSOR_MAIN),
           regid_(reg),
           sourceEID_(source),
-          creation_ts_(secs, seq) {}
+          creation_ts_(secs_or_millisecs, seq) {}
 
     u_int regid_;
     EndpointID sourceEID_;

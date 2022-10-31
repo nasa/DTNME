@@ -25,9 +25,9 @@ public:
     Deliver_Me();
     
     struct Stat {
-      long                  transaction_id;
-      unsigned long long    total_bytes;
-      unsigned long long    bytes_processed;
+      uint64_t              transaction_id;
+      uint64_t              total_bytes;
+      uint64_t              bytes_processed;
       bool                  eof_processed;
       std::string           source_entity;
       std::string           destination_entity;
@@ -53,9 +53,9 @@ public:
        u_int                entity_id_length;
        bool                 segment_metadata_flag;
        u_int                sequence_number_length;
-       u_int                source_entity_id;
-       u_int                sequence_number;
-       u_int                destination_entity_id;
+       uint64_t             source_entity_id;
+       uint64_t             sequence_number;
+       uint64_t             destination_entity_id;
        u_int                length;
     };
 
@@ -115,6 +115,7 @@ public:
     void validate_options(int argc, char* const argv[], int remainder);
 
     void cli();
+    void cli_while_exiting();
 
 protected:
 
@@ -162,8 +163,12 @@ protected:
     u_int                    ttl_;
     std::string              log_path_;
     bool                     should_shutdown_;
+    bool                     orderly_shutdown_requested_ = false;
+    bool                     exiting_prompt_displayed_ = false;
+    oasys::Time              exiting_prompt_display_time_;
     u_int                    sequence_number_;
     oasys::SpinLock          sequence_lock_;
+    bool                     sequence_number_set_ = false;
 
     std::deque<std::string>  log_buffer_;
     oasys::SpinLock          log_lock_;
@@ -177,6 +182,7 @@ protected:
     oasys::SpinLock          stats_lock_;
     std::deque<Transaction_Worker*>  transaction_pool_;
     oasys::SpinLock                  transaction_lock_;
+    oasys::SpinLock          screen_io_lock_;
 
     void init_threads();
 
@@ -226,6 +232,10 @@ protected:
         // Deconstructor
         ~Process_PDU();
 
+        // return the number of File PDUs queued but not yet
+        // associated with a Metadata PDU
+        size_t get_file_buffer_size();
+
     protected:
         //Main loop
         void run();
@@ -235,6 +245,7 @@ protected:
         void process_file(char* buffer, int length, Fixed_Header header);
         
         std::deque<File_Standby_PDU> file_buffer_;
+        oasys::SpinLock              file_buffer_lock_;
         std::string        log_;    
         Deliver_Me*        handle_;
     };
@@ -256,6 +267,9 @@ protected:
         void suspend(u_int transaction_id);
         void report(u_int transaction_id);
         
+        uint8_t calc_cfdp_identity_size(uint64_t source_entity_id, uint64_t destination_entity_id);
+        uint8_t calc_cfdp_val_size(uint64_t val);
+
         std::string        log_;    
         Deliver_Me*        handle_;
     };
@@ -274,6 +288,11 @@ protected:
         
         Deliver_Me*        handle_;
     };
+
+protected:
+
+    Process_PDU* pdu_processor_ = nullptr;
+
 };
 
 } // namespace deliver_me

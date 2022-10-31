@@ -53,7 +53,7 @@ namespace dtn {
 LinkCommand::LinkCommand()
     : TclCommand("link")
 {
-    add_to_help("add <name> <nexthop> <type> <conv layer type> <opt=val> <opt2=val2>...",
+    add_to_help("add <name> <nexthop> <type> <conv_layer_type> <opt=val> <opt2=val2>...",
             "add links"
             "\n"
     "    valid options:\n"
@@ -61,9 +61,11 @@ LinkCommand::LinkCommand()
     "            A string to define link name\n"
     "        <nexthop>\n"
     "            A string to define next hop name\n"
-    "\t\tfor <convergence layer type>\t<nexthop> is\n"
+    "\t\tfor <conv_layer_type>\t<nexthop> is\n"
     "\t\t\tnull\t\t\t(any string)\n"
     "\t\t\ttcp, udp or ltpudp\tIP address:PORT or hostname:PORT\n"
+    "\t\t\tbibe\t\t\t<EID of node to do extraction>\n"
+    "\t\t\trestage\t\t\t<path to storage location>\n"
     "        <type>\n"
     "            link type options\n" 
     "\t\t\tALLWAYSON\n"

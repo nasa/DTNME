@@ -97,7 +97,11 @@ CustodySignal::create_custody_signal(Bundle*           bundle,
     
     // Time field, set to the current time:
     BundleTimestamp now;
-    now.seconds_ = BundleTimestamp::get_current_time();
+    if (bundle->is_bpv6()) {
+        now.secs_or_millisecs_ = BundleTimestamp::get_current_time_secs();
+    } else {
+        now.secs_or_millisecs_ = BundleTimestamp::get_current_time_millis();
+    }
     now.seqno_   = 0;
     signal_len += BundleProtocolVersion6::ts_encoding_len(now);
     

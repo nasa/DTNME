@@ -918,11 +918,13 @@ BundleArchitecturalRestagingDaemon::bundle_deleted(std::string& key, bool key_is
     // determine if an auto-reload event needs to be initiated
     if (sptr_usage->inuse_external_bundles_ > 0) {
         if (sptr_usage->quota_auto_reload()) {
-            if (max_committed_quota_percent(sptr_usage.get()) <= 20) {
+            if ((sptr_usage->inuse_internal_bundles_ == 0) ||
+                (max_committed_quota_percent(sptr_usage.get()) <= 20)) {
                 struct timeval now;
                 ::gettimeofday(&now, 0);
 
-                if ((now.tv_sec - sptr_usage->last_reload_command_time_) > 600) {
+                if ((sptr_usage->inuse_internal_bundles_ == 0) ||
+                    ((now.tv_sec - sptr_usage->last_reload_command_time_) > 600)) {
                     size_t new_expiration = 0;
                     std::string nodename = sptr_usage->nodename();;
                     std::string no_new_dest_eid;
@@ -1058,7 +1060,8 @@ BundleArchitecturalRestagingDaemon::run()
 
 //----------------------------------------------------------------------
 bool
-BundleArchitecturalRestagingDaemon::bardcmd_add_quota(bard_quota_type_t quota_type, bard_quota_naming_schemes_t naming_scheme, std::string& nodename,
+BundleArchitecturalRestagingDaemon::bardcmd_add_quota(bard_quota_type_t quota_type, 
+                                 bard_quota_naming_schemes_t naming_scheme, std::string& nodename,
                                  size_t internal_bundles, size_t internal_bytes, bool refuse_bundle, 
                                  std::string& restage_link_name, bool auto_reload, 
                                  size_t external_bundles, size_t external_bytes,
@@ -1071,13 +1074,12 @@ BundleArchitecturalRestagingDaemon::bardcmd_add_quota(bard_quota_type_t quota_ty
         return false;
     }
 
-    size_t node_number = 0;
-
     if ((naming_scheme == BARD_QUOTA_NAMING_SCHEME_IPN) || (naming_scheme == BARD_QUOTA_NAMING_SCHEME_IMC))
     {
         // maintain node number as both string and numeric value
         char* endp = nullptr;
-        node_number = strtoull(nodename.c_str(), &endp, 0);
+        size_t node_number = strtoull(nodename.c_str(), &endp, 0);
+        (void) node_number;
 
         if ((nodename.length() == 0) || (*endp != '\0')) {
             log_err("bardcmd_add_quota: invalid node number: %s", nodename.c_str());
@@ -1118,7 +1120,7 @@ BundleArchitecturalRestagingDaemon::bardcmd_add_quota(bard_quota_type_t quota_ty
         } else {
             new_usage = true;
 
-            sptr_usage = std::make_shared<BARDNodeStorageUsage>(quota_type, naming_scheme, node_number);
+            sptr_usage = std::make_shared<BARDNodeStorageUsage>(quota_type, naming_scheme, nodename);
         }
     }
 
@@ -1239,13 +1241,12 @@ BundleArchitecturalRestagingDaemon::bardcmd_unlimited_quota(bard_quota_type_t qu
         return false;
     }
 
-    size_t node_number = 0;
-
     if ((naming_scheme == BARD_QUOTA_NAMING_SCHEME_IPN) || (naming_scheme == BARD_QUOTA_NAMING_SCHEME_IMC))
     {
         // maintain node number as both string and numeric value
         char* endp = nullptr;
-        node_number = strtoull(nodename.c_str(), &endp, 0);
+        size_t node_number = strtoull(nodename.c_str(), &endp, 0);
+        (void) node_number;
 
         if ((nodename.length() == 0) || (*endp != '\0')) {
             log_err("bardcmd_umlimited: invalid node number: %s", nodename.c_str());
@@ -1286,7 +1287,7 @@ BundleArchitecturalRestagingDaemon::bardcmd_unlimited_quota(bard_quota_type_t qu
         } else {
             new_usage = true;
 
-            sptr_usage = std::make_shared<BARDNodeStorageUsage>(quota_type, naming_scheme, node_number);
+            sptr_usage = std::make_shared<BARDNodeStorageUsage>(quota_type, naming_scheme, nodename);
         }
     }
 

@@ -96,8 +96,11 @@ typedef u_int dtn_timeval_t;
 %    #define xdr_u_hyper_t xdr_u_quad_t
 %#endif
 
+%/**
+% * BPv6 uses seconds and BPv7 uses milliseconds
+% */
 struct dtn_timestamp_t {
-    u_hyper secs;
+    u_hyper secs_or_millisecs;
     u_hyper seqno;
 };
 

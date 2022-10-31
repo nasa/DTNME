@@ -37,19 +37,19 @@ namespace dtn {
 BundleRestagingCommand::BundleRestagingCommand()
     : TclCommand("bard") 
 {
-    add_to_help("add_quota <quota type> <naming scheme> <node number/name> <internal bundles> <internal byte>\n"
+    add_to_help("add_quota <quota type> <naming scheme> <node number/name> <internal bundles> <internal bytes>\n"
                 "                 [<restage link name> <auto reload> <external bundles> <external bytes>]", 
                 "add or update a node quota entry; where:\n"
                 "        <quota type>        - 'dst' = destination node or 'src' = source node\n"
                 "        <naming scheme>     - 'ipn', 'imc' or 'dtn'\n"
                 "        <node number/name>  - 'ipn' and 'imc' require a number and 'dtn' requires a name\n"
-                "        <internal bundles>  - max number of bundles allowed in internal storage\n"
-                "        <internal bytes>    - max number of payload bytes allowed in internal storage\n\n"
+                "        <internal bundles>  - max number of bundles allowed in internal storage (0=no max)\n"
+                "        <internal bytes>    - max number of payload bytes allowed in internal storage (0=no max)\n\n"
                 "    (if no other parameters are provided then bundle refusal will be attempted)\n\n"
                 "        <restage link name> - name of the restage CL to use for offloading to external storage\n"
                 "        <auto reload>       - whether to reload bundles when usage drops to 20% ('true' or 'false')\n"
-                "        <external bundles>  - max number of bundles allowed in external storage\n"
-                "        <external bytes>    - max number of payload bytes allowed in external storage\n\n"
+                "        <external bundles>  - max number of bundles allowed in external storage (0=no max)\n"
+                "        <external bytes>    - max number of payload bytes allowed in external storage (0=no max)\n\n"
                 "    (max number values may be specified exactly or with a magnitude character of K, M, G or T;\n"
                 "     where K = x1000, M = x1000000, etc.   example: 12G = 12000000000)");
 
@@ -91,7 +91,7 @@ BundleRestagingCommand::BundleRestagingCommand()
                 "        <node number/name>     - 'ipn' and 'imc' require a number and 'dtn' requires a name\n"
                 );
 
-    add_to_help("reload <quota type> <naming scheme> <node number/name> [<new expiration secs> <new dest EID>]",
+    add_to_help("reload <quota type> <naming scheme> <node number/name> [<new expiration secs>] [<new dest EID>]",
                 "attempt to reload restaged bundles for a specific quota type; where:\n"
                 "        <quota type>           - 'dst' = destination node or 'src' = source node\n"
                 "        <naming scheme>        - 'ipn', 'imc' or 'dtn'\n"

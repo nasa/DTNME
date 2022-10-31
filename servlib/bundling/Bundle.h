@@ -228,8 +228,7 @@ public:
     bundleid_t        bundleid()          const { return bundleid_; }
     oasys::Lock*      lock()              const { return &lock_; }
     const GbofId&     gbofid()            const { return gbofid_; }
-    std::string       gbofid_str()        const { return gbofid_.str(); }
-    const char*       gbofid_cstr()       const { return gbofid_.c_str(); }
+    std::string       gbofid_str()        const;
 
     bool              expired()           const { return expiration_timer_ == nullptr; }
     const EndpointID& source()            const { return gbofid_.source(); }
@@ -263,12 +262,19 @@ public:
     bool      queued_for_datastore()      const { return queued_for_datastore_;    }
     bool              local_custody()     const { return local_custody_; }
     bool              bibe_custody()      const { return bibe_custody_; }
-    const std::string& owner()            const { return owner_; }
     bool              fragmented_incoming() const { return fragmented_incoming_; }
     const BundlePayload& payload()        const { return payload_; }
     const ForwardingLog* fwdlog()         const { return &fwdlog_; }
     const BundleTimestamp& creation_ts()  const { return gbofid_.creation_ts(); }
-    const BundleTimestamp& extended_id()  const { return extended_id_; }
+
+    // returns the creation time in millisecs
+    // (converts BPv6 seconds to millisecs)
+    size_t creation_time_millis() const;
+
+    // returns the creation time in seconds
+    // (converts BPv7 milliseconds to seconds)
+    size_t creation_time_secs() const;
+
     const SPtr_BlockInfoVec recv_blocks() const { return recv_blocks_; }
     const MetadataVec& recv_metadata()    const { return recv_metadata_; }
     const LinkMetadataSet& generated_metadata() const { return generated_metadata_; }
@@ -321,7 +327,7 @@ public:
     void set_source(const EndpointID& src)    { gbofid_.set_source(src); }
     void set_source(std::string& src)         { gbofid_.set_source(src); }
     void set_creation_ts(const BundleTimestamp& ts) { gbofid_.set_creation_ts(ts); }
-    void set_creation_ts(uint64_t secs, uint64_t seqno) { gbofid_.set_creation_ts(secs, seqno); }
+    void set_creation_ts(uint64_t secs_or_millisecs, uint64_t seqno) { gbofid_.set_creation_ts(secs_or_millisecs, seqno); }
     void set_fragment(bool is_frag, size_t offset, size_t length) { gbofid_.set_fragment(is_frag, offset, length); }
     void set_is_fragment(bool is_frag) { gbofid_.set_is_fragment(is_frag); }
     void set_frag_offset(size_t offset) { gbofid_.set_frag_offset(offset); }
@@ -351,7 +357,6 @@ public:
     void set_queued_for_datastore(bool t)      { queued_for_datastore_ = t; }
     void set_local_custody(bool t)     { local_custody_ = t; }
     void set_bibe_custody(bool t)      { bibe_custody_ = t; }
-    void set_owner(const std::string& s) { owner_ = s; }
     void set_fragmented_incoming(bool t) { fragmented_incoming_ = t; }
     void test_set_bundleid(bundleid_t id) { bundleid_ = id; }
     BundlePayload*   mutable_payload() { return &payload_; }
@@ -469,10 +474,6 @@ private:
     bool queued_for_datastore_;             ///< Is bundle queued to be put in persistent store
     bool local_custody_;                    ///< Does local node have custody
     bool bibe_custody_;                     ///< Does local node have custody
-    std::string owner_;                     ///< Declared entity that "owns" this
-                                            ///  bundle, which could be empty
-    BundleTimestamp extended_id_;           ///< Identifier for external routers to
-                                            ///  refer to duplicate bundles
     ForwardingLog fwdlog_;                  ///< Log of bundle forwarding records
     SPtr_ExpirationTimer expiration_timer_; ///< The expiration timer
     CustodyTimerVec custody_timers_;        ///< Live custody timers for the bundle

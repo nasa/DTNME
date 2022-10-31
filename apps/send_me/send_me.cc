@@ -63,6 +63,9 @@
 #include "sdnv-c.h"
 #include <sys/types.h>
 
+static volatile int user_abort = 0;
+u_int32_t TIMEVAL_CONVERSION_SECS = 946684800;
+
 char *progname;
 
 // Daemon connection
@@ -157,6 +160,14 @@ dtn_endpoint_id_t * parse_eid(dtn_handle_t handle,
 void print_usage();
 void print_eid(const char * label, dtn_endpoint_id_t * eid);
 void fill_payload(dtn_bundle_payload_t* payload);
+void log_bpv6_status_report(dtn_bundle_status_report_t* rpt);
+void log_bpv7_status_report(dtn_bundle_status_report_t* rpt);
+
+void CtrlCTrap(int dummy)
+{
+    (void) dummy;
+    user_abort = 1;
+}
 
 int
 main(int argc, char** argv)
@@ -178,6 +189,10 @@ main(int argc, char** argv)
     setvbuf(stdout, (char *)NULL, _IOLBF, 0);
     
     parse_options(argc, argv);
+
+
+    signal(SIGINT, CtrlCTrap);
+
 
     // open the ipc handle
     if (verbose) fprintf(stdout, "Opening connection to local DTN daemon\n");
@@ -315,12 +330,6 @@ main(int argc, char** argv)
         
         memset(&bundle_id, 0, sizeof(bundle_id));
        
-        //XXX remove 
-        if (verbose) fprintf(stdout, "bundle going to be sent: id %s,%" PRIu64 ".%" PRIu64 "\n",
-                             bundle_spec.source.uri,
-                             bundle_spec.creation_ts.secs,
-                             bundle_spec.creation_ts.seqno);
-
         ret = dtn_send(handle, regid, &bundle_spec, &send_payload,
                        &bundle_id);
 
@@ -348,7 +357,7 @@ main(int argc, char** argv)
 
         if (verbose) fprintf(stdout, "bundle sent successfully: id %s,%" PRIu64 ".%" PRIu64 "\n",
                              bundle_id.source.uri,
-                             bundle_id.creation_ts.secs,
+                             bundle_id.creation_ts.secs_or_millisecs,
                              bundle_id.creation_ts.seqno);
 
         if (wait_for_report)
@@ -372,10 +381,58 @@ main(int argc, char** argv)
                    reply_spec.source.uri,
                    ((double)(end.tv_sec - start.tv_sec) * 1000.0 + 
                     (double)(end.tv_usec - start.tv_usec)/1000.0));
+
+            if (reply_payload.status_report != NULL) {
+                if (reply_spec.bp_version == 6) {
+                    log_bpv6_status_report(reply_payload.status_report);
+                } else {
+                    log_bpv7_status_report(reply_payload.status_report);
+                }
+            }
         }
 
         if (sleep_time != 0) {
             usleep(sleep_time * 1000);
+        }
+    }
+
+    if (wait_for_report)
+    {
+        printf("Waiting for status reports... press <ctrl-c> to exit\n");
+
+        while (user_abort != 1) {
+            memset(&reply_spec, 0, sizeof(reply_spec));
+            memset(&reply_payload, 0, sizeof(reply_payload));
+            
+            int timeout = 1000;
+        
+            if ((ret = dtn_recv(handle, &reply_spec,
+                                DTN_PAYLOAD_MEM, &reply_payload, timeout)) < 0)
+            {
+                if (dtn_errno(handle) == DTN_ETIMEOUT) {
+                    continue;
+                }
+            
+                fprintf(stderr, "error getting reply: %d (%s)\n",
+                        ret, dtn_strerror(dtn_errno(handle)));
+                exit(1);
+            }
+
+            gettimeofday(&end, NULL);
+
+            printf("got %d byte report from [%s]: time=%.1f ms\n",
+                   reply_payload.buf.buf_len,
+                   reply_spec.source.uri,
+                   ((double)(end.tv_sec - start.tv_sec) * 1000.0 + 
+                    (double)(end.tv_usec - start.tv_usec)/1000.0));
+
+            if (reply_payload.status_report != NULL) {
+                if (reply_spec.bp_version == 6) {
+                    log_bpv6_status_report(reply_payload.status_report);
+                } else {
+                    log_bpv7_status_report(reply_payload.status_report);
+                }
+            }
         }
     }
 
@@ -694,3 +751,134 @@ void fill_payload(dtn_bundle_payload_t* payload)
         dtn_set_payload(payload, payload_type, data_source, strlen(data_source));
     }
 }
+
+const char* reason_to_str(dtn_status_report_reason_t reason)
+{
+    switch (reason) {
+	    case REASON_NO_ADDTL_INFO: return "No additional info";
+	    case REASON_LIFETIME_EXPIRED: return "Lifetime expired";
+	    case REASON_FORWARDED_UNIDIR_LINK: return "Forwarded";
+	    case REASON_TRANSMISSION_CANCELLED: return "Transmission cancelled";
+	    case REASON_DEPLETED_STORAGE: return "Depleted storage";
+	    case REASON_ENDPOINT_ID_UNINTELLIGIBLE: return "Endpoint ID unintelligible";
+	    case REASON_NO_ROUTE_TO_DEST: return "No route to destination";
+	    case REASON_NO_TIMELY_CONTACT: return "No timely contact";
+	    case REASON_BLOCK_UNINTELLIGIBLE: return "Block unintelligible";
+        default: return "Unrecognized reason code";
+    }
+};
+
+void log_bpv6_event(const char* event, dtn_timestamp_t& timestamp, int& first_event)
+{
+    // timestamp is in seconds
+    const char *fmtstr="%Y-%m-%d %H:%M:%S";
+    struct tm tmval_buf;
+    struct tm *tmval;
+    char date_str[64];
+
+
+    if (first_event) {
+        fprintf(stdout, "        ");
+        first_event = false;
+    }
+
+    time_t tmp_secs = timestamp.secs_or_millisecs + TIMEVAL_CONVERSION_SECS;
+    tmval = gmtime_r(&tmp_secs, &tmval_buf);
+    strftime(date_str, 64, fmtstr, tmval);
+    fprintf(stdout, "%s: %s  ", event, date_str);
+}
+
+void log_bpv6_status_report(dtn_bundle_status_report_t* rpt)
+{
+    int first_event = 1;
+
+    // output the original bundle info and the reason associated with the event(s)
+    // and then output details on the event(s)
+    fprintf(stdout, "    Bundle ID: %s,%" PRIu64 ".%" PRIu64 "  Flags: %u  Reason: %s\n",
+                         rpt->bundle_id.source.uri,
+                         rpt->bundle_id.creation_ts.secs_or_millisecs,
+                         rpt->bundle_id.creation_ts.seqno,
+                         uint32_t(rpt->flags),
+                         reason_to_str(rpt->reason));
+
+    if (rpt->flags & STATUS_RECEIVED) {
+        log_bpv6_event("RECEIVED", rpt->receipt_ts, first_event);
+    }
+    if (rpt->flags & STATUS_CUSTODY_ACCEPTED) {
+        log_bpv6_event("CUSTODY ACCEPTED", rpt->custody_ts, first_event);
+    }
+    if (rpt->flags & STATUS_FORWARDED) {
+        log_bpv6_event("FORWARDED", rpt->forwarding_ts, first_event);
+    }
+    if (rpt->flags & STATUS_DELIVERED) {
+        log_bpv6_event("DELIVERED", rpt->delivery_ts, first_event);
+    }
+    if (rpt->flags & STATUS_DELETED) {
+        log_bpv6_event("DELETED", rpt->deletion_ts, first_event);
+    }
+    if (rpt->flags & STATUS_ACKED_BY_APP) {
+        log_bpv6_event("APP ACKED", rpt->ack_by_app_ts, first_event);
+    }
+    if (first_event != 1) {
+        fprintf(stdout, "\n");
+    }
+}
+
+void log_bpv7_event(const char* event, dtn_timestamp_t& timestamp, int& first_event)
+{
+    // timestamp is in milliseconds
+
+    const char *fmtstr="%Y-%m-%d %H:%M:%S";
+    struct tm tmval_buf;
+    struct tm *tmval;
+    char date_str[64];
+
+    if (first_event) {
+        fprintf(stdout, "        ");
+        first_event = false;
+    }
+
+    time_t tmp_millis = timestamp.secs_or_millisecs % 1000;
+    time_t tmp_secs = (timestamp.secs_or_millisecs / 1000) + TIMEVAL_CONVERSION_SECS;
+    tmval = gmtime_r(&tmp_secs, &tmval_buf);
+    strftime(date_str, 64, fmtstr, tmval);
+    fprintf(stdout, "%s: %s.%3.3zu  ", event, date_str, tmp_millis);
+}
+
+void log_bpv7_status_report(dtn_bundle_status_report_t* rpt)
+{
+    int first_event = 1;
+
+    // output the original bundle info and the reason associated with the event(s)
+    // and then output details on the event(s)
+    fprintf(stdout, "    Bundle ID: %s,%" PRIu64 ".%" PRIu64 "  Flags: %u  Reason: %s\n",
+                         rpt->bundle_id.source.uri,
+                         rpt->bundle_id.creation_ts.secs_or_millisecs,
+                         rpt->bundle_id.creation_ts.seqno,
+                         uint32_t(rpt->flags),
+                         reason_to_str(rpt->reason));
+
+    if (rpt->flags & STATUS_RECEIVED) {
+        log_bpv7_event("RECEIVED", rpt->receipt_ts, first_event);
+    }
+    if (rpt->flags & STATUS_CUSTODY_ACCEPTED) {
+        log_bpv7_event("CUSTODY ACCEPTED", rpt->custody_ts, first_event);
+    }
+    if (rpt->flags & STATUS_FORWARDED) {
+        log_bpv7_event("FORWARDED", rpt->forwarding_ts, first_event);
+    }
+    if (rpt->flags & STATUS_DELIVERED) {
+        log_bpv7_event("DELIVERED", rpt->delivery_ts, first_event);
+    }
+    if (rpt->flags & STATUS_DELETED) {
+        log_bpv7_event("DELETED", rpt->deletion_ts, first_event);
+    }
+    if (rpt->flags & STATUS_ACKED_BY_APP) {
+        log_bpv7_event("APP ACKED", rpt->ack_by_app_ts, first_event);
+    }
+    if (first_event != 1) {
+        fprintf(stdout, "\n");
+    }
+}
+
+

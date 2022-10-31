@@ -743,7 +743,7 @@ EhsLink::run()
 
     int timeout = 100;
     bool ok;
-    EhsEvent* event;
+    EhsEvent* event = nullptr;
     oasys::Time now;
     oasys::Time in_queue;
 

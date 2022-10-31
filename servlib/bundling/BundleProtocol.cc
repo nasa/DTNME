@@ -50,9 +50,9 @@
 namespace dtn {
 
 BundleProtocol::Params::Params()
-    : status_rpts_enabled_(false),
-       use_bundle_age_block_(false),
-       default_hop_limit_(0)
+    : status_rpts_enabled_(true),
+      use_bundle_age_block_(false),
+      default_hop_limit_(0)
 {}
 
 BundleProtocol::Params BundleProtocol::params_;

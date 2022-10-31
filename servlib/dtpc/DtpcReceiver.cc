@@ -398,9 +398,9 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
             pdu->set_seq_ctr(seq_ctr);
             pdu->set_local_eid(bundle->dest());
             pdu->set_app_ack(seq_ctr > 0); // CCSDS 734.2-R3 uses seq ctr instead of App Ack flag
-            pdu->set_creation_ts(bundle->creation_ts().seconds_);
-            u_int64_t exp = BundleTimestamp::TIMEVAL_CONVERSION + 
-                            bundle->creation_ts().seconds_ + 
+            pdu->set_creation_ts(bundle->creation_time_secs());
+            u_int64_t exp = BundleTimestamp::TIMEVAL_CONVERSION_SECS + 
+                            bundle->creation_time_secs() + 
                             bundle->expiration_secs();
             pdu->set_expiration_ts(exp);  // actual expiration time
 

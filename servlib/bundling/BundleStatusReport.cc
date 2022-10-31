@@ -230,8 +230,7 @@ BundleStatusReport::encode_indicator(CborEncoder& indicatorArrayEncoder, uint64_
     CborError err;
     CborEncoder indicatorEncoder;
 
-    uint64_t timestamp = BundleTimestamp::get_current_time();
-    timestamp = timestamp * 1000;  // converted to milliseconds since 1/1/2000
+    uint64_t timestamp = BundleTimestamp::get_current_time_millis();
 
     uint64_t array_size = 1;
     if ((indicated == 1) && include_timestamp) {

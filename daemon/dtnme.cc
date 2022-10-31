@@ -82,13 +82,14 @@ protected:
     // virtual from oasys::App
     void fill_options();
     
+    void output_welcome_message();
     void init_testcmd(int argc, char* argv[]);
     void run_console();
 };
 
 //----------------------------------------------------------------------
 DTNME::DTNME()
-    : App("DTNME", "DTNME", dtn_version),
+    : App("dtnme", "dtnme", dtn_version),
       testcmd_(NULL),
       consolecmd_(NULL),
       storage_config_("storage",			// command name
@@ -100,13 +101,13 @@ DTNME::DTNME()
 
     // override default logging settings
     loglevel_ = oasys::LOG_NOTICE;
-    debugpath_ = "~/.dtnmeebug";
+    debugpath_ = "~/.dtnmedebug";
     
     // override defaults from oasys storage config
     storage_config_.db_max_tx_ = 1000;
 
     testcmd_    = new TestCommand();
-    consolecmd_ = new oasys::ConsoleCommand("dtn% ");
+    consolecmd_ = new oasys::ConsoleCommand("dtnme% ");
 }
 
 //----------------------------------------------------------------------
@@ -155,7 +156,7 @@ DTNME::run_console()
 {
     // launch the console server
     if (consolecmd_->port_ != 0) {
-        log_info_p("/dtnme", "starting console on %s:%d",
+        log_info("starting console on %s:%d",
                    intoa(consolecmd_->addr_), consolecmd_->port_);
         
         oasys::TclCommandInterp::instance()->
@@ -172,17 +173,59 @@ DTNME::run_console()
 }
 
 //----------------------------------------------------------------------
+void
+DTNME::output_welcome_message()
+{
+    std::string msg1, msg2, msg3, msg4, msg5, msg6;
+
+    msg1 = "=====================  NOTICE  =====================";
+    msg2 = "     DTNME supports both BPv6 and BPv7 bundles.";
+                                
+    if (BundleDaemon::params_.api_send_bp_version7_) {
+        msg3 = "     By default, apps will generate BPv7 bundles";
+        msg4 = "     Use the -V6 option to generate BPv6 bundles";
+        msg5 = "     or change the default with the command:";
+        msg6 = "           param set api_send_bp7 false";
+    } else {
+        msg3 = "     By default, apps will generate BPv6 bundles";
+        msg4 = "     Use the -V7 option to generate BPv7 bundles";
+        msg5 = "     or change the default with the command:";
+        msg6 = "           param set api_send_bp7 true";
+    }
+
+
+    // output to the log file
+    log_always(msg1.c_str());
+    log_always(msg2.c_str());
+    log_always(msg3.c_str());
+    log_always(msg4.c_str());
+    log_always(msg5.c_str());
+    log_always(msg6.c_str());
+    log_always(msg1.c_str());
+
+    // output to stdout
+    printf("\n\n%s\n", msg1.c_str());
+    printf("%s\n\n", msg2.c_str());
+    printf("%s\n", msg3.c_str());
+    printf("%s\n", msg4.c_str());
+    printf("%s\n", msg5.c_str());
+    printf("%s\n", msg6.c_str());
+    printf("%s\n\n", msg1.c_str());
+
+}
+
+//----------------------------------------------------------------------
 int
 DTNME::main(int argc, char* argv[])
 {
     init_app(argc, argv);
 
-    log_notice_p("/dtnme", "DTN daemon starting up... (pid %d)", getpid());
+    log_notice("DTN daemon starting up... (pid %d)", getpid());
 
 
     if (oasys::TclCommandInterp::init(argv[0], "/dtn/tclcmd") != 0)
     {
-        log_crit_p("/dtnme", "Can't init TCL");
+        log_crit("Can't init TCL");
         notify_and_exit(1);
     }
 
@@ -198,7 +241,7 @@ DTNME::main(int argc, char* argv[])
     init_testcmd(argc, argv);
 
     if (! dtnserver->parse_conf_file(conf_file_, conf_file_set_)) {
-        log_err_p("/dtnme", "error in configuration file, exiting...");
+        log_err("error in configuration file, exiting...");
         notify_and_exit(1);
     }
 
@@ -206,20 +249,20 @@ DTNME::main(int argc, char* argv[])
     // - the mask is inverted when applied so zero bits allow the particular access
     uint16_t mask = ~BundleDaemon::params_.file_permissions_;
     // - allow owner full access regardless of what the user specified
-    mask &= 0x077; 
+    //mask &= 0x077; 
     umask(mask); // set deafult mask to prevent world write
 
-    log_always("file permissions: 0%3.3o", (~mask & 0777));
+    log_info("file permissions: 0%3.3o", (~mask & 0777));
 
-
+    output_welcome_message();
 
     if (storage_config_.init_)
     {
-        log_notice_p("/dtnme", "initializing persistent data store");
+        log_notice("initializing persistent data store");
     }
 
     if (! dtnserver->init_datastore()) {
-        log_err_p("/dtnme", "error initializing data store, exiting...");
+        log_err("error initializing data store, exiting...");
         notify_and_exit(1);
     }
     
@@ -227,13 +270,13 @@ DTNME::main(int argc, char* argv[])
     if (storage_config_.init_ && !storage_config_.tidy_)
     {
         dtnserver->close_datastore();
-        log_info_p("/dtnme", "database initialization complete.");
+        log_info("database initialization complete.");
         notify_and_exit(0);
     }
     
     if (BundleDaemon::instance()->local_eid().equals(EndpointID::NULL_EID()))
     {
-        log_err_p("/dtnme", "no local eid specified; use the 'route local_eid' command");
+        log_err("no local eid specified; use the 'route local_eid' command");
         notify_and_exit(1);
     }
 
@@ -243,8 +286,11 @@ DTNME::main(int argc, char* argv[])
         daemonizer_.notify_parent(0);
     }
     
-    log_notice_p("/dtnme", "starting APIServer on %s:%d", 
+    log_notice("starting APIServer on %s:%d", 
                  intoa(apiserver->local_addr()), apiserver->local_port());
+
+    // set console info before starting the dtnserver (BundleDaemon)
+    dtnserver->set_console_info(consolecmd_->addr_, consolecmd_->port_, consolecmd_->stdio_);
 
     dtnserver->start();
     if (apiserver->enabled()) {
@@ -263,11 +309,10 @@ DTNME::main(int argc, char* argv[])
     // allow startup messages to be flushed to standard-out before
     // the prompt is displayed
     oasys::Thread::yield();
-//dzdebug    usleep(500000);
     
     run_console();
 
-    log_notice_p("/dtnme", "command loop exited... shutting down daemon");
+    log_notice("command loop exited... shutting down daemon");
 
     apiserver->stop();
     apiserver->shutdown_hook();

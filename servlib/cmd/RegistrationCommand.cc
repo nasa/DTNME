@@ -48,6 +48,21 @@ RegistrationCommand::RegistrationCommand()
                                 
 }
 
+RegistrationCommand::RegistrationCommand(const char* cmd_str)
+    : TclCommand(cmd_str)
+{
+    add_to_help("add <logger | tcl> <endpoint> <args..>", "add a registration");
+    add_to_help("tcl <reg id> <cmd <args ...>", "add a tcl registration");
+    add_to_help("del <reg id>", "delete a registration");
+    add_to_help("list", "list all of the registrations");
+    add_to_help("dump_tcl <reg id>", "dump a tcl representation of the reg");
+
+    bind_var(new oasys::BoolOpt("suppress_duplicates",
+                                &BundleDaemon::params_.dzdebug_reg_delivery_cache_enabled_,
+                                "Suppress delivery of duplicate bundles to Registrations (default is true)"));
+                                
+}
+
 int
 RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 {

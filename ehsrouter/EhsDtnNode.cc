@@ -629,13 +629,12 @@ EhsDtnNode::process_bundle_cancelled_v0(CborValue& cvElement)
     bref = all_bundles_.bundle_transmitted(bundleid, false);
     if (bref != nullptr) {
         // reroute to try again 
-        if (resync_bundles_in_process_) {
-            log_msg(oasys::LOG_ALWAYS, 
-                    "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
-                    bundleid);
+        if (!resync_bundles_in_process_) {
+            //log_msg(oasys::LOG_ALWAYS, 
+            //        "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
+            //        bundleid);
             route_bundle(bref);
         }
-        //dzdebug route_bundle(bref);
     } else {
         // Probably received notice from LTP after the bundle expired (dtnping with 30 secs)
         log_msg(oasys::LOG_ALWAYS, 
@@ -1387,7 +1386,7 @@ EhsDtnNode::run()
     client_send_bundle_query_msg();
 
 
-    EhsEvent* event;
+    EhsEvent* event = nullptr;
 
     struct pollfd pollfds[1];
     struct pollfd* event_poll = &pollfds[0];
@@ -1585,6 +1584,7 @@ EhsDtnNode::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats,
 void
 EhsDtnNode::bard_add_quota(EhsBARDUsageStats& quota)
 {
+    (void) quota;
     oasys::ScopeLock l(&lock_, __func__);
 
 #ifdef BARD_ENABLED    
@@ -1610,6 +1610,7 @@ EhsDtnNode::bard_add_quota(EhsBARDUsageStats& quota)
 void
 EhsDtnNode::bard_del_quota(EhsBARDUsageStats& quota)
 {
+    (void) quota;
     oasys::ScopeLock l(&lock_, __func__);
 
 #ifdef BARD_ENABLED    

@@ -78,10 +78,11 @@ usage()
 {
     //dz debug fprintf(stderr, "usage: %s [-A api_IP] [-B api_port][-c count] [-i interval] [-e expiration] [-s source eid] eid\n",
     fprintf(stderr, "usage: %s [options] <destination eid>\n", progname);
-    fprintf(stderr, "    options: [-A api_IP] [-B api_port][-c count] [-i interval] [-I interval in mllisecs] [-e expiration]\n");
+    fprintf(stderr, "    options: [-A api_IP] [-B api_port][-c count] [-i interval] [-I interval in mllisecs]\n");
+    fprintf(stderr, "             [-e expiration (default = 300 seconds)]\n");
     fprintf(stderr, "             [-V Bundle Protocol Version (6, 7, or 0 to use the DTNME default]\n");
     fprintf(stderr, "             [-t (custody transfer)] [-p payload size] [-s source eid]\n");
-    fprintf(stderr, "             [-v high rate verbosity - rpt every %zu replies]\n", highrate_verbosity);
+    fprintf(stderr, "             [-v <count> (for high rates, rpt every %zu replies)]\n", highrate_verbosity);
     fprintf(stderr, "             [-C (ECOS critical)] [-S (ECOS streaming)] [-R (ECOS reliable)] [-O <ECOS ordinal>] [-F <ECOS flow label>]\n\n");
     exit(1);
 }
@@ -442,8 +443,8 @@ main(int argc, const char** argv)
                     // transmission time in the status report
                     int j = 0;
                     for (j = 0; j < inflight; ++j) {
-                        if (creation_times[j].secs  ==
-                                sr_data->bundle_id.creation_ts.secs &&
+                        if (creation_times[j].secs_or_millisecs  ==
+                                sr_data->bundle_id.creation_ts.secs_or_millisecs &&
                             creation_times[j].seqno ==
                                 sr_data->bundle_id.creation_ts.seqno % inflight)
                         {

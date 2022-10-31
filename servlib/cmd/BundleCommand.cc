@@ -66,6 +66,7 @@ BundleCommand::BundleCommand()
                 "            length=integer\n");
     add_to_help("stats", "get statistics on the bundles");
     add_to_help("daemon_stats", "daemon stats");
+    add_to_help("dstats", "daemon stats");
     add_to_help("reset_stats", "reset currently maintained statistics");
 
     add_to_help("list", "list all of the bundles in the system\n"
@@ -282,7 +283,7 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
         // return the creation timestamp (can use with source EID to
         // create a globally unique bundle identifier
-        resultf("%" PRIu64 ".%" PRIu64, b->creation_ts().seconds_, b->creation_ts().seqno_);
+        resultf("%zu.%zu", b->creation_ts().secs_or_millisecs_, b->creation_ts().seqno_);
         return TCL_OK;
         
     } else if (!strcmp(cmd, "stats")) {
@@ -291,7 +292,7 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         set_result(buf.c_str());
         return TCL_OK;
 
-    } else if (!strcmp(cmd, "daemon_stats")) {
+    } else if ((!strcmp(cmd, "daemon_stats")) || (!strcmp(cmd, "dstats"))) {
         oasys::StringBuffer buf("Bundle Daemon Statistics: ");
         BundleDaemon::instance()->get_daemon_stats(&buf);
         set_result(buf.c_str());
@@ -395,13 +396,14 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             //if ( b->bundleid() >= (unsigned) startbundleid && b->bundleid() <= (unsigned) endbundleid )
             if ( list_all || ((bundle_count >= start_count) && (bundle_count <= end_count)))
             {
-              buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s\n",
+              buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s%s\n",
                   b->bundleid(),
                   b->source().c_str(),
                   b->dest().c_str(),
                   b->payload().length(),
                   pending->contains(b) ? "" : " (NOT PENDING)",
-                  custody->contains(b) ? " (Custodian)" : ""
+                  custody->contains(b) ? " (Custodian)" : "",
+                  b->is_bpv6() ? " (BPv6)" : " (BPv7)"
                   );
             }
 
@@ -418,13 +420,14 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             if (bref != NULL) {
                 b = bref.object();
 
-                buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s\n",
+                buf.appendf("\t%-3" PRIbid ": %s -> %s length %zu%s%s%s\n",
                     b->bundleid(),
                     b->source().c_str(),
                     b->dest().c_str(),
                     b->payload().length(),
                     pending->contains(b) ? "" : " (NOT PENDING)",
-                    custody->contains(b) ? " (Custodian)" : ""
+                    custody->contains(b) ? " (Custodian)" : "",
+                  b->is_bpv6() ? " (BPv6)" : " (BPv7)"
                     );
             }
         }
@@ -481,7 +484,7 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         BundleRef bundle = all_bundles->find(bundleid);
 
         if (bundle == NULL) {
-            resultf("no bundle with id %" PRIu64, bundleid);
+            resultf("no bundle with id %" PRIbid, bundleid);
             return TCL_ERROR;
         }
 
@@ -555,7 +558,7 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
         if (bundle == NULL) {
-            resultf("no pending bundle with id %" PRIu64, bundleid);
+            resultf("no pending bundle with id %" PRIbid, bundleid);
             return TCL_ERROR;
         }
 
@@ -589,7 +592,7 @@ BundleCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
         if (bundle == NULL) {
-            resultf("no pending bundle with id %" PRIu64, bundleid);
+            resultf("no pending bundle with id %" PRIbid, bundleid);
             return TCL_ERROR;
         }
 

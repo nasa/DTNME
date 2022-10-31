@@ -51,8 +51,11 @@ public:
                   status_report_reason_t* reception_reason,
                   status_report_reason_t* deletion_reason) override;
 
-    using BlockProcessor::format;
-    int format(oasys::StringBuffer* buf);
+    /**
+     * Return a one-line representation of the block.
+     */
+    virtual int format(oasys::StringBuffer* buf, BlockInfo *b = NULL) override;
+
     /// @}
 };
 

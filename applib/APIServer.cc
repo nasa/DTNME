@@ -1274,7 +1274,7 @@ APIClient::handle_send()
     //  before posting the received event, fill in the bundle id struct
     dtn_bundle_id_t id;
     memcpy(&id.source, &spec.source, sizeof(dtn_endpoint_id_t));
-    id.creation_ts.secs  = b->creation_ts().seconds_;
+    id.creation_ts.secs_or_millisecs  = b->creation_ts().secs_or_millisecs_;
     id.creation_ts.seqno = b->creation_ts().seqno_;
     id.frag_offset = 0;
     id.orig_length = 0;
@@ -1316,7 +1316,7 @@ APIClient::handle_cancel()
     
     GbofId gbof_id;
     gbof_id.set_source( std::string(id.source.uri) );
-    gbof_id.set_creation_ts(id.creation_ts.secs, id.creation_ts.seqno);
+    gbof_id.set_creation_ts(id.creation_ts.secs_or_millisecs, id.creation_ts.seqno);
     gbof_id.set_fragment(id.orig_length > 0, id.frag_offset, id.orig_length);
     
     BundleRef bundle;
@@ -1363,7 +1363,7 @@ APIClient::handle_ack()
     
     BundleDaemon::post(new BundleAckEvent(spec.delivery_regid,
                                           std::string(spec.source.uri),
-                                          spec.creation_ts.secs,
+                                          spec.creation_ts.secs_or_millisecs,
                                           spec.creation_ts.seqno));
 
     return DTN_SUCCESS;
@@ -1473,7 +1473,7 @@ APIClient::handle_recv()
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
     spec.expiration = b->expiration_secs();
-    spec.creation_ts.secs = b->creation_ts().seconds_;
+    spec.creation_ts.secs_or_millisecs = b->creation_ts().secs_or_millisecs_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
 
@@ -1597,8 +1597,8 @@ APIClient::handle_recv()
                 payload.status_report = &status_report;
 
                 sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-                status_report.bundle_id.creation_ts.secs =
-                    sr_data.orig_creation_tv_.seconds_;
+                status_report.bundle_id.creation_ts.secs_or_millisecs =
+                    sr_data.orig_creation_tv_.secs_or_millisecs_;
                 status_report.bundle_id.creation_ts.seqno =
                     sr_data.orig_creation_tv_.seqno_;
                 status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
@@ -1607,18 +1607,18 @@ APIClient::handle_recv()
                 status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
                 status_report.flags =  (dtn_status_report_flags_t) sr_data.status_flags_;
 
-                status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
-                status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
-                status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
-                status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
-                status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
-                status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
-                status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
-                status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
-                status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
-                status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
-                status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
-                status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+                status_report.receipt_ts.secs_or_millisecs     = sr_data.receipt_tv_.secs_or_millisecs_;
+                status_report.receipt_ts.seqno                 = sr_data.receipt_tv_.seqno_;
+                status_report.custody_ts.secs_or_millisecs     = sr_data.custody_tv_.secs_or_millisecs_;
+                status_report.custody_ts.seqno                 = sr_data.custody_tv_.seqno_;
+                status_report.forwarding_ts.secs_or_millisecs  = sr_data.forwarding_tv_.secs_or_millisecs_;
+                status_report.forwarding_ts.seqno              = sr_data.forwarding_tv_.seqno_;
+                status_report.delivery_ts.secs_or_millisecs    = sr_data.delivery_tv_.secs_or_millisecs_;
+                status_report.delivery_ts.seqno                = sr_data.delivery_tv_.seqno_;
+                status_report.deletion_ts.secs_or_millisecs    = sr_data.deletion_tv_.secs_or_millisecs_;
+                status_report.deletion_ts.seqno                = sr_data.deletion_tv_.seqno_;
+                status_report.ack_by_app_ts.secs_or_millisecs  = sr_data.ack_by_app_tv_.secs_or_millisecs_;
+                status_report.ack_by_app_ts.seqno              = sr_data.ack_by_app_tv_.seqno_;
             }
         } else if (b->is_bpv7()) {
             CborParser parser;
@@ -1662,8 +1662,8 @@ APIClient::handle_recv()
                         payload.status_report = &status_report;
 
                         sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-                        status_report.bundle_id.creation_ts.secs =
-                            sr_data.orig_creation_ts_.seconds_;
+                        status_report.bundle_id.creation_ts.secs_or_millisecs =
+                            sr_data.orig_creation_ts_.secs_or_millisecs_;
                         status_report.bundle_id.creation_ts.seqno =
                             sr_data.orig_creation_ts_.seqno_;
                         status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
@@ -1680,22 +1680,22 @@ APIClient::handle_recv()
                         if (sr_data.received_)
                         {
                             flags |= BundleStatusReport::STATUS_RECEIVED;
-                            status_report.receipt_ts.secs     = sr_data.received_timestamp_ / 1000;
+                            status_report.receipt_ts.secs_or_millisecs     = sr_data.received_timestamp_;
                         }
                         if (sr_data.forwarded_)
                         {
                             flags |= BundleStatusReport::STATUS_FORWARDED;
-                            status_report.forwarding_ts.secs  = sr_data.forwarded_timestamp_ / 1000;
+                            status_report.forwarding_ts.secs_or_millisecs  = sr_data.forwarded_timestamp_;
                         }
                         if (sr_data.delivered_)
                         {
                             flags |= BundleStatusReport::STATUS_DELIVERED;
-                            status_report.delivery_ts.secs    = sr_data.delivered_timestamp_ / 1000;
+                            status_report.delivery_ts.secs_or_millisecs    = sr_data.delivered_timestamp_;
                         }
                         if (sr_data.deleted_)
                         {
                             flags |= BundleStatusReport::STATUS_DELETED;
-                            status_report.deletion_ts.secs    = sr_data.deleted_timestamp_ / 1000;
+                            status_report.deletion_ts.secs_or_millisecs    = sr_data.deleted_timestamp_;
                         }
                         status_report.flags =  (dtn_status_report_flags_t) flags;
                     }           
@@ -1836,7 +1836,7 @@ APIClient::handle_recv_raw()
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
     spec.expiration = b->expiration_secs();
-    spec.creation_ts.secs = b->creation_ts().seconds_;
+    spec.creation_ts.secs_or_millisecs = b->creation_ts().secs_or_millisecs_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
 
@@ -2044,7 +2044,7 @@ APIClient::handle_peek()
     if (b->deletion_rcpt())     spec.dopts |= DOPTS_DELETE_RCPT;
 
     spec.expiration = b->expiration_secs();
-    spec.creation_ts.secs = b->creation_ts().seconds_;
+    spec.creation_ts.secs_or_millisecs = b->creation_ts().secs_or_millisecs_;
     spec.creation_ts.seqno = b->creation_ts().seqno_;
     spec.delivery_regid = reg->regid();
 
@@ -2117,8 +2117,8 @@ APIClient::handle_peek()
             {
                 payload.status_report = &status_report;
                 sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-                status_report.bundle_id.creation_ts.secs =
-                    sr_data.orig_creation_tv_.seconds_;
+                status_report.bundle_id.creation_ts.secs_or_millisecs =
+                    sr_data.orig_creation_tv_.secs_or_millisecs_;
                 status_report.bundle_id.creation_ts.seqno =
                     sr_data.orig_creation_tv_.seqno_;
                 status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
@@ -2127,18 +2127,18 @@ APIClient::handle_peek()
                 status_report.reason = (dtn_status_report_reason_t) sr_data.reason_code_;
                 status_report.flags =  (dtn_status_report_flags_t) sr_data.status_flags_;
 
-                status_report.receipt_ts.secs     = sr_data.receipt_tv_.seconds_;
-                status_report.receipt_ts.seqno    = sr_data.receipt_tv_.seqno_;
-                status_report.custody_ts.secs     = sr_data.custody_tv_.seconds_;
-                status_report.custody_ts.seqno    = sr_data.custody_tv_.seqno_;
-                status_report.forwarding_ts.secs  = sr_data.forwarding_tv_.seconds_;
-                status_report.forwarding_ts.seqno = sr_data.forwarding_tv_.seqno_;
-                status_report.delivery_ts.secs    = sr_data.delivery_tv_.seconds_;
-                status_report.delivery_ts.seqno   = sr_data.delivery_tv_.seqno_;
-                status_report.deletion_ts.secs    = sr_data.deletion_tv_.seconds_;
-                status_report.deletion_ts.seqno   = sr_data.deletion_tv_.seqno_;
-                status_report.ack_by_app_ts.secs  = sr_data.ack_by_app_tv_.seconds_;
-                status_report.ack_by_app_ts.seqno = sr_data.ack_by_app_tv_.seqno_;
+                status_report.receipt_ts.secs_or_millisecs     = sr_data.receipt_tv_.secs_or_millisecs_;
+                status_report.receipt_ts.seqno                 = sr_data.receipt_tv_.seqno_;
+                status_report.custody_ts.secs_or_millisecs     = sr_data.custody_tv_.secs_or_millisecs_;
+                status_report.custody_ts.seqno                 = sr_data.custody_tv_.seqno_;
+                status_report.forwarding_ts.secs_or_millisecs  = sr_data.forwarding_tv_.secs_or_millisecs_;
+                status_report.forwarding_ts.seqno              = sr_data.forwarding_tv_.seqno_;
+                status_report.delivery_ts.secs_or_millisecs    = sr_data.delivery_tv_.secs_or_millisecs_;
+                status_report.delivery_ts.seqno                = sr_data.delivery_tv_.seqno_;
+                status_report.deletion_ts.secs_or_millisecs    = sr_data.deletion_tv_.secs_or_millisecs_;
+                status_report.deletion_ts.seqno                = sr_data.deletion_tv_.seqno_;
+                status_report.ack_by_app_ts.secs_or_millisecs  = sr_data.ack_by_app_tv_.secs_or_millisecs_;
+                status_report.ack_by_app_ts.seqno              = sr_data.ack_by_app_tv_.seqno_;
             }
         } else if (b->is_bpv7()) {
             CborParser parser;
@@ -2182,8 +2182,8 @@ APIClient::handle_peek()
                         payload.status_report = &status_report;
 
                         sr_data.orig_source_eid_.copyto(&status_report.bundle_id.source);
-                        status_report.bundle_id.creation_ts.secs =
-                            sr_data.orig_creation_ts_.seconds_;
+                        status_report.bundle_id.creation_ts.secs_or_millisecs =
+                            sr_data.orig_creation_ts_.secs_or_millisecs_;
                         status_report.bundle_id.creation_ts.seqno =
                             sr_data.orig_creation_ts_.seqno_;
                         status_report.bundle_id.frag_offset = sr_data.orig_frag_offset_;
@@ -2199,22 +2199,22 @@ APIClient::handle_peek()
                         if (sr_data.received_)
                         {
                             flags |= BundleStatusReport::STATUS_RECEIVED;
-                            status_report.receipt_ts.secs     = sr_data.received_timestamp_ / 1000;
+                            status_report.receipt_ts.secs_or_millisecs     = sr_data.received_timestamp_;
                         }
                         if (sr_data.forwarded_)
                         {
                             flags |= BundleStatusReport::STATUS_FORWARDED;
-                            status_report.forwarding_ts.secs  = sr_data.forwarded_timestamp_ / 1000;
+                            status_report.forwarding_ts.secs_or_millisecs  = sr_data.forwarded_timestamp_;
                         }
                         if (sr_data.delivered_)
                         {
                             flags |= BundleStatusReport::STATUS_DELIVERED;
-                            status_report.delivery_ts.secs    = sr_data.delivered_timestamp_ / 1000;
+                            status_report.delivery_ts.secs_or_millisecs    = sr_data.delivered_timestamp_;
                         }
                         if (sr_data.deleted_)
                         {
                             flags |= BundleStatusReport::STATUS_DELETED;
-                            status_report.deletion_ts.secs    = sr_data.deleted_timestamp_ / 1000;
+                            status_report.deletion_ts.secs_or_millisecs    = sr_data.deleted_timestamp_;
                         }
                         status_report.flags =  (dtn_status_report_flags_t) flags;
                     }           

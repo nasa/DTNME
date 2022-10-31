@@ -79,7 +79,6 @@ Bundle::init(bundleid_t id)
     app_acked_rcpt_             = false;
     orig_length_                = 0;
     expiration_millis_          = 0;
-    owner_                      = "";
     fragmented_incoming_        = false;
     freed_                      = false;
     payload_space_reserved_     = false;
@@ -89,7 +88,7 @@ Bundle::init(bundleid_t id)
     manually_deleting_          = false;
     hop_count_                  = 0;
     hop_limit_                  = 0;
-    prev_bundle_age_millis_            = 0;
+    prev_bundle_age_millis_     = 0;
     has_bundle_age_block_       = false;
     req_time_in_status_rpt_     = false;
     frag_created_from_bundleid_ = 0;
@@ -99,7 +98,7 @@ Bundle::init(bundleid_t id)
     // seconds since 1/1/2000, and since the bundle id should be
     // monotonically increasing, it's safe to use that for the seqno
 
-    if ((bp_version_ == BundleProtocol::BP_VERSION_7) && 
+    if ((bp_version_ != BundleProtocol::BP_VERSION_6) && 
         (BundleProtocol::params_.use_bundle_age_block_)) {
 
         // creating new bundle sourced locally
@@ -107,8 +106,10 @@ Bundle::init(bundleid_t id)
 
         // new bundle so previous age is zero and also sets the has_age_block flag
         set_prev_bundle_age_millis(0);
+    } else if (bp_version_ == BundleProtocol::BP_VERSION_6) {
+        set_creation_ts(BundleTimestamp::get_current_time_secs(), bundleid_);
     } else {
-        set_creation_ts(BundleTimestamp::get_current_time(), bundleid_);
+        set_creation_ts(BundleTimestamp::get_current_time_millis(), bundleid_);
     }
 
     // Agregate Custody parameters
@@ -123,17 +124,6 @@ Bundle::init(bundleid_t id)
     ecos_ordinal_ = 0;
     ecos_flowlabel_ = 0;
 #endif
-
-    // This identifier provides information about when a local Bundle
-    // object was created so that bundles with the same GBOF-ID can be
-    // distinguished. We have to keep a copy separate from creation_ts_
-    // because that will be set to the actual BP creation time if this
-    // bundle was received from a peer, or is the result of
-    // fragmentation, etc.
-
-    // XXX/ hence, let's not break functionality by setting the internal
-    // timestamp to 0. 
-    extended_id_ = creation_ts();
 
     expiration_timer_ = nullptr;
     //log_debug_p("/dtn/bundle", "Bundle::init bundle id %" PRIbid, id);
@@ -183,21 +173,34 @@ Bundle::~Bundle()
 
 }
 
+
+//----------------------------------------------------------------------
+std::string
+Bundle::gbofid_str() const
+{
+    return gbofid_.str();
+}
+
 //----------------------------------------------------------------------
 int
 Bundle::format(char* buf, size_t sz) const
 {
+    std::string bpv_str = "BPv7";
+    if (is_bpv6()) {
+        bpv_str = "BPv6";
+    }
+
     if (is_admin()) {
-        return snprintf(buf, sz, "bundle id %" PRIbid " [%s -> %s %zu byte payload, is_admin]",
-                        bundleid_, source().c_str(), dest_.c_str(),
+        return snprintf(buf, sz, "%s bundle id %" PRIbid " [%s -> %s %zu byte payload, is_admin]",
+                        bpv_str.c_str(), bundleid_, source().c_str(), dest_.c_str(),
                         payload_.length());
     } else if (is_fragment()) {
-        return snprintf(buf, sz, "bundle id %" PRIbid " [%s -> %s %zu byte payload, fragment @%zu/%zu]",
-                        bundleid_, source().c_str(), dest_.c_str(),
+        return snprintf(buf, sz, "%s bundle id %" PRIbid " [%s -> %s %zu byte payload, fragment @%zu/%zu]",
+                        bpv_str.c_str(), bundleid_, source().c_str(), dest_.c_str(),
                         payload_.length(), frag_offset(), orig_length_);
     } else {
-        return snprintf(buf, sz, "bundle id %" PRIbid " [%s -> %s %zu byte payload]",
-                        bundleid_, source().c_str(), dest_.c_str(),
+        return snprintf(buf, sz, "%s bundle id %" PRIbid " [%s -> %s %zu byte payload]",
+                        bpv_str.c_str(), bundleid_, source().c_str(), dest_.c_str(),
                         payload_.length());
     }
 }
@@ -231,8 +234,27 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
     buf->appendf("     delivery_rcpt: %s\n", bool_to_str(delivery_rcpt_));
     buf->appendf("     deletion_rcpt: %s\n", bool_to_str(deletion_rcpt_));
     buf->appendf("    app_acked_rcpt: %s\n", bool_to_str(app_acked_rcpt_));
-    buf->appendf("       creation_ts: %" PRIu64 ".%" PRIu64 "\n",
-                 creation_ts().seconds_, creation_ts().seqno_);
+
+
+    const char *fmtstr="%Y-%m-%d %H:%M:%S";
+    struct tm tmval_buf;
+    struct tm *tmval;
+    char date_str[64];
+
+    time_t tmp_secs = creation_time_secs() + BundleTimestamp::TIMEVAL_CONVERSION_SECS;
+
+    // convert seconds to a time string
+    tmval = gmtime_r(&tmp_secs, &tmval_buf);
+    strftime(date_str, 64, fmtstr, tmval);
+
+    if (is_bpv6()) {
+        buf->appendf("       creation_ts: %zu.%zu  (%s)\n",
+                     creation_ts().secs_or_millisecs_, creation_ts().seqno_, date_str);
+    } else {
+        size_t millisecs = creation_ts().secs_or_millisecs_ % 1000;
+        buf->appendf("       creation_ts: %zu.%zu  (%s.%3.3zu)\n",
+                     creation_ts().secs_or_millisecs_, creation_ts().seqno_, date_str, millisecs);
+    }
 
     if (time_to_expiration_secs() < 0) {
         buf->appendf("        expiration: %" PRIu64 " secs (expired)\n", expiration_secs());
@@ -246,15 +268,11 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
 
 
 
-    const char *fmtstr="%Y-%m-%d %H:%M:%S";
-    const time_t rcv_time = received_time_.sec_;
-    struct tm tmval_buf;
-    struct tm *tmval;
-    tmval = gmtime_r(&rcv_time, &tmval_buf);
-    char rcv_date[64];
-    strftime(rcv_date, 64, fmtstr, tmval);
+    tmp_secs = received_time_.sec_;
+    tmval = gmtime_r(&tmp_secs, &tmval_buf);
+    strftime(date_str, 64, fmtstr, tmval);
 
-    buf->appendf("     received time: %s GMT\n", rcv_date);
+    buf->appendf("     received time: %s GMT\n", date_str);
 
 
     buf->appendf("       is_fragment: %s\n", bool_to_str(is_fragment()));
@@ -278,10 +296,10 @@ Bundle::format_verbose(oasys::StringBuffer* buf)
 
 #ifdef BARD_ENABLED
     buf->appendf("\nBARD debug info:\n");
-    buf->appendf("src in use: %zu\n", bard_in_use_by_src_);
+    buf->appendf("src bytes in use  : %zu\n", bard_in_use_by_src_);
     buf->appendf("src quota reserved: %zu\n", bard_quota_reserved_by_src_);
     buf->appendf("src extquota rsrvd: %zu\n", bard_extquota_reserved_by_src_);
-    buf->appendf("dst in use: %zu\n", bard_in_use_by_dst_);
+    buf->appendf("dst bytes in use  : %zu\n", bard_in_use_by_dst_);
     buf->appendf("dst quota reserved: %zu\n", bard_quota_reserved_by_dst_);
     buf->appendf("dst extquota rsrvd: %zu\n", bard_extquota_reserved_by_dst_);
     buf->appendf("    restage by src: %s\n", bool_to_str(bard_restage_by_src_));
@@ -362,7 +380,7 @@ void
 Bundle::serialize(oasys::SerializeAction* a)
 {
     EndpointID src_id(source());
-    uint64_t creation_ts_secs = creation_ts().seconds_;
+    uint64_t creation_ts_time = creation_ts().secs_or_millisecs_;
     uint64_t creation_ts_seqno = creation_ts().seqno_;
     bool is_frag = is_fragment();
     uint64_t frag_offset = gbofid_.frag_offset();
@@ -393,15 +411,12 @@ Bundle::serialize(oasys::SerializeAction* a)
     a->process("deletion_rcpt", &deletion_rcpt_);
     a->process("app_acked_rcpt", &app_acked_rcpt_);
     a->process("req_time_in_status_rpt", &req_time_in_status_rpt_);
-    a->process("creation_ts_seconds", &creation_ts_secs);
+    a->process("creation_ts_time", &creation_ts_time);
     a->process("creation_ts_seqno", &creation_ts_seqno);
     a->process("expiration", &expiration_millis_);
     a->process("payload", &payload_);
     a->process("orig_length", &orig_length_);
     a->process("frag_offset", &frag_offset);
-    a->process("owner", &owner_);
-    a->process("extended_id_seconds", &extended_id_.seconds_);
-    a->process("extended_id_seqno", &extended_id_.seqno_);
     a->process("recv_blocks", recv_blocks_.get());
     a->process("api_blocks", api_blocks_.get());
 
@@ -437,7 +452,7 @@ Bundle::serialize(oasys::SerializeAction* a)
         in_datastore_ = true;
         payload_.init_from_store(bundleid_);
         set_source(src_id);
-        set_creation_ts(creation_ts_secs, creation_ts_seqno);
+        set_creation_ts(creation_ts_time, creation_ts_seqno);
         set_fragment(is_frag, frag_offset, payload_.length());
     }
 
@@ -599,21 +614,34 @@ Bundle::del_ref(const char* what1, const char* what2)
     return 0;
 }
 
+//----------------------------------------------------------------------
+size_t
+Bundle::creation_time_millis()  const
+{
+    if (is_bpv6()) {
+        return creation_ts().secs_or_millisecs_ * 1000;
+    } else {
+        return creation_ts().secs_or_millisecs_;
+    }
+}
+
+//----------------------------------------------------------------------
+size_t
+Bundle::creation_time_secs()  const
+{
+    if (is_bpv6()) {
+        return creation_ts().secs_or_millisecs_;
+    } else {
+        return creation_ts().secs_or_millisecs_ / 1000;
+    }
+}
+
 
 //----------------------------------------------------------------------
 uint64_t
 Bundle::current_bundle_age_secs() const
 {
-    uint64_t cur_age_secs = 0;
-    if (has_bundle_age_block_)
-    {
-        cur_age_secs = current_bundle_age_millis() / 1000;
-    }
-    else
-    {
-        cur_age_secs = BundleTimestamp::get_current_time();
-        cur_age_secs -= creation_ts().seconds_;
-    }
+    uint64_t cur_age_secs = current_bundle_age_millis() / 1000;
     return cur_age_secs;
 }
 
@@ -628,9 +656,8 @@ Bundle::current_bundle_age_millis() const
     }
     else
     {
-        cur_age_millis = BundleTimestamp::get_current_time();
-        cur_age_millis -= creation_ts().seconds_;
-        cur_age_millis *= 1000;
+        cur_age_millis = BundleTimestamp::get_current_time_millis();
+        cur_age_millis -= creation_time_millis();
     }
     return cur_age_millis;
 }

@@ -322,7 +322,7 @@ main(int argc, char** argv)
 
         if (verbose) fprintf(stdout, "bundle sent successfully: id %s,%" PRIu64 ".%" PRIu64 "n",
                              bundle_id.source.uri,
-                             bundle_id.creation_ts.secs,
+                             bundle_id.creation_ts.secs_or_millisecs,
                              bundle_id.creation_ts.seqno);
 
         if (wait_for_report)

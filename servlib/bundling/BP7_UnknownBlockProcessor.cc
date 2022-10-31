@@ -465,7 +465,7 @@ int
 BP7_UnknownBlockProcessor::format(oasys::StringBuffer* buf, BlockInfo *b)
 {
     (void) b;
-    return buf->append("Unknown");
+    return buf->append("BP7_Unknown_Block");
 }
 
 } // namespace dtn

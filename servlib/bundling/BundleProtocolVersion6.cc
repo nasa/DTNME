@@ -694,7 +694,7 @@ BundleProtocolVersion6::validate(Bundle* bundle,
 int
 BundleProtocolVersion6::set_timestamp(u_char* ts, size_t len, const BundleTimestamp& tv)
 {
-    int sec_size = SDNV::encode(tv.seconds_, ts, len);
+    int sec_size = SDNV::encode(tv.secs_or_millisecs_, ts, len);
     if (sec_size < 0)
         return -1;
     
@@ -714,7 +714,7 @@ BundleProtocolVersion6::get_timestamp(BundleTimestamp* tv, const u_char* ts, siz
     int sec_size = SDNV::decode(ts, len, &tmp);
     if (sec_size < 0)
         return -1;
-    tv->seconds_ = tmp;
+    tv->secs_or_millisecs_ = tmp;
     
     int seqno_size = SDNV::decode(ts + sec_size, len - sec_size, &tmp);
     if (seqno_size < 0)
@@ -728,7 +728,8 @@ BundleProtocolVersion6::get_timestamp(BundleTimestamp* tv, const u_char* ts, siz
 size_t
 BundleProtocolVersion6::ts_encoding_len(const BundleTimestamp& tv)
 {
-    return SDNV::encoding_len(tv.seconds_) + SDNV::encoding_len(tv.seqno_);
+    size_t time_secs = tv.secs_or_millisecs_;
+    return SDNV::encoding_len(time_secs) + SDNV::encoding_len(tv.seqno_);
 }
 
 //----------------------------------------------------------------------

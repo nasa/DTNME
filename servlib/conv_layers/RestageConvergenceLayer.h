@@ -340,7 +340,7 @@ protected:
             std::string                 dst_eid_nodename_;
             size_t                      dst_eid_node_number_ = 0;
             std::string                 dst_eid_service_;
-            size_t                      bts_seconds_ = 0;           ///< creation time in seconds since 01/01/2000
+            size_t                      bts_secs_or_millisecs_ = 0;  ///< creation time in seconds (BPv6) or millisecs (BPv7) since 01/01/2000
             size_t                      bts_seq_num_ = 0;
             bool                        is_frag_ = false;
             size_t                      frag_offset_ = 0;
@@ -578,31 +578,32 @@ protected:
                             const BundleFileDesc* bfd_ptr);
 
     protected:
-        oasys::SpinLock lock_;                 ///< Lock to serialize access
+        oasys::SpinLock lock_;                      ///< Lock to serialize access
 
-//dzdebug        Params* params_ = nullptr;             ///< Pointer to the link parameters for an instance of a Restage CL
         SPtr_RestageCLParams sptr_params_;          ///< Pointer to the link parameters for an instance of a Restage CL
 
-        ContactRef contact_;                   ///< The contact reference that system uses to reference this instance of the Restage CL
+        ContactRef contact_;                        ///< The contact reference that system uses to reference this instance of the Restage CL
 
-        SPtr_RestageCLStatus sptr_clstatus_;   ///< Shared pointer to the current state and status of the storage location (shared with the BARD)
+        SPtr_RestageCLStatus sptr_clstatus_;        ///< Shared pointer to the current state and status of the storage location (shared with the BARD)
 
         SPtr_ExternalStorageController sptr_esc_self_; ///< shared pointer to self for sharing with helper thread(s)
 
-        SPtr_BundleArchitecturalRestagingDaemon sptr_bard_;  ///< Shared pointer to the BundleArchitecturalRestagingDaemon
+        SPtr_BundleArchitecturalRestagingDaemon sptr_bard_;      ///< Shared pointer to the BundleArchitecturalRestagingDaemon
 
         std::unique_ptr<Restager> qptr_restager_;   ///< Pointer to the Restager object
         std::unique_ptr<Reloader> qptr_reloader_;   ///< Pointer to the Reloader object
 
         SPtr_EmailNotifications emails_;            ///< List of email address to notify on errors
 
-        RestageDirMap restage_dir_map_;        ///< map of Restage Directories which contain a list of file/bundle descriptions 
+        RestageDirMap restage_dir_map_;             ///< map of Restage Directories which contain a list of file/bundle descriptions 
 
-        bool registered_with_bard_ = false;       ///< whether the CL instance has registered with the Bundle Restaging Dameon
+        bool registered_with_bard_ = false;         ///< whether the CL instance has registered with the Bundle Restaging Dameon
 
-        bool external_storage_scanned_ = false;  ///< whether the external storage has been successfully scanned
+        bool external_storage_scanned_ = false;     ///< whether the external storage has been successfully scanned
 
-        oasys::FileIOClient file_;             ///< file handle
+        oasys::FileIOClient file_;                  ///< file handle
+
+        oasys::Time auto_reload_timer_;             ///< Tracks time until next reload attempt
 
         // track total disk usage and also by directory
         size_t grand_total_num_files_ = 0;
@@ -615,7 +616,7 @@ protected:
         size_t total_reloaded_ = 0;                  ///< Count of bundles reloaded
         size_t total_deleted_ = 0;                   ///< Count of bundles deleted
 
-        bool perform_rescan_ = false;                 ///< Whether the BARD initiated a rescan
+        bool perform_rescan_ = false;                ///< Whether the BARD initiated a rescan
     };
 
 

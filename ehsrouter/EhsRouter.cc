@@ -957,7 +957,7 @@ EhsRouter::run()
     char threadname[16] = "EhsRouter";
     pthread_setname_np(pthread_self(), threadname);
 
-    EhsEvent* event;
+    EhsEvent* event = nullptr;
 
     struct pollfd pollfds[1];
     struct pollfd* event_poll = &pollfds[0];

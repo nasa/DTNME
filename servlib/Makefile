@@ -95,7 +95,7 @@ CONTACT_SRCS :=						\
 	contacts/AlwaysOnLink.cc		\
 	contacts/Contact.cc				\
 	contacts/ContactManager.cc		\
-        contacts/ContactPlanner.cc              \
+	contacts/ContactPlanner.cc		\
 	contacts/Interface.cc			\
 	contacts/InterfaceTable.cc		\
 	contacts/Link.cc				\
@@ -135,7 +135,8 @@ CMD_SRCS :=						\
 	cmd/InterfaceCommand.cc		\
 	cmd/LinkCommand.cc          \
 	cmd/ParamCommand.cc			\
-	cmd/BundleRestagingCommand.cc			\
+	cmd/BundleRestagingCommand.cc	\
+	cmd/RegCommand.cc			\
 	cmd/RegistrationCommand.cc	\
 	cmd/RouteCommand.cc			\
 	cmd/ShutdownCommand.cc		\

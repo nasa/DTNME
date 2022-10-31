@@ -44,6 +44,7 @@
 #include "BundleProtocol.h"
 #include "BP6_PrimaryBlockProcessor.h"
 #include "naming/EndpointID.h"
+#include "naming/IMCScheme.h"
 #include "naming/IPNScheme.h"
 #include "SDNV.h"
 
@@ -268,8 +269,11 @@ BP6_PrimaryBlockProcessor::get_primary_len(const Bundle*  bundle,
     (void)log; // in case NDEBUG is defined
     //log_debug_p(log, "generated dictionary length %llu",
     //            U64FMT(primary->dictionary_length));
-    
-    primary->block_length += SDNV::encoding_len(bundle->creation_ts().seconds_);
+   
+    //Needs the BP6 timestamp to be in seconds instead of milliseconds
+    size_t bp6_timestamp_secs = bundle->creation_ts().secs_or_millisecs_;
+
+    primary->block_length += SDNV::encoding_len(bp6_timestamp_secs);
     primary->block_length += SDNV::encoding_len(bundle->creation_ts().seqno_);
     primary->block_length += SDNV::encoding_len(bundle->expiration_secs());
 
@@ -308,7 +312,7 @@ BP6_PrimaryBlockProcessor::get_primary_len(const Bundle*  bundle,
     // Fill in the remaining values of 'primary' just for the sake of returning
     // a complete data structure.
     primary->version = BundleProtocolVersion6::CURRENT_VERSION;
-    primary->creation_time = bundle->creation_ts().seconds_;
+    primary->creation_time = bp6_timestamp_secs;
     primary->creation_sequence = bundle->creation_ts().seqno_;
     primary->lifetime = bundle->expiration_secs();
     
@@ -457,8 +461,9 @@ BP6_PrimaryBlockProcessor::consume(Bundle*    bundle,
     PBP_READ_SDNV(&primary.lifetime);
     PBP_READ_SDNV(&primary.dictionary_length);
     
-    bundle->set_creation_ts(BundleTimestamp(primary.creation_time,
-                                            primary.creation_sequence));
+//    bundle->set_creation_ts(BundleTimestamp(primary.creation_time,
+//                                            primary.creation_sequence));
+    bundle->set_creation_ts(primary.creation_time, primary.creation_sequence);
     bundle->set_expiration_secs(primary.lifetime);
 
     /*
@@ -514,9 +519,15 @@ BP6_PrimaryBlockProcessor::consume(Bundle*    bundle,
     {
         //log_debug_p(log, "decoding CBHE bundle");
 
-        IPNScheme::format(bundle->mutable_dest(),
-                          primary.dest_scheme_offset,
-                          primary.dest_ssp_offset);
+        if (bundle->singleton_dest()) {
+            IPNScheme::format(bundle->mutable_dest(),
+                              primary.dest_scheme_offset,
+                              primary.dest_ssp_offset);
+        } else {
+            IMCScheme::format(bundle->mutable_dest(),
+                              primary.dest_scheme_offset,
+                              primary.dest_ssp_offset);
+        }
 
         EndpointID src_eid;
         IPNScheme::format(&src_eid,
@@ -535,15 +546,10 @@ BP6_PrimaryBlockProcessor::consume(Bundle*    bundle,
     
 
     // If the bundle is a fragment, grab the fragment offset and original
-    // bundle size (and make sure they fit in a 32 bit integer).
+    // bundle size
     if (bundle->is_fragment()) {
         u_int64_t sdnv_buf = 0;
         PBP_READ_SDNV(&sdnv_buf);
-//dzdebug        if (sdnv_buf > 0xffffffff) {
-//            log_err_p(log, "fragment offset is too large: %llu",
-//                      U64FMT(sdnv_buf));
-//            return -1;
-//        }
         
         bundle->set_frag_offset(sdnv_buf);
         //log_debug_p(log, "BP6_PrimaryBlockProcessor::consume: setting frag_offset to %" PRIu64, sdnv_buf);
@@ -552,12 +558,7 @@ BP6_PrimaryBlockProcessor::consume(Bundle*    bundle,
         sdnv_buf = 0;
         
         PBP_READ_SDNV(&sdnv_buf);
-//dzdebug        if (sdnv_buf > 0xffffffff) {
-//            log_err_p(log, "fragment original length is too large: %llu",
-//                      U64FMT(sdnv_buf));
-//            return -1;
-//        }
-        
+
         bundle->set_orig_length(sdnv_buf);
         //log_debug_p(log, "BP6_PrimaryBlockProcessor::consume: setting orig_len to %" PRIu64, sdnv_buf);
 
@@ -730,9 +731,9 @@ BP6_PrimaryBlockProcessor::generate_primary(const Bundle* bundle,
     PBP_WRITE_SDNV(primary.replyto_ssp_offset);
     PBP_WRITE_SDNV(primary.custodian_scheme_offset);
     PBP_WRITE_SDNV(primary.custodian_ssp_offset);
-    PBP_WRITE_SDNV(bundle->creation_ts().seconds_);
-    PBP_WRITE_SDNV(bundle->creation_ts().seqno_);
-    PBP_WRITE_SDNV(bundle->expiration_secs());
+    PBP_WRITE_SDNV(primary.creation_time);        // set as seconds in get_primary_len()
+    PBP_WRITE_SDNV(primary.creation_sequence);
+    PBP_WRITE_SDNV(primary.lifetime);
     PBP_WRITE_SDNV(primary.dictionary_length);
     
     // Add the dictionary.

@@ -39,7 +39,7 @@ CborUtilBP7::encode_bundle_timestamp(CborEncoder& blockArrayEncoder, const Bundl
     CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
 
     // dtn time
-    err = cbor_encode_uint(&timeArrayEncoder, bts.seconds_);
+    err = cbor_encode_uint(&timeArrayEncoder, bts.secs_or_millisecs_);
     CBORUTIL_CHECK_CBOR_ENCODE_ERROR_RETURN
 
     // sequence ID
@@ -281,7 +281,7 @@ int
 CborUtilBP7::decode_bundle_timestamp(CborValue& cvElement, BundleTimestamp& timestamp)
 {
     // default to dtn:none (NULL_EID)
-    timestamp.seconds_ = 0;
+    timestamp.secs_or_millisecs_ = 0;
     timestamp.seqno_ = 0;
     
 
@@ -295,7 +295,7 @@ CborUtilBP7::decode_bundle_timestamp(CborValue& cvElement, BundleTimestamp& time
     CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
 
     // first element of the array is the seconds
-    status = decode_uint(cvTsElements, timestamp.seconds_);
+    status = decode_uint(cvTsElements, timestamp.secs_or_millisecs_);
     CHECK_CBORUTIL_STATUS_RETURN
 
     // sedond element of the array is the sequence number
