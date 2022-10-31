@@ -13,12 +13,17 @@ and (someday) RFCs that describe the bundling protocol. Also, the file
 RELEASE-NOTES describes major changes in each release. This implementation
 is based on DTN2, but also includes all the changes that Marshal Space
 Flight Center has made over the years. This is the beta release of version 
-DTNME v1.0. As such it has only been through internal development testing 
+DTNME v1.2.0. As such it has only been through internal development testing 
 and has not received any independent verification testing. This version
 includes updated support appplications, support for BPv6 and BPv7(including 
 BIBE, mTCPCL, and TCPCLv4), and fixes to improve the stability of the BPv6 
 code. Any unfinished or unused code from DTN2 has been fully removed at 
-this point.
+this point. This code includes the Bundle Architectural Restaging Daemon (BARD)
+which is designed to offload bundles to an external storage mechanism
+to reduce the processing overhead caused by storing a large number of bundles
+on the main node. Due to the nature of this function it also provides a
+convenient method to inject and remove bundles from the DTN Network
+effectively allowing BARD to act as an air gap covergence layer.
 
 Compilation / Installation Instructions
 ---------------------------------------
@@ -26,14 +31,19 @@ Compilation / Installation Instructions
 Dependencies
 libdb-dev g++ automake autotools-dev tk tk-dev tcl tcl-dev
 
-<core> can be replaced with the number of cores you would like to use to in 
-conjunction with the make -j option to try to speed up the build process.
-
 Building
-./make_dtnme.sh <cores>
 
-  The primary application called dtnme will be built in the daemon/ folder.
-  Support applications will be built in their respective folders under apps/
+./step_1_make_gcc_dtnme.sh or step_1_make_clang_dtnme.sh - By default use gcc
+    
+    This script will use gcc or clang to compile dtnme according to the default configuration
+  
+./step_2_install_dtnme.sh
+    
+    This script copies all of the binaries and places them in a defined directory structure
+    
+./step_3_clean_dtnme.sh
+
+    This script removes all build files and links so the source can be copied over to a different machine
 
 Note that by default, the configure script will also run configure
 inside the oasys/ subdirectory.
