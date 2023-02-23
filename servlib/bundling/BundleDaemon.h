@@ -388,7 +388,7 @@ public:
         uint64_t ltp_engine_id_ = 0;
 
         /// specify group and world access to directories and files (owner will always have full access)
-        uint16_t file_permissions_ = (0775 & 0xff);
+        uint16_t file_permissions_ = 0775;
 
         ///< IP address the TCL command server console is listening on
         in_addr_t console_addr_ = INADDR_ANY;
