@@ -56,7 +56,7 @@ exit 1
 fi
 
 # The OASYS default configuration is usually sufficient for DTNME. 
-./configure
+./configure --disable-atomic-asm
 
 if [ $? -ne 0 ]
 then
