@@ -19,7 +19,7 @@ fi
 CLANG_PATH=$(whereis clang)
 
 # The OASYS default configuration is usually sufficient for DTNME. 
-./configure \
+./configure --disable-atomic-asm \
 --with-cc=/usr/bin/clang --with-cxx=/usr/bin/clang++ \
 --with-extra-ldflags="-L/usr/lib" \
 --with-extra-cflags="-fsanitize=address -fno-omit-frame-pointer -fno-common -fsanitize-address-use-after-scope -fno-optimize-sibling-calls -std=c11" \
