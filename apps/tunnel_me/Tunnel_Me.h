@@ -245,6 +245,8 @@ protected:
     void init_tunnel();
     void init_registration();
     void load_dest_eid_table(char* filename);
+    int create_handle(dtn_handle_t& handle);
+
 };
 
 } // namespace tunnel_me
