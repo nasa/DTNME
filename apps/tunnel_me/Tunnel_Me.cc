@@ -465,33 +465,37 @@ Tunnel_Me::init_tunnel()
         }
     }
 }
+//JPM: Helper function to create handles
+int
+Tunnel_Me::create_handle(dtn_handle_t& handle)
+{
+    int err = DTN_SUCCESS;
+
+    if(api_ip_set_)
+    {
+       if(api_port_ == 0)api_port_  = 5010; 
+       err = dtn_open_with_IP((char *)api_ip_.c_str(),api_port_,&handle);
+    } else {
+       if(api_port_ > 0)
+           err = dtn_open_with_IP((char *)api_ip_.c_str(),api_port_,&handle);
+       else
+           err = dtn_open(&handle);
+    }
+    return err;
+}
 
 //----------------------------------------------------------------------
 void
 Tunnel_Me::init_registration()
 {
-
-    int err;
-
-    if(api_ip_set_)
-    {
-       if(api_port_ == 0)api_port_  = 5010; 
-       err = dtn_open_with_IP((char *)api_ip_.c_str(),api_port_,&recv_handle_);
-    } else {
-       if(api_port_ > 0)
-           err = dtn_open_with_IP((char *)api_ip_.c_str(),api_port_,&recv_handle_);
-       else
-           err = dtn_open(&recv_handle_);
-    }
-
-    if (err != DTN_SUCCESS) {
+    int err; 
+    if ((err = create_handle(recv_handle_)) != DTN_SUCCESS) {
         log_crit("can't open recv handle to daemon: %s",
                  dtn_strerror(err));
         notify_and_exit(1);
     }
     
-    err = dtn_open(&send_handle_);
-    if (err != DTN_SUCCESS) {
+    if ((err=create_handle(send_handle_)) != DTN_SUCCESS) {
         log_crit("can't open send handle to daemon: %s",
                  dtn_strerror(err));
         notify_and_exit(1);
