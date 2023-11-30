@@ -488,13 +488,14 @@ Tunnel_Me::create_handle(dtn_handle_t& handle)
 void
 Tunnel_Me::init_registration()
 {
-    if (create_handle(recv_handle_) != DTN_SUCCESS) {
+    int err; 
+    if ((err = create_handle(recv_handle_)) != DTN_SUCCESS) {
         log_crit("can't open recv handle to daemon: %s",
                  dtn_strerror(err));
         notify_and_exit(1);
     }
     
-    if (create_handle(send_handle_) != DTN_SUCCESS) {
+    if ((err=create_handle(send_handle_)) != DTN_SUCCESS) {
         log_crit("can't open send handle to daemon: %s",
                  dtn_strerror(err));
         notify_and_exit(1);
