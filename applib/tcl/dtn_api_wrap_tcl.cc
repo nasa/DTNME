@@ -543,14 +543,18 @@ SWIG_MangledTypeQueryModule(swig_module_info *start,
   swig_module_info *iter = start;
   do {
     if (iter->size) {
-      register size_t l = 0;
-      register size_t r = iter->size - 1;
+      //register size_t l = 0;
+      size_t l = 0;
+      //register size_t r = iter->size - 1;
+      size_t r = iter->size - 1;
       do {
 	/* since l+r >= 0, we can (>> 1) instead (/ 2) */
-	register size_t i = (l + r) >> 1; 
+	//register size_t i = (l + r) >> 1; 
+	size_t i = (l + r) >> 1; 
 	const char *iname = iter->types[i]->name;
 	if (iname) {
-	  register int compare = strcmp(name, iname);
+	  //register int compare = strcmp(name, iname);
+	  int compare = strcmp(name, iname);
 	  if (compare == 0) {	    
 	    return iter->types[i];
 	  } else if (compare < 0) {
@@ -594,7 +598,8 @@ SWIG_TypeQueryModule(swig_module_info *start,
        of the str field (the human readable name) */
     swig_module_info *iter = start;
     do {
-      register size_t i = 0;
+      //register size_t i = 0;
+      size_t i = 0;
       for (; i < iter->size; ++i) {
 	if (iter->types[i]->str && (SWIG_TypeEquiv(iter->types[i]->str, name)))
 	  return iter->types[i];
@@ -613,10 +618,13 @@ SWIG_TypeQueryModule(swig_module_info *start,
 SWIGRUNTIME char *
 SWIG_PackData(char *c, void *ptr, size_t sz) {
   static const char hex[17] = "0123456789abcdef";
-  register const unsigned char *u = (unsigned char *) ptr;
-  register const unsigned char *eu =  u + sz;
+  //register const unsigned char *u = (unsigned char *) ptr;
+  const unsigned char *u = (unsigned char *) ptr;
+  //register const unsigned char *eu =  u + sz;
+  const unsigned char *eu =  u + sz;
   for (; u != eu; ++u) {
-    register unsigned char uu = *u;
+    //register unsigned char uu = *u;
+    unsigned char uu = *u;
     *(c++) = hex[(uu & 0xf0) >> 4];
     *(c++) = hex[uu & 0xf];
   }
@@ -628,11 +636,15 @@ SWIG_PackData(char *c, void *ptr, size_t sz) {
 */
 SWIGRUNTIME const char *
 SWIG_UnpackData(const char *c, void *ptr, size_t sz) {
-  register unsigned char *u = (unsigned char *) ptr;
-  register const unsigned char *eu = u + sz;
+  //register unsigned char *u = (unsigned char *) ptr;
+  unsigned char *u = (unsigned char *) ptr;
+  //register const unsigned char *eu = u + sz;
+  const unsigned char *eu = u + sz;
   for (; u != eu; ++u) {
-    register char d = *(c++);
-    register unsigned char uu;
+    //register char d = *(c++);
+    char d = *(c++);
+    //register unsigned char uu;
+    unsigned char uu;
     if ((d >= '0') && (d <= '9'))
       uu = ((d - '0') << 4);
     else if ((d >= 'a') && (d <= 'f'))
@@ -1140,7 +1152,6 @@ SWIG_Tcl_ConvertPacked(Tcl_Interp *SWIGUNUSEDPARM(interp) , Tcl_Obj *obj, void *
 /* Take a pointer and convert it to a string */
 SWIGRUNTIME void
 SWIG_Tcl_MakePtr(char *c, void *ptr, swig_type_info *ty, int flags) {
-  (void) flags;
   if (ptr) {
     *(c++) = '_';
     c = SWIG_PackData(c,&ptr,sizeof(void *));
@@ -1148,7 +1159,8 @@ SWIG_Tcl_MakePtr(char *c, void *ptr, swig_type_info *ty, int flags) {
   } else {
     strcpy(c,(char *)"NULL");
   }
-  //flags = 0;
+  //dzdebug  flags = 0;
+  (void) flags;
 }
 
 /* Create a new pointer object */
@@ -2134,7 +2146,7 @@ _wrap_dtn_timestamp_t_secs_set(ClientData clientData SWIGUNUSED, Tcl_Interp *int
       arg2 = *(reinterpret_cast< u_int * >(argp2));
     }
   }
-  if (arg1) (arg1)->secs = arg2;
+  if (arg1) (arg1)->secs_or_millisecs = arg2;
   
   
   return TCL_OK;
@@ -2156,7 +2168,7 @@ _wrap_dtn_timestamp_t_secs_get(ClientData clientData SWIGUNUSED, Tcl_Interp *int
     SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "dtn_timestamp_t_secs_get" "', argument " "1"" of type '" "dtn_timestamp_t *""'"); 
   }
   arg1 = reinterpret_cast< dtn_timestamp_t * >(argp1);
-  result =  ((arg1)->secs);
+  result =  ((arg1)->secs_or_millisecs);
   Tcl_SetObjResult(interp,SWIG_NewInstanceObj((new u_int(static_cast< const u_int& >(result))), SWIGTYPE_p_u_int, SWIG_POINTER_OWN | 0 ));
   return TCL_OK;
 fail:

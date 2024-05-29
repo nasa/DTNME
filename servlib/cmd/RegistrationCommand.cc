@@ -19,9 +19,9 @@
 #endif
 
 #include <climits>
-#include <oasys/serialize/TclListSerialize.h>
-#include <oasys/thread/Notifier.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/serialize/TclListSerialize.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "RegistrationCommand.h"
 #include "CompletionNotifier.h"
@@ -41,6 +41,26 @@ RegistrationCommand::RegistrationCommand()
     add_to_help("del <reg id>", "delete a registration");
     add_to_help("list", "list all of the registrations");
     add_to_help("dump_tcl <reg id>", "dump a tcl representation of the reg");
+
+    bind_var(new oasys::BoolOpt("suppress_duplicates",
+                                &BundleDaemon::params_.dzdebug_reg_delivery_cache_enabled_,
+                                "Suppress delivery of duplicate bundles to Registrations (default is true)"));
+                                
+}
+
+RegistrationCommand::RegistrationCommand(const char* cmd_str)
+    : TclCommand(cmd_str)
+{
+    add_to_help("add <logger | tcl> <endpoint> <args..>", "add a registration");
+    add_to_help("tcl <reg id> <cmd <args ...>", "add a tcl registration");
+    add_to_help("del <reg id>", "delete a registration");
+    add_to_help("list", "list all of the registrations");
+    add_to_help("dump_tcl <reg id>", "dump a tcl representation of the reg");
+
+    bind_var(new oasys::BoolOpt("suppress_duplicates",
+                                &BundleDaemon::params_.dzdebug_reg_delivery_cache_enabled_,
+                                "Suppress delivery of duplicate bundles to Registrations (default is true)"));
+                                
 }
 
 int
@@ -71,8 +91,8 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         const char* regid_str = argv[2];
         int regid = atoi(regid_str);
         
-        Registration* reg = regtable->get(regid);
-        if (!reg) {
+        SPtr_Registration sptr_reg = regtable->get(regid);
+        if (!sptr_reg) {
             resultf("no registration exists with id %d", regid);
             return TCL_ERROR;
         }
@@ -80,7 +100,7 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         Tcl_Obj* result = Tcl_NewListObj(0, 0);
         oasys::TclListSerialize s(interp, result,
                                   oasys::Serialize::CONTEXT_LOCAL, 0);
-        reg->serialize(&s);
+        sptr_reg->serialize(&s);
         set_objresult(result);
         return TCL_OK;
         
@@ -93,20 +113,20 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
         const char* type = argv[2];
         const char* eid_str = argv[3];
-        EndpointIDPattern eid(eid_str);
+        SPtr_EIDPattern sptr_eid = BD_MAKE_PATTERN(eid_str);
         
-        if (!eid.valid()) {
+        if (!sptr_eid->valid()) {
             resultf("error in registration add %s %s: invalid endpoint id",
                     type, eid_str);
             return TCL_ERROR;
         }
 
-        Registration* reg = NULL;
+        SPtr_Registration sptr_reg;
         if (strcmp(type, "logger") == 0) {
-            reg = new LoggingRegistration(eid);
+            sptr_reg = std::make_shared<LoggingRegistration>(sptr_eid);
             
         } else if (strcmp(type, "tcl") == 0) {
-            reg = new TclRegistration(eid, interp);
+            sptr_reg = std::make_shared<TclRegistration>(sptr_eid, interp);
             
         } else {
             resultf("error in registration add %s %s: invalid type",
@@ -114,13 +134,14 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             return TCL_ERROR;
         }
 
-        ASSERT(reg);
+        ASSERT(sptr_reg);
 
-        BundleDaemon::post_and_wait(
-            new RegistrationAddedEvent(reg, EVENTSRC_ADMIN),
-            CompletionNotifier::notifier());
+        RegistrationAddedEvent* event_to_post;
+        event_to_post = new RegistrationAddedEvent(sptr_reg, EVENTSRC_ADMIN);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post_and_wait(sptr_event_to_post, CompletionNotifier::notifier());
         
-        resultf("%d", reg->regid());
+        resultf("%d", sptr_reg->regid());
         return TCL_OK;
         
     } else if (strcmp(op, "del") == 0) {
@@ -130,14 +151,16 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         const char* regid_str = argv[2];
         int regid = atoi(regid_str);
 
-        Registration* reg = regtable->get(regid);
-        if (!reg) {
+        SPtr_Registration sptr_reg = regtable->get(regid);
+        if (!sptr_reg) {
             resultf("no registration exists with id %d", regid);
             return TCL_ERROR;
         }
 
-        BundleDaemon::post_and_wait(new RegistrationRemovedEvent(reg),
-                                    CompletionNotifier::notifier());
+        RegistrationRemovedEvent* event_to_post;
+        event_to_post = new RegistrationRemovedEvent(sptr_reg);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post_and_wait(sptr_event_to_post, CompletionNotifier::notifier());
         return TCL_OK;
 
     } else if (strcmp(op, "tcl") == 0) {
@@ -153,14 +176,19 @@ RegistrationCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         const RegistrationTable* regtable =
             BundleDaemon::instance()->reg_table();
 
-        TclRegistration* reg = (TclRegistration*)regtable->get(regid);
+        SPtr_Registration sptr_reg = regtable->get(regid);
+        TclRegistration* tcl_reg = dynamic_cast<TclRegistration*>(sptr_reg.get());
+        if (tcl_reg == NULL) {
+            resultf("Error casting registration id %d as a TCLRegistration", regid);
+            return TCL_ERROR;
+        }
 
-        if (!reg) {
+        if (!sptr_reg) {
             resultf("no matching registration for %d", regid);
             return TCL_ERROR;
         }
         
-        return reg->exec(argc - 3, &argv[3], interp);
+        return tcl_reg->exec(argc - 3, &argv[3], interp);
     }
 
     resultf("invalid registration subcommand '%s'", op);

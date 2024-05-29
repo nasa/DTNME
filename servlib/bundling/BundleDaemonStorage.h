@@ -24,15 +24,16 @@
 
 #include <map>
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/IdleTclExit.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
+#include <third_party/meutils/thread/MsgQueue.h>
+
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/IdleTclExit.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "AggregateCustodySignal.h"
 #include "BundleDaemon.h"
@@ -47,6 +48,7 @@
 
 namespace dtn {
 
+
 /**
  * Class that handles the basic event / action mechanism. All events
  * are queued and then forwarded to the active router module. The
@@ -54,15 +56,14 @@ namespace dtn {
  * BundleActions class that it is given, which in turn effect all the
  * operations.
  */
-class BundleDaemonStorage : public oasys::Singleton<BundleDaemonStorage, false>,
-                     public BundleEventHandler,
-                     public oasys::Thread
+class BundleDaemonStorage : public BundleEventHandler,
+                            public oasys::Thread
 {
 public:
     /**
      * Constructor.
      */
-    BundleDaemonStorage();
+    BundleDaemonStorage(BundleDaemon* parent);
 
     /**
      * Destructor (called at shutdown time).
@@ -70,25 +71,13 @@ public:
     virtual ~BundleDaemonStorage();
 
     /**
-     * Virtual initialization function, overridden in the simulator to
-     * install the modified event queue (with no notifier) and the
-     * SimBundleActions class.
-     */
-    virtual void do_init();
-    
-    /**
-     * Boot time initializer.
-     */
-    static void init();
-    
-    /**
      * Return the number of events currently waiting for processing.
      * This is overridden in the simulator since it doesn't use a
      * MsgQueue.
      */
     virtual size_t event_queue_size()
     {
-    	return eventq_->size();
+    	return me_eventq_.size();
     }
 
     /**
@@ -128,32 +117,6 @@ public:
     }
 
     /**
-     * Queues the event at the tail of the queue for processing by the
-     * daemon thread.
-     */
-    static void post(BundleEvent* event);
- 
-    /**
-     * Queues the event at the head of the queue for processing by the
-     * daemon thread.
-     */
-    static void post_at_head(BundleEvent* event);
-    
-    /**
-     * Post the given event and wait for it to be processed by the
-     * daemon thread or for the given timeout to elapse.
-     */
-    static bool post_and_wait(BundleEvent* event,
-                              oasys::Notifier* notifier,
-                              int timeout = -1, bool at_back = true);
-    
-   /**
-     * Virtual post_event function, overridden by the Node class in
-     * the simulator to use a modified event queue.
-     */
-    virtual void post_event(BundleEvent* event, bool at_back = true);
-
-    /**
      * Format the given StringBuffer with the current bundle
      * statistics.
      */
@@ -184,7 +147,7 @@ public:
     /**
      * Adds a registration to the list of registrations to be added/updated the data store
      */
-    void registration_add_update(APIRegistration* reg);
+    void registration_add_update(SPtr_Registration& reg);
 
     /**
      * Empties the event queue and updates the datastores one final time 
@@ -207,6 +170,12 @@ public:
         
         /// allow database writing to be disabled
         bool db_storage_enabled_;
+
+        /// whether to force payloads to sync to disk
+        bool db_force_sync_to_disk_;
+
+        /// where bundle payloads should be stored (MEMORY, DISK or NODAT)
+        BundlePayload::location_t payload_location_;
     };
 
     static Params params_;
@@ -217,19 +186,15 @@ public:
     typedef void (*ShutdownProc) (void* args);
     
     /**
-     * Set an application-specific shutdown handler.
-     */
-    void set_app_shutdown(ShutdownProc proc, void* data)
-    {
-        app_shutdown_proc_ = proc;
-        app_shutdown_data_ = data;
-    }
-
-    /**
      * Main event handling function.
      */
-    void handle_event(BundleEvent* event);
-    void handle_event(BundleEvent* event, bool closeTransaction);
+    void handle_event(SPtr_BundleEvent& sptr_event);
+    void handle_event(SPtr_BundleEvent& sptr_event, bool closeTransaction);
+
+protected:
+    friend class BundleDaemon;
+
+    virtual void post_event(SPtr_BundleEvent& sptr_event, bool at_back = true);
 
 protected:
     friend class BundleActions;
@@ -243,23 +208,16 @@ protected:
     /**
      * Event type specific handlers.
      */
-    void handle_store_bundle_update(StoreBundleUpdateEvent* event);
-    void handle_store_bundle_delete(StoreBundleDeleteEvent* event);
-    void handle_store_registration_update(StoreRegistrationUpdateEvent* event);
-    void handle_store_registration_delete(StoreRegistrationDeleteEvent* event);
-    void handle_store_link_update(StoreLinkUpdateEvent* event);
-    void handle_store_link_delete(StoreLinkDeleteEvent* event);
-
-#ifdef ACS_ENABLED 
-    void handle_store_pendingacs_update(StorePendingAcsUpdateEvent* event);
-    void handle_store_pendingacs_delete(StorePendingAcsDeleteEvent* event);
-#endif // ACS_ENABLED 
+    void handle_store_bundle_update(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_bundle_delete(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_registration_update(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_registration_delete(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_link_update(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_link_delete(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_pendingacs_update(SPtr_BundleEvent& sptr_event) override;
+    void handle_store_pendingacs_delete(SPtr_BundleEvent& sptr_event) override;
 
     ///@}
-
-    /// @{
-    void event_handlers_completed(BundleEvent* event);
-    /// @}
 
     /// @{
     /**
@@ -294,8 +252,8 @@ protected:
     DeleteBundleMap* delete_bundles_;
 
     // typedefs for lists of registrations
-    typedef std::map<u_int32_t, APIRegistration*> RegistrationMap;
-    typedef std::pair<u_int32_t, APIRegistration*> RegMapPair;
+    typedef std::map<u_int32_t, SPtr_Registration> RegistrationMap;
+    typedef std::pair<u_int32_t, SPtr_Registration> RegMapPair;
     typedef RegistrationMap::iterator RegMapIterator;
     typedef std::pair<RegMapIterator, bool> RegMapInsertResult;
 
@@ -307,9 +265,6 @@ protected:
 
     /// The list of Registrations to be deleted
     RegistrationMap* delete_registrations_;
-
-    /// Lock to control access to the Pending ACS lists
-    oasys::SpinLock pendingacs_lock_;
 
     // typedefs for lists of links
     typedef std::map<std::string, Link*> LinkMap;
@@ -326,18 +281,18 @@ protected:
     /// The list of Registrations to be deleted
     LinkMap* delete_links_;
 
+    /// Lock to control access to the Pending ACS lists
+    oasys::SpinLock pendingacs_lock_;
 
-#ifdef ACS_ENABLED 
     /// The list of pending ACSs to be updated
     PendingAcsMap* add_update_pendingacs_;
 
     /// The list of pending ACSs to be deleted
     PendingAcsMap* delete_pendingacs_;
-#endif // ACS_ENABLED 
 
 
     /// The event queue
-    oasys::MsgQueue<BundleEvent*>* eventq_;
+    meutils::MsgQueue<SPtr_BundleEvent> me_eventq_;
 
     /// Statistics structure definition
     struct Stats {
@@ -392,14 +347,10 @@ protected:
     bool last_commit_completed_;
 
     /// Time value when the last event was handled
-    oasys::Time last_event_;
-
-    /// Time value when the last event was handled
     oasys::Time last_db_update_;
 
     /// Sync Payload Timer
     oasys::Time sync_payload_timer_;
-
 };
 
 } // namespace dtn

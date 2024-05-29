@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,11 +35,12 @@
 #ifndef _BUNDLE_EVENT_HANDLER_H_
 #define _BUNDLE_EVENT_HANDLER_H_
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "BundleEvent.h"
 
 namespace dtn {
+
 
 /**
  * Both the BundleDaemon and all the BundleRouter classes need to
@@ -52,7 +53,8 @@ public:
     /**
      * Pure virtual event handler function.
      */
-    virtual void handle_event(BundleEvent* event) = 0;
+    virtual void handle_event(BundleEvent* event) { (void) event; };
+    virtual void handle_event(SPtr_BundleEvent& event) { (void) event; };
 
 protected:
     /**
@@ -73,437 +75,459 @@ protected:
      * Dispatch the event by type code to one of the event-specific
      * handler functions below.
      */
-    void dispatch_event(BundleEvent* event);
-    
+    void dispatch_event(SPtr_BundleEvent& sptr_event);
+
+
     /**
      * Default event handler for new bundle arrivals.
      */
-    virtual void handle_bundle_received(BundleReceivedEvent* event);
+    virtual void handle_bundle_received(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when bundles are transmitted.
      */
-    virtual void handle_bundle_transmitted(BundleTransmittedEvent* event);
+    virtual void handle_bundle_transmitted(SPtr_BundleEvent& sptr_event);
+    
+    /**
+     * Default event handler when bundles are transmitted.
+     */
+    virtual void handle_bundle_restaged(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when bundles are locally delivered.
      */
-    virtual void handle_bundle_delivered(BundleDeliveredEvent* event);
+    virtual void handle_bundle_delivered(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when bundles are acked by app.
      */
-    virtual void handle_bundle_acknowledged_by_app(BundleAckEvent* event);
+    virtual void handle_bundle_acknowledged_by_app(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when bundles expire.
      */
-    virtual void handle_bundle_expired(BundleExpiredEvent* event);
+    virtual void handle_bundle_expired(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when bundles are free (i.e. no more
      * references).
      */
-    virtual void handle_bundle_free(BundleFreeEvent* event);
+    virtual void handle_bundle_free(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle send requests
      */
-    virtual void handle_bundle_send(BundleSendRequest* event);
+    virtual void handle_bundle_send(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for send bundle request cancellations
      */
-    virtual void handle_bundle_cancel(BundleCancelRequest* event);
+    virtual void handle_bundle_cancel(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle cancellations.
      */
-    virtual void handle_bundle_cancelled(BundleSendCancelledEvent*);
+    virtual void handle_bundle_cancelled(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle inject requests
      */
-    virtual void handle_deliver_bundle_to_reg(DeliverBundleToRegEvent* event);
+    virtual void handle_deliver_bundle_to_reg(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle inject requests
      */
-    virtual void handle_bundle_inject(BundleInjectRequest* event);
+    virtual void handle_bundle_inject(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler for bundle injected events.
      */
-    virtual void handle_bundle_injected(BundleInjectedEvent* event);
+    virtual void handle_bundle_injected(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler for bundle delete requests.
      */
-    virtual void handle_bundle_delete(BundleDeleteRequest* request);
+    virtual void handle_bundle_delete(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for requests to take custody of a bundle (ExternalRouter).
      */
-    virtual void handle_bundle_take_custody(BundleTakeCustodyRequest* request);
+    virtual void handle_bundle_take_custody(SPtr_BundleEvent& sptr_event);
 
     /**
-     * Default event handler for custody accepted event (ExternalRouter).
+     * Default event handler for custody accepted event (SPtr_BundleEvent& sptr_event);
      */
-    virtual void handle_bundle_custody_accepted(BundleCustodyAcceptedEvent* event);
+    virtual void handle_bundle_custody_accepted(SPtr_BundleEvent& sptr_event);
+
+    /**
+     * Default event handler for request to try to delete a bundle
+     */
+    virtual void handle_bundle_try_delete_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for a bundle accept request probe.
      */
-    virtual void handle_bundle_accept(BundleAcceptRequest* event);
+    virtual void handle_bundle_accept(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle query requests.
      */
-    virtual void handle_bundle_query(BundleQueryRequest* request);
+    virtual void handle_bundle_query(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle reports.
      */
-    virtual void handle_bundle_report(BundleReportEvent* request);
+    virtual void handle_bundle_report(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle attribute query requests.
      */
-    virtual void handle_bundle_attributes_query(BundleAttributesQueryRequest*);
+    virtual void handle_bundle_attributes_query(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for bundle attribute reports.
      */
-    virtual void handle_bundle_attributes_report(BundleAttributesReportEvent*);
+    virtual void handle_bundle_attributes_report(SPtr_BundleEvent& sptr_event);
 
      /**
       * Default event handler for a private event
       */
-     virtual void handle_private(PrivateEvent*);
+     virtual void handle_private(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a new application registration
      * arrives.
      */
-    virtual void handle_registration_added(RegistrationAddedEvent* event);
+    virtual void handle_registration_added(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a registration is removed.
      */
-    virtual void handle_registration_removed(RegistrationRemovedEvent* event);
+    virtual void handle_registration_removed(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a registration expires.
      */
-    virtual void handle_registration_expired(RegistrationExpiredEvent* event);
+    virtual void handle_registration_expired(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a registration is to be deleted.
      */
-    virtual void handle_registration_delete(RegistrationDeleteRequest* event);
+    virtual void handle_registration_delete(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler for store bundle update events.
      */
-    virtual void handle_store_bundle_update(StoreBundleUpdateEvent*);
+    virtual void handle_store_bundle_update(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store bundle delete events.
      */
-    virtual void handle_store_bundle_delete(StoreBundleDeleteEvent*);
+    virtual void handle_store_bundle_delete(SPtr_BundleEvent& sptr_event);
 
-#ifdef ACS_ENABLED 
     /**
      * Default event handler for store pendingacs update events.
      */
-    virtual void handle_store_pendingacs_update(StorePendingAcsUpdateEvent*);
+    virtual void handle_store_pendingacs_update(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store pendingacs delete events.
      */
-    virtual void handle_store_pendingacs_delete(StorePendingAcsDeleteEvent*);
-#endif // ACS_ENABLED 
+    virtual void handle_store_pendingacs_delete(SPtr_BundleEvent& sptr_event);
 
     /**
-     * Default event handler for an External Router ACS -- purposely not in the ACS_ENABLED block
+     * Default event handler for an External Router ACS
      */
-    virtual void handle_external_router_acs(ExternalRouterAcsEvent*);
+    virtual void handle_external_router_acs(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store registration update events.
      */
-    virtual void handle_store_registration_update(StoreRegistrationUpdateEvent*);
+    virtual void handle_store_registration_update(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store registration delete events.
      */
-    virtual void handle_store_registration_delete(StoreRegistrationDeleteEvent*);
+    virtual void handle_store_registration_delete(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store link update events.
      */
-    virtual void handle_store_link_update(StoreLinkUpdateEvent*);
+    virtual void handle_store_link_update(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for store link delete events.
      */
-    virtual void handle_store_link_delete(StoreLinkDeleteEvent*);
+    virtual void handle_store_link_delete(SPtr_BundleEvent& sptr_event);
+
+    /**
+     * Default event handler for store link update events.
+     */
+    virtual void handle_store_imc_recs_update(SPtr_BundleEvent& sptr_event);
+
+    /**
+     * Default event handler for store link delete events.
+     */
+    virtual void handle_store_imc_recs_delete(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a new contact is up.
      */
-    virtual void handle_contact_up(ContactUpEvent* event);
+    virtual void handle_contact_up(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a contact is down.
      */
-    virtual void handle_contact_down(ContactDownEvent* event);
+    virtual void handle_contact_down(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for contact query requests.
      */
-    virtual void handle_contact_query(ContactQueryRequest* request);
+    virtual void handle_contact_query(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for contact reports.
      */
-    virtual void handle_contact_report(ContactReportEvent* request);
+    virtual void handle_contact_report(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for contact attribute changes.
      */
-    virtual void handle_contact_attribute_changed(ContactAttributeChangedEvent*);
+    virtual void handle_contact_attribute_changed(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a new link is created.
      */
-    virtual void handle_link_created(LinkCreatedEvent* event);
+    virtual void handle_link_created(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a link is deleted.
      */
-    virtual void handle_link_deleted(LinkDeletedEvent* event);
+    virtual void handle_link_deleted(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when link becomes available
      */
-    virtual void handle_link_available(LinkAvailableEvent* event);    
+    virtual void handle_link_available(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a link is unavailable
      */
-    virtual void handle_link_unavailable(LinkUnavailableEvent* event);
+    virtual void handle_link_unavailable(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a link is unavailable
      */
-    virtual void handle_link_check_deferred(LinkCheckDeferredEvent* event);
+    virtual void handle_link_check_deferred(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link state change requests.
      */
-    virtual void handle_link_state_change_request(LinkStateChangeRequest* req);
+    virtual void handle_link_state_change_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link cancel all bundles request
      */
-    virtual void handle_link_cancel_all_bundles_request(LinkCancelAllBundlesRequest* req);
+    virtual void handle_link_cancel_all_bundles_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link create requests.
      */
-    virtual void handle_link_create(LinkCreateRequest* request);
+    virtual void handle_link_create(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link delete requests.
      */
-    virtual void handle_link_delete(LinkDeleteRequest* request);
+    virtual void handle_link_delete(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link reconfigure requests.
      */
-    virtual void handle_link_reconfigure(LinkReconfigureRequest* request);
+    virtual void handle_link_reconfigure(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link query requests.
      */
-    virtual void handle_link_query(LinkQueryRequest* request);
+    virtual void handle_link_query(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link reports.
      */
-    virtual void handle_link_report(LinkReportEvent* request);
+    virtual void handle_link_report(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for link attribute changes.
      */
-    virtual void handle_link_attribute_changed(LinkAttributeChangedEvent*);
+    virtual void handle_link_attribute_changed(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when reassembly is completed.
      */
-    virtual void handle_reassembly_completed(ReassemblyCompletedEvent* event);
+    virtual void handle_reassembly_completed(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a new route is added by the command
      * or management interface.
      */
-    virtual void handle_route_add(RouteAddEvent* event);
+    virtual void handle_route_add(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler to check bundle routing after new routes have been added
      */
-    virtual void handle_route_recompute(RouteRecomputeEvent* event);
+    virtual void handle_route_recompute(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when a route is deleted by the command
      * or management interface.
      */
-    virtual void handle_route_del(RouteDelEvent* event);
+    virtual void handle_route_del(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for static route query requests.
      */
-    virtual void handle_route_query(RouteQueryRequest* request);
+    virtual void handle_route_query(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for static route reports.
      */
-    virtual void handle_route_report(RouteReportEvent* request);
+    virtual void handle_route_report(SPtr_BundleEvent& sptr_event);
+
+    /**
+     * Default event handler for route IMC bundle events
+     */
+    virtual void handle_route_imc_bundle(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when custody signals are received.
      */
-    virtual void handle_custody_signal(CustodySignalEvent* event);
+    virtual void handle_custody_signal(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler when custody transfer timers expire
      */
-    virtual void handle_custody_timeout(CustodyTimeoutEvent* event);
+    virtual void handle_custody_timeout(SPtr_BundleEvent& sptr_event);
     
     /**
      * Default event handler for shutdown requests.
      */
-    virtual void handle_shutdown_request(ShutdownRequest* event);
+    virtual void handle_shutdown_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for status requests.
      */
-    virtual void handle_status_request(StatusRequest* event);
+    virtual void handle_status_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for CLA parameter set requests.
      */
-    virtual void handle_cla_set_params(CLASetParamsRequest*);
+    virtual void handle_cla_set_params(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for CLA parameters set events.
      */
-    virtual void handle_cla_params_set(CLAParamsSetEvent*);
+    virtual void handle_cla_params_set(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for set link defaults requests.
      */
-    virtual void handle_set_link_defaults(SetLinkDefaultsRequest*);
+    virtual void handle_set_link_defaults(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for new EIDs discovered by CLA.
      */
-    virtual void handle_new_eid_reachable(NewEIDReachableEvent*);
+    virtual void handle_new_eid_reachable(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handlers for queries to and reports from the CLA.
      */
-    virtual void handle_bundle_queued_query(BundleQueuedQueryRequest*);
-    virtual void handle_bundle_queued_report(BundleQueuedReportEvent*);
-    virtual void handle_eid_reachable_query(EIDReachableQueryRequest*);
-    virtual void handle_eid_reachable_report(EIDReachableReportEvent*);
-    virtual void handle_link_attributes_query(LinkAttributesQueryRequest*);
-    virtual void handle_link_attributes_report(LinkAttributesReportEvent*);
-    virtual void handle_iface_attributes_query(IfaceAttributesQueryRequest*);
-    virtual void handle_iface_attributes_report(IfaceAttributesReportEvent*);
-    virtual void handle_cla_parameters_query(CLAParametersQueryRequest*);
-    virtual void handle_cla_parameters_report(CLAParametersReportEvent*);
+    virtual void handle_bundle_queued_query(SPtr_BundleEvent& sptr_event);
+    virtual void handle_bundle_queued_report(SPtr_BundleEvent& sptr_event);
+    virtual void handle_eid_reachable_query(SPtr_BundleEvent& sptr_event);
+    virtual void handle_eid_reachable_report(SPtr_BundleEvent& sptr_event);
+    virtual void handle_link_attributes_query(SPtr_BundleEvent& sptr_event);
+    virtual void handle_link_attributes_report(SPtr_BundleEvent& sptr_event);
+    virtual void handle_iface_attributes_query(SPtr_BundleEvent& sptr_event);
+    virtual void handle_iface_attributes_report(SPtr_BundleEvent& sptr_event);
+    virtual void handle_cla_parameters_query(SPtr_BundleEvent& sptr_event);
+    virtual void handle_cla_parameters_report(SPtr_BundleEvent& sptr_event);
 
 
-#ifdef ACS_ENABLED
     /**
      * Default event handler when custody signals are received.
      */
-    virtual void handle_aggregate_custody_signal(AggregateCustodySignalEvent* event);
+    virtual void handle_aggregate_custody_signal(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for issuing an aggreage custody signal
      */
-    virtual void handle_add_bundle_to_acs(AddBundleToAcsEvent* event);
+    virtual void handle_add_bundle_to_acs(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler for an aggreage custody signal expiration
      */
-    virtual void handle_acs_expired(AcsExpiredEvent* event);
-#endif // ACS_ENABLED
+    virtual void handle_acs_expired(SPtr_BundleEvent& sptr_event);
 
 
 #ifdef DTPC_ENABLED
     /**
      * Default event handler when DTPC topic is registered
      */
-    virtual void handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event);
+    virtual void handle_dtpc_topic_registration(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC topic is unregistered
      */
-    virtual void handle_dtpc_topic_unregistration(DtpcTopicUnregistrationEvent* event);
+    virtual void handle_dtpc_topic_unregistration(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC data item is sent
      */
-    virtual void handle_dtpc_send_data_item(DtpcSendDataItemEvent* event);
+    virtual void handle_dtpc_send_data_item(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC Payload Aggregation Timer expires
      */
-    virtual void handle_dtpc_payload_aggregation_timer_expired(DtpcPayloadAggregationTimerExpiredEvent* event);
+    virtual void handle_dtpc_payload_aggregation_timer_expired(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC transmits a PDU
      */
-    virtual void handle_dtpc_transmitted_event(DtpcPduTransmittedEvent* event);
+    virtual void handle_dtpc_transmitted_event(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC requests deletion of a PDU
      */
-    virtual void handle_dtpc_delete_request(DtpcPduDeleteRequest* event);
+    virtual void handle_dtpc_delete_request(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC Payload Aggregation Timer expires
      */
-    virtual void handle_dtpc_retransmit_timer_expired(DtpcRetransmitTimerExpiredEvent* event);
+    virtual void handle_dtpc_retransmit_timer_expired(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC ACK PDUs are received
      */
-    virtual void handle_dtpc_ack_received_event(DtpcAckReceivedEvent* event);
+    virtual void handle_dtpc_ack_received_event(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when DTPC Data PDUs are received
      */
-    virtual void handle_dtpc_data_received_event(DtpcDataReceivedEvent* event);
+    virtual void handle_dtpc_data_received_event(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a DTPC Deliver PDU Timer expires
      */
-    virtual void handle_dtpc_deliver_pdu_event(DtpcDeliverPduTimerExpiredEvent* event);
+    virtual void handle_dtpc_deliver_pdu_event(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a DTPC Topic Expiration Timer expires
      */
-    virtual void handle_dtpc_topic_expiration_check(DtpcTopicExpirationCheckEvent* event);
+    virtual void handle_dtpc_topic_expiration_check(SPtr_BundleEvent& sptr_event);
 
     /**
      * Default event handler when a DTPC elision function response is received
      */
-    virtual void handle_dtpc_elision_func_response(DtpcElisionFuncResponse* event);
+    virtual void handle_dtpc_elision_func_response(SPtr_BundleEvent& sptr_event);
 #endif // DTPC_ENABLED
 
 };

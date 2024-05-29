@@ -29,7 +29,8 @@ namespace dtn {
 
 //----------------------------------------------------------------------
 bool
-WildcardScheme::validate(const URI& uri, bool is_pattern)
+WildcardScheme::validate(const URI& uri, bool is_pattern,
+                         bool& node_wildcard, bool& service_wildcard)
 {
     // the wildcard scheme can only be used for patterns and must be
     // exactly the string "*"
@@ -37,15 +38,19 @@ WildcardScheme::validate(const URI& uri, bool is_pattern)
         return false;
     }
 
+    node_wildcard = true;
+    service_wildcard = true;
+
     return true;
 }
     
 //----------------------------------------------------------------------
 bool
 WildcardScheme::match(const EndpointIDPattern& pattern,
-                      const EndpointID& eid)
+                      const SPtr_EID& sptr_eid)
 {
-    (void)eid;
+    (void) sptr_eid;
+
     ASSERT(pattern.scheme() == this); // sanity
 
     // XXX/demmer why was this here:
@@ -59,11 +64,19 @@ WildcardScheme::match(const EndpointIDPattern& pattern,
 }
 
 //----------------------------------------------------------------------
-Scheme::singleton_info_t
-WildcardScheme::is_singleton(const URI& uri)
+Scheme::eid_dest_type_t
+WildcardScheme::eid_dest_type(const URI& uri) 
 {
     (void)uri;
     return EndpointID::MULTINODE;
+}
+
+//----------------------------------------------------------------------
+bool
+WildcardScheme::is_singleton(const URI& uri)
+{
+    (void)uri;
+    return false;
 }
 
 } // namespace dtn

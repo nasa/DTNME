@@ -26,11 +26,13 @@
 #endif
 #include <inttypes.h>
 
-#include "oasys/util/OptParser.h"
-#include "oasys/util/StringBuffer.h"
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "DtpcProfileStore.h"
 #include "DtpcProfileTable.h"
+
+#include "bundling/BundleDaemon.h"
 
 namespace dtn {
 
@@ -132,8 +134,8 @@ DtpcProfileTable::parse_params(DtpcProfile* profile,
 
     // finish parsing the ReplyTo EID if provided
     if (replyto_set) {
-        EndpointID eid(replyto);
-        if (!eid.valid() || !eid.known_scheme()) {
+        SPtr_EID sptr_eid = BD_MAKE_EID(replyto);
+        if (!sptr_eid->valid() || !sptr_eid->known_scheme()) {
             // point to the invalid parameter
             if (invalidp) {
                 for (int ix=0; ix<argc; ++ix) {
@@ -146,7 +148,7 @@ DtpcProfileTable::parse_params(DtpcProfile* profile,
         }
 
         // store the replyto EID in theprofile
-        profile->mutable_replyto()->assign(replyto);
+        profile->mutable_replyto() = sptr_eid;
     }
 
     // finish parsing the priority if provided
@@ -197,7 +199,7 @@ DtpcProfileTable::add(oasys::StringBuffer *errmsg, const u_int32_t profile_id,
     oasys::ScopeLock l(&lock_, "add");
 
     if (find(profile_id, &iter)) {
-        log_err("attempt to add Profile ID %"PRIu32" which already exists", profile_id);
+        log_err("attempt to add Profile ID %" PRIu32 " which already exists", profile_id);
         if (errmsg) {
             errmsg->appendf("already exists");
         }
@@ -208,7 +210,7 @@ DtpcProfileTable::add(oasys::StringBuffer *errmsg, const u_int32_t profile_id,
 
     const char* invalidp;
     if (!parse_params(profile, argc, argv, &invalidp)) {
-        log_err("attempt to add Profile ID %"PRIu32" with invalid parameter: %s", profile_id, invalidp);
+        log_err("attempt to add Profile ID %" PRIu32 " with invalid parameter: %s", profile_id, invalidp);
         if (errmsg) {
             errmsg->appendf("invalid parameter: %s", invalidp);
         }
@@ -219,7 +221,7 @@ DtpcProfileTable::add(oasys::StringBuffer *errmsg, const u_int32_t profile_id,
     if ((0 == profile->aggregation_size_limit() && 0 != profile->aggregation_time_limit()) ||
         (0 != profile->aggregation_size_limit() && 0 == profile->aggregation_time_limit()))
     {
-        log_err("attempt to add Profile ID %"PRIu32" with invalid aggregation parameters: size: %d time: %d", 
+        log_err("attempt to add Profile ID %" PRIu32 " with invalid aggregation parameters: size: %d time: %d", 
                 profile_id, profile->aggregation_size_limit(), profile->aggregation_time_limit());
         if (errmsg) {
             errmsg->appendf("invalid aggragation parameters - both must be zero or non-zero ");
@@ -228,12 +230,12 @@ DtpcProfileTable::add(oasys::StringBuffer *errmsg, const u_int32_t profile_id,
         return false;
     }
 
-    log_info("adding DTPC transmission profile %"PRIu32, profile_id);
+    log_info("adding DTPC transmission profile %" PRIu32, profile_id);
 
     profile_list_.insert(DtpcProfilePair(profile_id, profile));
 
     if (storage_initialized_) {
-        log_debug("adding profile %"PRIu32" to ProfileTable", profile_id);
+        log_debug("adding profile %" PRIu32 " to ProfileTable", profile_id);
         profile->set_queued_for_datastore(true);
         DtpcProfileStore::instance()->add(profile);
         profile->set_in_datastore(true);
@@ -256,7 +258,7 @@ DtpcProfileTable::add_reloaded_profile(DtpcProfile* profile)
         DtpcProfile* found_profile = iter->second;
         if (*found_profile != *profile) {
             oasys::StringBuffer buf;
-            buf.appendf("Reloaded profile (%"PRIu32") does not match definition in configuration file (using config):\n", 
+            buf.appendf("Reloaded profile (%" PRIu32 ") does not match definition in configuration file (using config):\n", 
                      profile->profile_id());
             buf.appendf("           ProfID Retran AggSize AggTime Cust Lifetime Priority  ECOS Rcpt Acpt Fwrd Dlvr Dele ReplyTo\n");
             buf.appendf("           ------ ------ ------- ------- ---- -------- --------- ---- ---- ---- ---- ---- ---- --------------------\n");
@@ -266,7 +268,7 @@ DtpcProfileTable::add_reloaded_profile(DtpcProfile* profile)
             found_profile->format_for_list(&buf);
             log_multiline(oasys::LOG_WARN, buf.c_str());
         } else {
-            log_debug("Reloaded profile (%"PRIu32") matches definition in configuration file", 
+            log_debug("Reloaded profile (%" PRIu32 ") matches definition in configuration file", 
                      profile->profile_id());
         }
         found_profile->set_reloaded_from_ds();
@@ -277,7 +279,7 @@ DtpcProfileTable::add_reloaded_profile(DtpcProfile* profile)
         return false;
     }
     
-    log_info("adding reloaded DTPC transmission profile %"PRIu32, profile_id);
+    log_info("adding reloaded DTPC transmission profile %" PRIu32, profile_id);
 
     profile_list_.insert(DtpcProfilePair(profile_id, profile));
 
@@ -291,12 +293,12 @@ DtpcProfileTable::del(const u_int32_t profile_id)
     DtpcProfileIterator iter;
     DtpcProfile* profile;
     
-    log_info("removing DTPC transmission profile %"PRIu32, profile_id);
+    log_info("removing DTPC transmission profile %" PRIu32, profile_id);
 
     oasys::ScopeLock l(&lock_, "del");
 
     if (! find(profile_id, &iter)) {
-        log_err("error removing profile %"PRIu32": not in DtpcProfileTable",
+        log_err("error removing profile %" PRIu32 ": not in DtpcProfileTable",
                 profile_id);
         return false;
     }
@@ -350,7 +352,7 @@ DtpcProfileTable::storage_initialized()
     for (iter = profile_list_.begin(); iter != profile_list_.end(); ++(iter)) {
         profile = iter->second;
         if (!profile->queued_for_datastore()) {
-            log_info("adding DTPC transmission profile %"PRIu32" to ProfileStore", 
+            log_info("adding DTPC transmission profile %" PRIu32 " to ProfileStore", 
                      profile->profile_id());
             profile->set_queued_for_datastore(true);
             DtpcProfileStore::instance()->add(profile);

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,7 +36,7 @@
 #define _BUNDLE_ACTIONS_H_
 
 #include <vector>
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 #include "ForwardingInfo.h"
 #include "BundleProtocol.h"
 #include "contacts/Link.h"
@@ -45,7 +45,6 @@ namespace dtn {
 
 class Bundle;
 class CustodyTimerSpec;
-class EndpointID;
 class Interface;
 
 /**
@@ -77,11 +76,11 @@ public:
     /**
      * Queue the bundle for transmission on the given link.
      *
-     * @param bundle		the bundle
-     * @param link		the link on which to send the bundle
-     * @param action		the forwarding action that was taken,
-     *                          recorded in the log
-     * @param custody_timer	custody timer specification
+     * @param bundle           the bundle
+     * @param link             the link on which to send the bundle
+     * @param action           the forwarding action that was taken,
+     *                             recorded in the log
+     * @param custody_timer    custody timer specification
      *
      * @return true if the transmission was successfully initiated
      */
@@ -90,12 +89,29 @@ public:
                               const CustodyTimerSpec& custody_timer);
     
     /**
+     * Queue the bundle for transmission on the given link.
+     *
+     * @param bundle           the bundle
+     * @param link             the link redirecting the bundle
+     * @param redirect_cla     the name of the link to redirect the bundle to
+     * @param action           the forwarding action that was taken,
+     *                              recorded in the log
+     * @param custody_timer    custody timer specification
+     *
+     * @return true if the transmission was successfully initiated
+     */
+    virtual bool redirect_queued_bundle(Bundle* bundle, const LinkRef& link,
+                              std::string& redirect_cla,
+                              ForwardingInfo::action_t action,
+                              const CustodyTimerSpec& custody_timer);
+
+    /**
      * Attempt to cancel transmission of a bundle on the given link.
      *
-     * @param bundle		the bundle
-     * @param link		the link on which the bundle was queued
+     * @param bundle      the bundle
+     * @param link        the link on which the bundle was queued
      *
-     * @return			true if successful
+     * @return            true if successful
      */
     virtual void cancel_bundle(Bundle* bundle, const LinkRef& link);
 
@@ -106,7 +122,7 @@ public:
      * generate their own bundles for distribuing route announcements.
      * It does not, therefore, generate a BundleReceivedEvent.
      *
-     * @param bundle		the new bundle
+     * @param bundle        the new bundle
      */
     virtual void inject_bundle(Bundle* bundle);
 
@@ -119,17 +135,18 @@ public:
      *
      * @return      true if successful
      */
-    virtual bool delete_bundle(Bundle* bundle,
-                               BundleProtocol::status_report_reason_t
-                                 reason = BundleProtocol::REASON_NO_ADDTL_INFO,
-                               bool log_on_error = true);
+//    virtual bool delete_bundle(Bundle* bundle,
+//                               BundleProtocol::status_report_reason_t
+//                                 reason = BundleProtocol::REASON_NO_ADDTL_INFO,
+//                               bool log_on_error = true);
 
 protected:
     // The protected functions (exposed only to the BundleDaemon) and
     // serve solely for the simulator abstraction
     friend class BundleDaemon;
     friend class BundleDaemonInput;
-    friend class BundleInfoCache; // Need to update bundle on disk
+    friend class BundleDaemonOutput;
+//    friend class BundleInfoCache; // Need to update bundle on disk
     friend class ForwardingLog;   // Need to update bundle on disk
 
     /**

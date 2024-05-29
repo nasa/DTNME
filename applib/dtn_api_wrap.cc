@@ -271,7 +271,7 @@ dtn_send(int           handle,
 
     dtn_bundle_id* ret = new dtn_bundle_id();
     ret->source         = id.source.uri;
-    ret->creation_secs  = id.creation_ts.secs;
+    ret->creation_secs  = id.creation_ts.secs_or_millisecs;
     ret->creation_seqno = id.creation_ts.seqno;
     
     return ret;
@@ -286,7 +286,7 @@ dtn_cancel(int handle, const dtn_bundle_id& id)
     
     dtn_bundle_id_t id2;
     strcpy(id2.source.uri, id.source.c_str());
-    id2.creation_ts.secs  = id.creation_secs;
+    id2.creation_ts.secs_or_millisecs  = id.creation_secs;
     id2.creation_ts.seqno = id.creation_seqno;
     return dtn_cancel(h, &id2);
 }
@@ -362,7 +362,7 @@ dtn_recv(int handle, unsigned int payload_location, int timeout)
     bundle->priority       = spec.priority;
     bundle->dopts          = spec.dopts;
     bundle->expiration     = spec.expiration;
-    bundle->creation_secs  = spec.creation_ts.secs;
+    bundle->creation_secs  = spec.creation_ts.secs_or_millisecs;
     bundle->creation_seqno = spec.creation_ts.seqno;
     bundle->delivery_regid = spec.delivery_regid;
 
@@ -378,6 +378,7 @@ dtn_recv(int handle, unsigned int payload_location, int timeout)
         break;
     default:
         dtn_set_errno(h, DTN_EINVAL);
+        delete bundle;
         return NULL;
     }
 
@@ -386,21 +387,21 @@ dtn_recv(int handle, unsigned int payload_location, int timeout)
         dtn_bundle_status_report_t* sr_src = payload.status_report;
 
         sr_dst->bundle_id.source         = sr_src->bundle_id.source.uri;
-        sr_dst->bundle_id.creation_secs  = sr_src->bundle_id.creation_ts.secs;
+        sr_dst->bundle_id.creation_secs  = sr_src->bundle_id.creation_ts.secs_or_millisecs;
         sr_dst->bundle_id.creation_seqno = sr_src->bundle_id.creation_ts.seqno;
         sr_dst->reason                   = sr_src->reason;
         sr_dst->flags                    = sr_src->flags;
-        sr_dst->receipt_ts_secs          = sr_src->receipt_ts.secs;
+        sr_dst->receipt_ts_secs          = sr_src->receipt_ts.secs_or_millisecs;
         sr_dst->receipt_ts_seqno         = sr_src->receipt_ts.seqno;
-        sr_dst->custody_ts_secs          = sr_src->custody_ts.secs;
+        sr_dst->custody_ts_secs          = sr_src->custody_ts.secs_or_millisecs;
         sr_dst->custody_ts_seqno         = sr_src->custody_ts.seqno;
-        sr_dst->forwarding_ts_secs       = sr_src->forwarding_ts.secs;
+        sr_dst->forwarding_ts_secs       = sr_src->forwarding_ts.secs_or_millisecs;
         sr_dst->forwarding_ts_seqno      = sr_src->forwarding_ts.seqno;
-        sr_dst->delivery_ts_secs         = sr_src->delivery_ts.secs;
+        sr_dst->delivery_ts_secs         = sr_src->delivery_ts.secs_or_millisecs;
         sr_dst->delivery_ts_seqno        = sr_src->delivery_ts.seqno;
-        sr_dst->deletion_ts_secs         = sr_src->deletion_ts.secs;
+        sr_dst->deletion_ts_secs         = sr_src->deletion_ts.secs_or_millisecs;
         sr_dst->deletion_ts_seqno        = sr_src->deletion_ts.seqno;
-        sr_dst->ack_by_app_ts_secs       = sr_src->ack_by_app_ts.secs;
+        sr_dst->ack_by_app_ts_secs       = sr_src->ack_by_app_ts.secs_or_millisecs;
         sr_dst->ack_by_app_ts_seqno      = sr_src->ack_by_app_ts.seqno;
 
         bundle->status_report = sr_dst;
@@ -439,7 +440,7 @@ dtn_peek(int handle, unsigned int payload_location, int timeout)
     bundle->priority       = spec.priority;
     bundle->dopts          = spec.dopts;
     bundle->expiration     = spec.expiration;
-    bundle->creation_secs  = spec.creation_ts.secs;
+    bundle->creation_secs  = spec.creation_ts.secs_or_millisecs;
     bundle->creation_seqno = spec.creation_ts.seqno;
     bundle->delivery_regid = spec.delivery_regid;
 
@@ -455,6 +456,7 @@ dtn_peek(int handle, unsigned int payload_location, int timeout)
         break;
     default:
         dtn_set_errno(h, DTN_EINVAL);
+        delete bundle;
         return NULL;
     }
 
@@ -463,21 +465,21 @@ dtn_peek(int handle, unsigned int payload_location, int timeout)
         dtn_bundle_status_report_t* sr_src = payload.status_report;
 
         sr_dst->bundle_id.source         = sr_src->bundle_id.source.uri;
-        sr_dst->bundle_id.creation_secs  = sr_src->bundle_id.creation_ts.secs;
+        sr_dst->bundle_id.creation_secs  = sr_src->bundle_id.creation_ts.secs_or_millisecs;
         sr_dst->bundle_id.creation_seqno = sr_src->bundle_id.creation_ts.seqno;
         sr_dst->reason                   = sr_src->reason;
         sr_dst->flags                    = sr_src->flags;
-        sr_dst->receipt_ts_secs          = sr_src->receipt_ts.secs;
+        sr_dst->receipt_ts_secs          = sr_src->receipt_ts.secs_or_millisecs;
         sr_dst->receipt_ts_seqno         = sr_src->receipt_ts.seqno;
-        sr_dst->custody_ts_secs          = sr_src->custody_ts.secs;
+        sr_dst->custody_ts_secs          = sr_src->custody_ts.secs_or_millisecs;
         sr_dst->custody_ts_seqno         = sr_src->custody_ts.seqno;
-        sr_dst->forwarding_ts_secs       = sr_src->forwarding_ts.secs;
+        sr_dst->forwarding_ts_secs       = sr_src->forwarding_ts.secs_or_millisecs;
         sr_dst->forwarding_ts_seqno      = sr_src->forwarding_ts.seqno;
-        sr_dst->delivery_ts_secs         = sr_src->delivery_ts.secs;
+        sr_dst->delivery_ts_secs         = sr_src->delivery_ts.secs_or_millisecs;
         sr_dst->delivery_ts_seqno        = sr_src->delivery_ts.seqno;
-        sr_dst->deletion_ts_secs         = sr_src->deletion_ts.secs;
+        sr_dst->deletion_ts_secs         = sr_src->deletion_ts.secs_or_millisecs;
         sr_dst->deletion_ts_seqno        = sr_src->deletion_ts.seqno;
-        sr_dst->ack_by_app_ts_secs       = sr_src->ack_by_app_ts.secs;
+        sr_dst->ack_by_app_ts_secs       = sr_src->ack_by_app_ts.secs_or_millisecs;
         sr_dst->ack_by_app_ts_seqno      = sr_src->ack_by_app_ts.seqno;
 
         bundle->status_report = sr_dst;

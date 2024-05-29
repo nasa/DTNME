@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,9 +35,9 @@
 #ifndef _UDP_CONVERGENCE_LAYER_H_
 #define _UDP_CONVERGENCE_LAYER_H_
 
-#include <oasys/io/UDPClient.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/io/RateLimitedSocket.h>
+#include <third_party/oasys/io/UDPClient.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/io/RateLimitedSocket.h>
 
 #include "IPConvergenceLayer.h"
 
@@ -65,6 +65,12 @@ public:
      */
     bool interface_up(Interface* iface, int argc, const char* argv[]);
     void interface_activate(Interface* iface);
+
+    /**
+     * List valid options for links and interfaces
+     */
+    void list_link_opts(oasys::StringBuffer& buf);
+    void list_interface_opts(oasys::StringBuffer& buf);
 
     /**
      * Bring down the interface.
@@ -111,7 +117,8 @@ public:
     /**
      * Send the bundle out the link.
      */
-    void bundle_queued(const LinkRef& link, const BundleRef& bundle);
+    void bundle_queued(const LinkRef& link, const BundleRef& bundle) override;
+    void bundle_queued_orig(const LinkRef& link, const BundleRef& bundle);
 
     /**
      * Tunable parameter structure.
@@ -133,10 +140,12 @@ public:
         u_int16_t local_port_;		///< Local port to bind to
         in_addr_t remote_addr_;		///< Peer address to connect to
         u_int16_t remote_port_;		///< Peer port to connect to
-        oasys::RateLimitedSocket::BUCKET_TYPE bucket_type_;         ///< bucket type for standard or leaky
-        uint64_t  rate_;		///< Rate (in bps)
+        uint64_t  rate_;     		///< Rate (in bps)
         uint64_t  bucket_depth_;	///< Token bucket depth (in bits)
-        bool      wait_and_send_;       ///< Force the socket to wait until sent on rate socket only
+        uint32_t  recvbuf_;         ///< Size for the socket receive buffer in bytes
+        uint32_t  sendbuf_;         ///< Size for the socket send buffer in bytes
+
+        oasys::RateLimitedSocket::BUCKET_TYPE bucket_type_;         ///< bucket type for standard or leaky
     };
     
     /**
@@ -151,7 +160,8 @@ protected:
 
     in_addr_t next_hop_addr_;
     u_int16_t next_hop_port_;
-    int       next_hop_flags_; 
+//    int       next_hop_flags_; 
+
     /**
      * Helper class (and thread) that listens on a registered
      * interface for incoming data.
@@ -180,9 +190,9 @@ protected:
          * public in case we don't want to actually create a new thread
          * for this guy, but instead just want to run the main loop.
          */
-        void run();
+        void run() override;
 
-        UDPConvergenceLayer::Params params_;
+        UDPConvergenceLayer::Params cla_params_;
         
     protected:
         /**
@@ -194,7 +204,9 @@ protected:
     /*
      * Helper class that wraps the sender-side per-contact state.
      */
-    class Sender : public CLInfo, public Logger {
+    class Sender : public CLInfo, 
+                   public oasys::Thread,
+                   public Logger {
     public:
         /**
          * Destructor.
@@ -212,18 +224,29 @@ protected:
         /**
          * Constructor.
          */
-        Sender(const ContactRef& contact);
+        Sender(const LinkRef& link, const ContactRef& contact);
         
+        /**
+         * Loop forever, checking for bundles queued to be sent
+         */
+        void run() override;
+
         /**
          * Send one bundle.
          * @return the length of the bundle sent or -1 on error
          */
-        int send_bundle(const BundleRef& bundle, in_addr_t next_hop_addr_, u_int16_t next_hop_port_);
+        int send_bundle(const BundleRef& bundle, in_addr_t next_hop_addr, u_int16_t next_hop_port);
 
         /**
          * Pointer to the link parameters.
          */
-        Params* params_;
+        Params* cla_params_;
+
+        /// destination IP address in correct form for transmission
+        in_addr_t next_hop_addr_;
+
+        /// destination UDP port for transmission
+        u_int16_t next_hop_port_;
 
         /**
          * The udp client socket.
@@ -235,6 +258,11 @@ protected:
          */
         oasys::RateLimitedSocket* rate_socket_;
         
+        /**
+         * The Link that we're using
+         */
+        LinkRef link_;
+
         /**
          * The contact that we're representing.
          */

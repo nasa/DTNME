@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,11 +36,12 @@
 #define _REGISTRATION_H_
 
 #include <list>
+#include <memory>
 #include <string>
 
-#include <oasys/debug/Log.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/Timer.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/Timer.h>
 
 #include "../bundling/BundleInfoCache.h"
 #include "../naming/EndpointID.h"
@@ -49,6 +50,18 @@ namespace dtn {
 
 class Bundle;
 class RegistrationInitialLoadThread;
+
+class Registration;
+typedef std::shared_ptr<Registration> SPtr_Registration;
+
+
+#define REG_DELIVER_BUNDLE_QUEUED       1
+#define REG_DELIVER_BUNDLE_SUCCESS      0
+#define REG_DELIVER_BUNDLE_DUPLICATE   -1
+#define REG_DELIVER_BUNDLE_DROPPED     -2
+
+
+
 
 /**
  * Class used to represent an "application" registration, loosely
@@ -71,9 +84,11 @@ public:
     static const u_int32_t LINKSTATEROUTER_REGID = 1;
     static const u_int32_t PING_REGID = 2;
     static const u_int32_t EXTERNALROUTER_REGID = 3;
-    static const u_int32_t OLD_REGID = 4;
+    static const u_int32_t RESERVED_REGID = 4;
     static const u_int32_t ADMIN_REGID_IPN = 5;
     static const u_int32_t IPN_ECHO_REGID = 6;
+    static const u_int32_t IMC_GROUP_PETITION_REGID = 7;
+    static const u_int32_t ION_CONTACT_PLAN_SYNC_REGID = 8;
     static const u_int32_t MAX_RESERVED_REGID = 9;
     
     /**
@@ -83,7 +98,7 @@ public:
     typedef enum {
         DROP,		///< Drop bundles
         DEFER,		///< Spool bundles until requested
-        EXEC		///< Execute the specified callback procedure
+//dzdebug        EXEC		///< Execute the specified callback procedure
     } failure_action_t;
 
     /**
@@ -114,12 +129,22 @@ public:
     /**
      * Constructor.
      */
+public:
     Registration(u_int32_t regid,
-                 const EndpointIDPattern& endpoint,
+                 const SPtr_EIDPattern& sptr_pattern,
                  u_int32_t failure_action,
+                 u_int32_t replay_action,
                  u_int32_t session_flags,
                  u_int32_t expiration,
-                 u_int32_t replay_action = ALL,
+                 bool delivery_acking = false,
+                 const std::string& script = "");
+
+    Registration(u_int32_t regid,
+                 const SPtr_EID& sptr_eid,
+                 u_int32_t failure_action,
+                 u_int32_t replay_action,
+                 u_int32_t session_flags,
+                 u_int32_t expiration,
                  bool delivery_acking = false,
                  const std::string& script = "");
 
@@ -129,9 +154,14 @@ public:
     virtual ~Registration();
 
     /**
+     * Method to change the type displayed in the registratio list command
+     */
+    void set_reg_list_type_str(const char* type_str);
+
+    /**
      * Abstract hook for subclasses to deliver a bundle to this registration.
      */
-    virtual void deliver_bundle(Bundle* bundle) = 0;
+    virtual int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) = 0;
 
     /**
      * Hook for subclasses to delete bundles from internal lists (if applicable)
@@ -141,7 +171,7 @@ public:
     /**
      * Deliver the bundle if it isn't a duplicate.
      */
-    bool deliver_if_not_duplicate(Bundle* bundle);
+    int deliver_if_not_duplicate(Bundle* bundle, SPtr_Registration& sptr_reg);
     
     /**
      * Hook for subclasses to handle a new session notification on
@@ -161,7 +191,7 @@ public:
     /// Accessors
     u_int32_t                durable_key()       const { return regid_; }
     u_int32_t                regid()             const { return regid_; }
-    const EndpointIDPattern& endpoint()          const { return endpoint_; } 
+    const SPtr_EIDPattern&   endpoint()          const { return sptr_endpoint_; } 
     failure_action_t         failure_action()    const
     {
         return static_cast<failure_action_t>(failure_action_);
@@ -191,7 +221,7 @@ public:
     /**
      * Virtual from Formatter
      */
-    int format(char* buf, size_t sz) const;
+    int format(char* buf, size_t sz) const override;
 
     /**
      * Virtual from SerializableObject.
@@ -224,21 +254,23 @@ protected:
     /**
      * Class to implement registration expirations.
      */
-    class ExpirationTimer : public oasys::Timer {
+    class ExpirationTimer : public oasys::SharedTimer {
     public:
-        ExpirationTimer(Registration* reg)
-            : reg_(reg) {}
+        ExpirationTimer(SPtr_Registration& sptr_reg)
+            : sptr_reg_(sptr_reg) {}
 
         void timeout(const struct timeval& now);
         
-        Registration* reg_;
+        SPtr_Registration sptr_reg_;
     };
+    
+    typedef std::shared_ptr<ExpirationTimer> SPtr_ExpirationTimer;
 
     void init_expiration_timer();
     void cleanup_expiration_timer();
     
     u_int32_t regid_;
-    EndpointIDPattern endpoint_;
+    SPtr_EIDPattern sptr_endpoint_;
     u_int32_t failure_action_;	
     u_int32_t replay_action_;	
     u_int32_t session_flags_;	
@@ -246,7 +278,7 @@ protected:
     std::string script_;
     u_int32_t expiration_;
     u_int32_t creation_time_;
-    ExpirationTimer* expiration_timer_;
+    SPtr_ExpirationTimer expiration_timer_;
     bool active_;    
     bool bound_;    
     bool expired_;
@@ -254,6 +286,10 @@ protected:
     bool add_to_datastore_;
     bool in_storage_queue_;        ///< Flag indicating whether bundle update event is  
                                    ///  queued in the storage thread
+
+    /// Registration type name to display inregistration list command
+    std::string reg_list_type_str_;
+
     BundleInfoCache delivery_cache_;
 
     RegistrationInitialLoadThread* initial_load_thread_;
@@ -262,7 +298,7 @@ protected:
 /**
  * Typedef for a list of Registrations.
  */
-class RegistrationList : public std::list<Registration*> {};
+class RegistrationList : public std::list<SPtr_Registration> {};
 
 } // namespace dtn
 

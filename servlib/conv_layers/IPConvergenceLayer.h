@@ -20,7 +20,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <oasys/compat/inttypes.h>
+#include <third_party/oasys/compat/inttypes.h>
 
 #include "ConvergenceLayer.h"
 

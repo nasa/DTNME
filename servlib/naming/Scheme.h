@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include <oasys/util/URI.h>
+#include <third_party/oasys/util/URI.h>
 #include "EndpointID.h"
 
 namespace dtn {
@@ -46,67 +46,48 @@ public:
      * this scheme. If the 'is_pattern' paraemeter is true, then the
      * ssp is being validated as an EndpointIDPattern.
      *
+     * also returns whether IPN or IMC patterns have 
+     * wildcards for the node/group or service numbers
+     *
      * @return true if valid
      */
-    virtual bool validate(const URI& uri, bool is_pattern = false) = 0;
+    virtual bool validate(const URI& uri, bool is_pattern, 
+                          bool& node_wildcard, bool& service_wildcard) = 0;
 
     /**
      * Match the pattern to the endpoint id in a scheme-specific
      * manner.
      */
     virtual bool match(const EndpointIDPattern& pattern,
-                       const EndpointID& eid) = 0;
+                       const SPtr_EID& sptr_eid) = 0;
     
     /**
-     * Append the given service tag to the uri in a scheme-specific
-     * manner. By default, the scheme is not capable of this.
-     *
-     * @return true if this scheme is capable of service tags and the
-     * tag is a legal one, false otherwise.
+     * Whether the IPN Scheme Node Numbers match. 
+     * Default is to assume this is not the IPN scheme so return false.
      */
-    virtual bool append_service_tag(URI* uri, const char* tag)
+    virtual bool ipn_node_match(const SPtr_EID& sptr_eid1, const SPtr_EID& sptr_eid2)
     {
-        (void)uri;
-        (void)tag;
+        (void) sptr_eid1;
+        (void) sptr_eid2;
         return false;
     }
-
-    /**
-     * Append wildcard to the uri in a scheme-specific manner. The
-     * default scheme is not capable of this.
-     *
-     * @return true if this scheme is capable of wildcards and the
-     * wildcard is successfully appended, else false.
-     */
-    virtual bool append_service_wildcard(URI* uri)
-    {
-        (void)uri;
-        return false;
-    }
-
-    /**
-     * Reduce URI to node ID in a scheme specific manner. The default
-     * scheme is not capable of this.
-     *
-     * @return true if this scheme is capable of this reduction and 
-     * the reduction is successful, else false.
-     */
-    virtual bool remove_service_tag(URI* uri)
-    {
-        (void)uri;
-        return false;
-    }
-
+    
     /**
      * Copy of the EndpointID's type structure for determining if the
      * endpoint is, is not, or may be a singleton.
      */
-    typedef EndpointID::singleton_info_t singleton_info_t;
+    typedef EndpointID::eid_dest_type_t eid_dest_type_t;
     
     /**
-     * Check if the given URI is a singleton endpoint id.
+     * Get the destination type of the given URI`
      */
-    virtual singleton_info_t is_singleton(const URI& uri) = 0;
+    virtual eid_dest_type_t eid_dest_type(const URI& uri) = 0;
+
+    /**
+     * Check if the scheme type is a singleton endpoint id.
+     */
+    virtual bool is_singleton(const URI& uri) = 0;
+
 };
     
 }

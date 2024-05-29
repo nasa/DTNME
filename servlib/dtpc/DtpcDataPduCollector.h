@@ -20,10 +20,10 @@
 
 #include <map>
 
-#include "oasys/debug/Log.h"
-#include <oasys/serialize/Serialize.h>
-#include "oasys/util/ScratchBuffer.h"
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "bundling/BundleRef.h"
 #include "naming/EndpointID.h"
@@ -63,7 +63,7 @@ public:
      * key is a string consisting of an Endpoint ID and a Profile ID
      */
     DtpcDataPduCollector(std::string key, 
-                         const EndpointID& remote_eid, 
+                         const SPtr_EID& sptr_remote_eid, 
                          const u_int32_t profile_id);
 
     /**
@@ -116,7 +116,7 @@ public:
     virtual oasys::Lock&        lock()             { return lock_; }
     virtual std::string         key()              { return key_; }
     virtual u_int32_t           profile_id()       { return profile_id_; }
-    virtual const EndpointID&   remote_eid()       { return remote_eid_; }
+    virtual const SPtr_EID      remote_eid()       { return sptr_remote_eid_; }
     virtual u_int64_t           seq_ctr()          { return seq_ctr_; }
 
     virtual bool in_datastore()                    { return in_datastore_; }
@@ -126,7 +126,7 @@ public:
 
     /// @{ Setters and mutable accessors
     virtual void set_profile_id(u_int32_t t)       { profile_id_ = t; }
-    virtual EndpointID* mutable_remote_eid()       { return &remote_eid_; }
+    virtual SPtr_EID& mutable_remote_eid()         { return sptr_remote_eid_; }
 
     virtual void set_in_datastore(bool t)          { in_datastore_ = t; }
     virtual void set_queued_for_datastore(bool t)  { queued_for_datastore_ = t; }
@@ -178,7 +178,7 @@ private:
     u_int64_t seq_ctr_;
 
     /// EID - Source or Destination depending on context
-    EndpointID remote_eid_;
+    SPtr_EID sptr_remote_eid_;
 
     /// Time when the Data PDU delivery timer should trigger (kept for reload from datastore)
     struct timeval expiration_time_;
@@ -196,7 +196,7 @@ private:
     DtpcPduSeqCtrMap pdu_map_;
 
     /// Timer to trigger delivery of a PDU
-    DtpcDeliverPduTimer* timer_;
+    SPtr_DtpcDeliverPduTimer timer_;
 
     /// buffer in which to construct the ACK bundle payload
     DtpcPayloadBuffer buf_;

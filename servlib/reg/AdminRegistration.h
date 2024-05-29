@@ -19,6 +19,8 @@
 
 #include "Registration.h"
 
+#include "bundling/BIBEExtractor.h"
+
 namespace dtn {
 
 /**
@@ -33,7 +35,21 @@ public:
     /**
      * Deliver the given bundle.
      */
-    void deliver_bundle(Bundle* bundle);
+    int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) override;
+
+protected:
+
+    /**
+     * Deliver the given bundle based on BP version
+     */
+    int deliver_bundle_bp6(Bundle* bundle, SPtr_Registration& sptr_reg);
+    int deliver_bundle_bp7(Bundle* bundle, SPtr_Registration& sptr_reg);
+
+    const char* fld_name() { return fld_name_.c_str(); }
+
+private:
+    std::string fld_name_;
+
 };
 
 } // namespace dtn

@@ -22,7 +22,7 @@
 #ifndef _METADATA_BLOCK_H_
 #define _METADATA_BLOCK_H_
 
-#include <oasys/thread/Mutex.h>
+#include <third_party/oasys/thread/Mutex.h>
 
 #include "BlockInfo.h"
 #include "BlockProcessor.h"

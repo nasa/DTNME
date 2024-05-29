@@ -24,7 +24,7 @@
 #include "DtpcDataPduCollectorStore.h"
 
 template <>
-dtn::DtpcDataPduCollectorStore* oasys::Singleton<dtn::DtpcDataPduCollectorStore, false>::instance_ = 0;
+dtn::DtpcDataPduCollectorStore* oasys::Singleton<dtn::DtpcDataPduCollectorStore, false>::instance_ = nullptr;
 
 namespace dtn {
 
@@ -34,6 +34,17 @@ DtpcDataPduCollectorStore::DtpcDataPduCollectorStore()
 {
 }
 
+int
+DtpcDataPduCollectorStore::init(const oasys::StorageConfig& cfg,
+                                oasys::DurableStore*        store)
+{
+    if (instance_ != nullptr) {
+        PANIC("DtpcDataPduCollectorStore::init called multiple times");
+    }
+    instance_ = new DtpcDataPduCollectorStore();
+    return instance_->do_init(cfg, store);
+}
+    
 
 } // namespace dtn
 

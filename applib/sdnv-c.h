@@ -26,14 +26,14 @@ extern "C" {
 /**
  * Return the number of bytes needed to encode the given value.
  */
-extern size_t sdnv_encoding_len(u_int64_t val);
+extern size_t sdnv_encoding_len(uint64_t val);
 
 /**
  * Convert the given 64-bit integer into an SDNV.
  *
  * @return The number of bytes used, or -1 on error.
  */
-extern int sdnv_encode(u_int64_t val, u_char* bp, size_t len);
+extern int sdnv_encode(uint64_t val, unsigned char* bp, size_t len);
 
 /**
  * Convert an SDNV pointed to by bp into a unsigned 64-bit
@@ -41,7 +41,7 @@ extern int sdnv_encode(u_int64_t val, u_char* bp, size_t len);
  *
  * @return The number of bytes of bp consumed, or -1 on error.
  */
-extern int sdnv_decode(const u_char* bp, size_t len, u_int64_t* val);
+extern int sdnv_decode(const unsigned char* bp, size_t len, uint64_t* val);
 
 #ifdef __cplusplus
 }

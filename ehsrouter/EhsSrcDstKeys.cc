@@ -19,8 +19,6 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
 #include <inttypes.h>
 
 #include "EhsSrcDstKeys.h"
@@ -292,5 +290,3 @@ EhsSrcDstWildKey::operator= (const EhsSrcDstWildKey& other) const
 
 } // namespace dtn
 
-
-#endif // EHSROUTER_ENABLED

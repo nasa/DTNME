@@ -17,10 +17,17 @@
 #ifndef _STREAM_CONVERGENCE_LAYER_H_
 #define _STREAM_CONVERGENCE_LAYER_H_
 
+#include <third_party/oasys/util/Time.h>
+
 #include "ConnectionConvergenceLayer.h"
 #include "CLConnection.h"
 
+
 namespace dtn {
+
+// forward declarations
+class BundleDaemon;
+
 
 /**
  * Another shared-implementation convergence layer class for use with
@@ -171,10 +178,12 @@ protected:
          */
         void serialize( oasys::SerializeAction *);
 
-        bool  segment_ack_enabled_;	///< Use per-segment acks
-        bool  negative_ack_enabled_;	///< Enable negative acks
-        u_int keepalive_interval_;	///< Seconds between keepalive packets
-        u_int segment_length_;		///< Maximum size of transmitted segments
+        bool     segment_ack_enabled_;	            ///< Use per-segment acks
+        bool     negative_ack_enabled_;	            ///< Enable negative acks
+        uint16_t keepalive_interval_;	            ///< Seconds between keepalive packets
+        bool     break_contact_on_keepalive_fault_; /// Whether to break contact if keepalive not received
+        uint64_t segment_length_;		            ///< Maximum size of transmitted segments
+        uint32_t max_inflight_bundles_;             ///< Max unacked inflight bundles
 
     protected:
         // See comment in LinkParams for why this should be protected
@@ -200,6 +209,8 @@ protected:
                    StreamLinkParams* params,
                    bool active_connector);
 
+        virtual ~Connection() {}
+
         /// @{ virtual from CLConnection
         virtual bool send_pending_data();
         virtual void handle_bundles_queued();
@@ -222,18 +233,22 @@ protected:
         virtual void retry_to_accept_incoming_bundle(IncomingBundle* incoming);
         /// @}
 
-    //XXX/dz allow derived class to call/override a few of the methods that were private
     protected:
         /// @{ utility functions 
         virtual void note_data_rcvd();
         virtual void note_data_sent();
         virtual bool send_data_todo(InFlightBundle* inflight);
+        virtual bool send_pending_acks();
         virtual bool finish_bundle(InFlightBundle* inflight);
         virtual void send_keepalive();
+        virtual void check_completed(InFlightBundle* inflight);
 
         virtual void handle_contact_initiation();
         virtual bool handle_data_segment(u_int8_t flags);
         virtual bool handle_data_todo();
+        virtual bool handle_ack_segment(u_int8_t flags);
+        virtual bool handle_refuse_bundle(u_int8_t flags);
+        virtual bool handle_keepalive(u_int8_t flags);
         /// @}
 
         /**
@@ -249,40 +264,36 @@ protected:
 
     private:
         /// @{ utility functions used internally in this class
-        //virtual void note_data_rcvd();
-        //virtual void note_data_sent();
-        virtual bool send_pending_acks();
+        virtual void queue_acks_for_incoming_bundle(IncomingBundle* incoming);
         virtual bool start_next_bundle();
         virtual bool send_next_segment(InFlightBundle* inflight);
-        //virtual bool send_data_todo(InFlightBundle* inflight);
-        //virtual bool finish_bundle(InFlightBundle* inflight);
-        virtual void check_completed(InFlightBundle* inflight);
-        //virtual void send_keepalive();
         
-        //virtual void handle_contact_initiation();
-        //virtual bool handle_data_segment(u_int8_t flags);
-        //virtual bool handle_data_todo();
-        virtual bool handle_ack_segment(u_int8_t flags);
-        virtual bool handle_refuse_bundle(u_int8_t flags);
-        virtual bool handle_keepalive(u_int8_t flags);
         virtual bool handle_shutdown(u_int8_t flags);
         virtual void check_completed(IncomingBundle* incoming);
         /// @}
 
         
     protected:
-        InFlightBundle* current_inflight_; ///< Current bundle that's in flight 
-        size_t send_segment_todo_; 	///< Bytes left to send of current segment
-        size_t recv_segment_todo_; 	///< Bytes left to recv of current segment
+        std::string base_logpath_; ///< format string for setting the logpath once peer is known
+
+        uint8_t cl_version_;  ///< Convergence Layer version this Connection is using
+        InFlightBundle* current_inflight_ = nullptr; ///< Current bundle that's in flight 
+        size_t send_segment_todo_ = 0; 	///< Bytes left to send of current segment
+        size_t recv_segment_todo_ = 0; 	///< Bytes left to recv of current segment
+        size_t recv_segment_to_refuse_ = 0; 	///< Bytes left to refuse of current segment
+        uint64_t refuse_transfer_id_ = UINT64_MAX; 	///< XFER_SEGEMENT Transfer ID being refused
         struct timeval data_rcvd_;	///< Timestamp for idle/keepalive timer
         struct timeval data_sent_;	///< Timestamp for idle timer
         struct timeval keepalive_sent_;	///< Timestamp for keepalive timer
-        bool breaking_contact_;		///< Bit to catch multiple calls to
+        bool breaking_contact_ = false;		///< Bit to catch multiple calls to
                                         ///< break_contact 
-        bool contact_initiated_; //< bit to prevent certain actions before
+        bool contact_initiated_ = false; //< bit to prevent certain actions before
     	                             //< contact is initiated
-        int delay_reads_to_free_some_storage_; ///< allow 10 sends to free up some memory
-        IncomingBundle* incoming_bundle_to_retry_to_accept_;
+        bool delay_reads_to_free_some_storage_ = false; ///< allow some sends to free up some memory
+        oasys::Time delay_reads_timer_;
+        IncomingBundle* incoming_bundle_to_retry_to_accept_ = nullptr;
+
+        BundleDaemon* bdaemon_ = nullptr;  ///< pointer to the BundleDaemon instance
     };
 
     /// For some gcc variants, this typedef seems to be needed

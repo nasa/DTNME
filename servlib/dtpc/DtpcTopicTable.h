@@ -21,8 +21,8 @@
 #include <string>
 #include <list>
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "DtpcTopic.h"
 #include "naming/EndpointID.h"

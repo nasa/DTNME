@@ -13,7 +13,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -33,8 +33,9 @@
 #ifndef _IPN_SCHEME_H_
 #define _IPN_SCHEME_H_
 
+#include "EndpointID.h"
 #include "Scheme.h"
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 
@@ -50,12 +51,14 @@ namespace dtn {
 class IPNScheme : public Scheme, public oasys::Singleton<IPNScheme> {
 public:
     /// @{ virtual from Scheme
-    virtual bool validate(const URI& uri, bool is_pattern = false);
+    virtual bool validate(const URI& uri, bool is_pattern, 
+                          bool& node_wildcard, bool& service_wildcard) override;
     virtual bool match(const EndpointIDPattern& pattern,
-                       const EndpointID& eid);
-    virtual bool append_service_tag(URI* uri, const char* tag);
-    virtual bool append_service_wildcard(URI* uri);
-    virtual singleton_info_t is_singleton(const URI& uri);
+                       const SPtr_EID& sptr_eid) override;
+    virtual bool ipn_node_match(const SPtr_EID& sptr_eid1, const SPtr_EID& sptr_eid2) override;
+    
+    virtual eid_dest_type_t eid_dest_type(const URI& uri) override;
+    virtual bool is_singleton(const URI& uri) override;
     /// @}
 
     /**
@@ -70,43 +73,28 @@ public:
      * @return Whether the ssp is well-formed
      */
     static bool parse(const std::string& ssp,
-                      u_int64_t* node, u_int64_t* service);
+                      size_t* node, size_t* service);
 
     /**
      * Try to parse the EID's ssp into a node/service pair.
      *
      * @return Whether the ssp is well-formed
      */
-    static bool parse(const EndpointID& eid,
-                      u_int64_t* node, u_int64_t* service)
-    {
-        if (eid.scheme() != IPNScheme::instance() && eid != EndpointID::NULL_EID())
-        {
-            return false;
-        }
-        return parse(eid.ssp(), node, service);
-    }
+    static bool parse(const SPtr_EID& sptr_eid,
+                      size_t* node, size_t* service);
 
     /**
      * Fill in the given ssp string with a well-formed IPN eid using
      * the given node/service.
      */
-    static void format(std::string* ssp, u_int64_t node, u_int64_t service);
+    static void format(std::string* ssp, size_t node, size_t service);
     
+private:
     /**
-     * Fill in the given eid string with a well-formed IPN eid using
+     * Load the EndpointID object with a well-formed IMC eid using
      * the given node/service.
      */
-    static void format(EndpointID* eid, u_int64_t node, u_int64_t service)
-    {
-        if ( 0 == node && 0 == service ) {
-            eid->assign(EndpointID::NULL_EID());
-        } else {
-            std::string ssp;
-            format(&ssp, node, service);
-            eid->assign("ipn", ssp);
-        }
-    }
+    static void format(SPtr_EID& sptr_eid, size_t node, size_t service);
     
 private:
     friend class oasys::Singleton<IPNScheme>;

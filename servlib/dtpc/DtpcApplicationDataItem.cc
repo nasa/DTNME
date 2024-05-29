@@ -23,10 +23,12 @@
 
 #include "DtpcApplicationDataItem.h"
 
+#include "bundling/BundleDaemon.h"
+
 namespace dtn {
 
 //----------------------------------------------------------------------
-DtpcApplicationDataItem::DtpcApplicationDataItem(const EndpointID& remote_eid, 
+DtpcApplicationDataItem::DtpcApplicationDataItem(const SPtr_EID& remote_eid, 
                                                  u_int32_t topic_id)
     : topic_id_(topic_id),
       expiration_ts_(0),
@@ -46,7 +48,7 @@ DtpcApplicationDataItem::DtpcApplicationDataItem(const oasys::Builder&)
       size_(0),
       data_(NULL)
 {
-    set_remote_eid(EndpointID::NULL_EID());
+    sptr_remote_eid_ = BD_MAKE_EID_NULL();
 }
 
 //----------------------------------------------------------------------
@@ -68,8 +70,14 @@ DtpcApplicationDataItem::serialize(oasys::SerializeAction* a)
 
     if (a->action_code() == oasys::Serialize::UNMARSHAL) {
         if (sz > allocated_size_) {
-            data_ = (u_int8_t*) realloc(data_, sz);
-            allocated_size_ = sz;
+            u_int8_t* tmp = (u_int8_t*) realloc(data_, sz);
+            if (tmp != nullptr) {
+                data_ = tmp;
+                allocated_size_ = sz;
+            } else {
+                log_err_p("/dtpc", "DtpcApplicationDataItem::serialize - Error in realloc of size: %zu", sz);
+                return; 
+            }
         }
         size_ = sz;
     }
@@ -81,8 +89,14 @@ void
 DtpcApplicationDataItem::set_data(size_t size, u_int8_t* data)
 {
     if (size > allocated_size_) {
-        data_ = (u_int8_t*) realloc(data_, size);
-        allocated_size_ = size;
+        u_int8_t* tmp = (u_int8_t*) realloc(data_, size);
+        if (tmp != nullptr) {
+            data_ = tmp;
+            allocated_size_ = size;
+        } else {
+            log_err_p("/dtpc", "DtpcApplicationDataItem::set_data - Error in realloc of size: %zu", size);
+            return;
+        }
     }
     size_ = size;
     memcpy(data_, data, size_);
@@ -93,8 +107,14 @@ void
 DtpcApplicationDataItem::reserve(size_t size)
 {
     if (size > allocated_size_) {
-        data_ = (u_int8_t*) realloc(data_, size);
-        allocated_size_ = size;
+        u_int8_t* tmp = (u_int8_t*) realloc(data_, size);
+        if (tmp != nullptr) {
+            data_ = tmp;
+            allocated_size_ = size;
+        } else {
+            log_err_p("/dtpc", "DtpcApplicationDataItem::set_data - Error in realloc of size: %zu", size);
+            return;
+        }
     }
     size_ = size;
 }

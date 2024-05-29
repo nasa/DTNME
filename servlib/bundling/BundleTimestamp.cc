@@ -19,7 +19,7 @@
 #endif
 
 #include <time.h>
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "BundleTimestamp.h"
 
@@ -28,16 +28,26 @@ namespace dtn {
 /**
  * The number of seconds between 1/1/1970 and 1/1/2000.
  */
-u_int32_t BundleTimestamp::TIMEVAL_CONVERSION = 946684800;
+size_t BundleTimestamp::TIMEVAL_CONVERSION_SECS = 946684800;
 
-u_int32_t
-BundleTimestamp::get_current_time()
+size_t
+BundleTimestamp::get_current_time_millis()
 {
     struct timeval now;
     ::gettimeofday(&now, 0);
     
-    ASSERT((u_int)now.tv_sec >= TIMEVAL_CONVERSION);
-    return now.tv_sec - TIMEVAL_CONVERSION;
+    ASSERT((size_t)now.tv_sec >= TIMEVAL_CONVERSION_SECS);
+    return ((now.tv_sec - TIMEVAL_CONVERSION_SECS) * 1000) + (now.tv_usec / 1000);
+}
+
+size_t
+BundleTimestamp::get_current_time_secs()
+{
+    struct timeval now;
+    ::gettimeofday(&now, 0);
+    
+    ASSERT((size_t)now.tv_sec >= TIMEVAL_CONVERSION_SECS);
+    return now.tv_sec - TIMEVAL_CONVERSION_SECS;
 }
 
 bool
@@ -46,7 +56,7 @@ BundleTimestamp::check_local_clock()
     struct timeval now;
     ::gettimeofday(&now, 0);
 
-    if ((u_int)now.tv_sec < TIMEVAL_CONVERSION) {
+    if ((size_t)now.tv_sec < TIMEVAL_CONVERSION_SECS) {
         logf("/dtn/bundle/timestamp", oasys::LOG_ERR,
              "invalid local clock setting: "
              "current time '%s' is before Jan 1, 2000",

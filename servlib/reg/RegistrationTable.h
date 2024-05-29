@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,12 +36,15 @@
 #define _REGISTRATION_TABLE_H_
 
 #include <string>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
-#include "Registration.h"
 
 namespace dtn {
+
+class Registration;
+typedef std::shared_ptr<Registration> SPtr_Registration;
+
 
 /**
  * Class for the in-memory registration table. All changes to the
@@ -68,31 +71,31 @@ public:
      * the persistent store, which is only done for registrations
      * added from the RPC interface.
      */
-    bool add(Registration* reg, bool add_to_store = true);
+    bool add(SPtr_Registration& reg, bool add_to_store = true);
 
     /**
      * Look up a matching registration.
      */
-    Registration* get(u_int32_t regid) const;
+    SPtr_Registration get(u_int32_t regid) const;
 
     /**
      * Look up the first matching registration for the exact endpoint
      * id pattern given.
      */
-    Registration* get(const EndpointIDPattern& eid) const;
+    SPtr_Registration get(const SPtr_EIDPattern& eid) const;
 
     /**
      * Look up the first matching registration for the exact endpoint
      * id pattern given and with the given reg_token
      */
-    Registration* get(const EndpointIDPattern& eid, u_int64_t reg_token) const;
+    SPtr_Registration get(const SPtr_EIDPattern& eid, u_int64_t reg_token) const;
 
     /**
      * Remove the registration from the database, returns true if
      * successful, false if the registration didn't exist.
      */
     //bool del(u_int32_t regid);
-    bool del(Registration* reg);
+    bool del(SPtr_Registration& reg);
     
     /**
      * Update the registration in the database. Returns true on
@@ -106,7 +109,7 @@ public:
      *
      * Returns the count of matching registrations.
      */
-    int get_matching(const EndpointID& eid, RegistrationList* reg_list) const;
+    int get_matching(const SPtr_EID& sptr_eid, RegistrationList* reg_list) const;
     
     /**
      * Delete any expired registrations

@@ -26,8 +26,11 @@ namespace dtn {
 */
 class PingRegistration : public Registration {
 public:
-    PingRegistration(const EndpointID& eid);
-    void deliver_bundle(Bundle* bundle);
+    PingRegistration(const SPtr_EID& sptr_eid);
+
+    ~PingRegistration() {}
+
+    int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) override;
 };
 
 } // namespace dtn

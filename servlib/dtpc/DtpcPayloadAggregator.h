@@ -20,12 +20,14 @@
 
 #include <map>
 
-#include "oasys/debug/Log.h"
-#include "oasys/serialize/Serialize.h"
-#include "oasys/thread/SpinLock.h"
-#include "oasys/thread/Thread.h"
-#include "oasys/util/ScratchBuffer.h"
-#include "oasys/thread/Notifier.h"
+#include <third_party/meutils/thread/MsgQueue.h>
+
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/thread/Notifier.h>
 
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleEventHandler.h"
@@ -50,6 +52,7 @@ typedef std::pair<std::string, DtpcPayloadAggregator*> DtpcPayloadAggregatorPair
 typedef DtpcPayloadAggregatorMap::iterator             DtpcPayloadAggregatorIterator;
 typedef std::pair<DtpcPayloadAggregatorIterator, bool> DtpcPayloadAggregatorInsertResult;
 
+typedef std::shared_ptr<DtpcPayloadAggregationTimer> SPtr_DtpcPayloadAggregationTimer;
 
 /**
  * DTPC PayloadAggregator object is instantiated for each unique 
@@ -69,7 +72,7 @@ public:
      * key is a string consisting of an Endpoint ID and a Profile ID
      */
     DtpcPayloadAggregator(std::string key, 
-                          const EndpointID& dest_eid, 
+                          const SPtr_EID& sptr_dest_eid, 
                           const u_int32_t profile_id);
 
     /**
@@ -109,26 +112,26 @@ public:
      */
     virtual size_t event_queue_size()
     {
-    	return eventq_->size();
+    	return me_eventq_.size();
     }
 
     /**
      * Queues the event at the tail of the queue for processing by the
      * daemon thread.
      */
-   virtual void post(BundleEvent* event);
+   virtual void post(SPtr_BundleEvent& sptr_event);
  
     /**
      * Queues the event at the head of the queue for processing by the
      * daemon thread.
      */
-    virtual void post_at_head(BundleEvent* event);
+    virtual void post_at_head(SPtr_BundleEvent& sptr_event);
     
     /**
      * Virtual post_event function, overridden by the Node class in
      * the simulator to use a modified event queue.
      */
-    virtual void post_event(BundleEvent* event, bool at_back = true);
+    virtual void post_event(SPtr_BundleEvent& sptr_event, bool at_back = true);
 
     /**
      * Adds an Application Data Item to the specified Topic to be sent
@@ -169,8 +172,7 @@ public:
     /**
      * Main event handling function.
      */
-    virtual void handle_event(BundleEvent* event);
-    virtual void handle_event(BundleEvent* event, bool closeTransaction);
+    virtual void handle_event(SPtr_BundleEvent& sptr_event);
 
     /**
      * Hook for the generic durable table implementation to know what
@@ -181,7 +183,7 @@ public:
     /// @{ Accessors
     virtual oasys::Lock&        lock()             { return lock_; }
     virtual u_int32_t           profile_id()       { return profile_id_; }
-    virtual const EndpointID&   dest_eid()         { return dest_eid_; }
+    virtual const SPtr_EID&     dest_eid()         { return sptr_dest_eid_; }
     virtual u_int64_t           seq_ctr()          { return seq_ctr_; }
     virtual int64_t             size()             { return size_; }
 
@@ -192,7 +194,7 @@ public:
 
     /// @{ Setters and mutable accessors
     virtual void set_profile_id(u_int32_t t)       { profile_id_ = t; }
-    virtual EndpointID* mutable_dest_eid()         { return &dest_eid_; }
+    virtual SPtr_EID& mutable_dest_eid()           { return sptr_dest_eid_; }
 
     virtual void set_in_datastore(bool t)          { in_datastore_ = t; }
     virtual void set_queued_for_datastore(bool t)  { queued_for_datastore_ = t; }
@@ -209,12 +211,12 @@ protected:
     /**
      * Event type specific handlers.
      */
-    virtual void handle_dtpc_send_data_item(DtpcSendDataItemEvent* event);
-    virtual void handle_dtpc_payload_aggregation_timer_expired(DtpcPayloadAggregationTimerExpiredEvent* event);
+    virtual void handle_dtpc_send_data_item(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_payload_aggregation_timer_expired(SPtr_BundleEvent& sptr_event) override;
     /// @}
 
     /// @{
-    virtual void event_handlers_completed(BundleEvent* event);
+    virtual void event_handlers_completed(SPtr_BundleEvent& sptr_event);
     /// @}
 
     /**
@@ -224,7 +226,7 @@ protected:
 
 
     /// The event queue
-    oasys::MsgQueue<BundleEvent*>* eventq_;
+    meutils::MsgQueue<SPtr_BundleEvent> me_eventq_;
 
 protected:
     /// lock to serialize access
@@ -243,13 +245,13 @@ protected:
     int64_t size_;
 
     /// EID - Source or Destination depending on context
-    EndpointID dest_eid_;
+    SPtr_EID sptr_dest_eid_;
 
     /// List of the Topic Aggregators
     DtpcTopicAggregatorMap topic_agg_map_;
 
     /// Aggregation Timer signals payload should be sent
-    DtpcPayloadAggregationTimer* timer_;
+    SPtr_DtpcPayloadAggregationTimer timer_;
 
     /// Time when the Aggregation Timer should trigger (kept for reload from datastore)
     struct timeval expiration_time_;

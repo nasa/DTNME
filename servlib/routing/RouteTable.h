@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,14 +36,18 @@
 #define _BUNDLE_ROUTETABLE_H_
 
 #include <set>
-#include <oasys/debug/Log.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/StringUtils.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringUtils.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "RouteEntry.h"
 
 namespace dtn {
+
+class RouteTable;
+typedef std::shared_ptr<RouteTable> SPtr_RouteTable;
+
 
 /**
  * Class that implements the routing table, implemented
@@ -69,7 +73,7 @@ public:
     /**
      * Remove a route entry.
      */
-    bool del_entry(const EndpointIDPattern& dest, const LinkRef& next_hop);
+    bool del_entry(const SPtr_EIDPattern& sptr_dest, const LinkRef& next_hop);
 
     /**
      * Remove entries that match the given predicate.
@@ -82,7 +86,7 @@ public:
      *
      * @return the number of entries removed
      */
-    size_t del_entries(const EndpointIDPattern& dest);
+    size_t del_entries(const SPtr_EIDPattern& sptr_dest);
 
     /**
      * Remove all entries that rely on the given next_hop link
@@ -103,19 +107,30 @@ public:
      *
      * @return the count of matching entries
      */
-    size_t get_matching(const EndpointID& eid, const LinkRef& next_hop,
+    size_t get_matching(const SPtr_EID& sptr_eid, const LinkRef& next_hop,
+                        RouteEntryVec* entry_vec) const;
+
+    /**
+     * Fill in the entry_vec with the list of all entries whose
+     * patterns match the given IPN Node Num and next hop. If the next hop is
+     * NULL, it is ignored.
+     *
+     * @return the count of matching entries
+     */
+    size_t get_matching_ipn(size_t test_node_num, const LinkRef& next_hop,
                         RouteEntryVec* entry_vec) const;
     
+
     /**
      * Syntactic sugar to call get_matching for all links.
      *
      * @return the count of matching entries
      */
-    size_t get_matching(const EndpointID& eid,
+    size_t get_matching(const SPtr_EID& sptr_eid,
                         RouteEntryVec* entry_vec) const
     {
         LinkRef link("RouteTable::get_matching: null");
-        return get_matching(eid, link, entry_vec);
+        return get_matching(sptr_eid, link, entry_vec);
     }
 
     /**
@@ -141,7 +156,14 @@ public:
 
 protected:
     /// Helper function for get_matching
-    size_t get_matching_helper(const EndpointID& eid,
+    size_t get_matching_helper(const SPtr_EID&   sptr_eid,
+                               const LinkRef&    next_hop,
+                               RouteEntryVec*    entry_vec,
+                               bool*             loop,
+                               int               level) const;
+    
+    /// Helper function for get_matching
+    size_t get_matching_helper(size_t           test_node_num,
                                const LinkRef&    next_hop,
                                RouteEntryVec*    entry_vec,
                                bool*             loop,

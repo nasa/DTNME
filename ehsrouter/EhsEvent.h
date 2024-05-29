@@ -22,15 +22,9 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#include <oasys/util/Time.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "EhsBundleRef.h"
-
-#include "router-custom.h"
 
 namespace dtn {
 
@@ -48,7 +42,7 @@ class EhsBundlePriorityQueue;
  * Type codes for events / requests.
  */
 typedef enum {
-    EHS_BPA_RECEIVED = 0x1,     ///< BPA message received from DTNME ExternalRouter
+    EHS_CBOR_RECEIVED = 1,      ///< CBOR message received from DTNME ExternalRouter
     EHS_FREE_BUNDLE_REQ,        ///< Free bundle request
     EHS_ROUTE_BUNDLE_REQ,       ///< Route bundle request
     EHS_ROUTE_BUNDLE_LIST_REQ,  ///< Route bundle list request
@@ -65,7 +59,7 @@ event_to_str(event_type_t event)
 {
     switch(event) {
 
-    case EHS_BPA_RECEIVED:            return "EHS_BPA_RECEIVED";
+    case EHS_CBOR_RECEIVED:           return "EHS_CBOR_RECEIVED";
     case EHS_FREE_BUNDLE_REQ:         return "EHS_FREE_BUNDLE_REQ";
     case EHS_ROUTE_BUNDLE_REQ:        return "EHS_ROUTE_BUNDLE_REQ";
     case EHS_ROUTE_BUNDLE_LIST_REQ:   return "EHS_ROUTE_BUNDLE_LIST_REQ";
@@ -116,21 +110,21 @@ protected:
 };
 
 /**
- * Event class for new bundle arrivals.
+ * Event class for new CBOR message arrivals.
  */
-class EhsBpaReceivedEvent : public EhsEvent {
+class EhsCborReceivedEvent : public EhsEvent {
 public:
     /**
      * Constructor
      */
-    EhsBpaReceivedEvent(std::unique_ptr<rtrmessage::bpa>& bpa_ptr)
-        : EhsEvent(EHS_BPA_RECEIVED),
-          bpa_ptr_(bpa_ptr.release())
+    EhsCborReceivedEvent(std::unique_ptr<std::string>& msgptr)
+        : EhsEvent(EHS_CBOR_RECEIVED),
+          msg_(msgptr.release())
     {
     }
 
-    /// The pointer to the bpa message
-    std::unique_ptr<rtrmessage::bpa> bpa_ptr_;
+    /// The pointer to the CBOR message
+    std::unique_ptr<std::string> msg_;
 };
 
 /**
@@ -238,9 +232,5 @@ public:
 };
 
 } // namespace dtn
-
-#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_EVENT_H_ */

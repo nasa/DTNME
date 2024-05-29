@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,23 +36,23 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
+#include <third_party/oasys/util/OptParser.h>
 
 #include "ConnectionConvergenceLayer.h"
 #include "CLConnection.h"
 #include "bundling/BundleDaemon.h"
+#include "bundling/BundleProtocol.h"
 
 namespace dtn {
 
 //----------------------------------------------------------------------
 ConnectionConvergenceLayer::LinkParams::LinkParams(bool init_defaults)
-    : reactive_frag_enabled_(true),
-      sendbuf_len_(32768),
-      recvbuf_len_(32768),
+    : reactive_frag_enabled_(false),
+      sendbuf_len_(10240000),  // sendbuf_len_(2048000),
+      recvbuf_len_(10240000),  // recvbuf_len_(2048000),
       data_timeout_(30000), // msec
       test_read_delay_(0),
       test_write_delay_(0),
-      test_recv_delay_(0),
       test_read_limit_(0),
       test_write_limit_(0)
 {
@@ -70,7 +70,6 @@ ConnectionConvergenceLayer::LinkParams::serialize(oasys::SerializeAction *a)
 	a->process("data_timeout", &data_timeout_);
 	a->process("test_read_delay", &test_read_delay_);
 	a->process("test_write_delay", &test_write_delay_);
-	a->process("test_recv_delay", &test_recv_delay_);
 	a->process("test_read_limit", &test_read_limit_);
 	a->process("test_write_limit", &test_write_limit_);
 }
@@ -100,26 +99,35 @@ ConnectionConvergenceLayer::parse_link_params(LinkParams* params,
                                 &params->test_read_delay_));
     p.addopt(new oasys::UIntOpt("test_write_delay",
                                 &params->test_write_delay_));
-    p.addopt(new oasys::UIntOpt("test_recv_delay",
-                                &params->test_recv_delay_));
     
     p.addopt(new oasys::UIntOpt("test_read_limit",
                                 &params->test_read_limit_));
     p.addopt(new oasys::UIntOpt("test_write_limit",
                                 &params->test_write_limit_));
     
-    if (! p.parse(argc, argv, invalidp)) {
-        return false;
+    int count = p.parse_and_shift(argc, argv, invalidp);
+    if (count == -1) {
+        log_err("Error parsing parameters - invalid value: %s", *invalidp);
+    } else {
+        argc -= count;
+        if (argc > 0) {
+            log_err("Warning parsing parameters - ignored %d unrecognized parameter(s): ", argc);
+            for (count=0; count<argc; ++count) {
+                log_err("        %d) %s", count+1, argv[count]);
+            }
+
+            log_err("Issue command \"link options <cl_name>\" or \"interface options <cl_name>\" for list of valid parameters");
+        }
     }
-    
+
     if (params->sendbuf_len_ == 0) {
-        *invalidp = "sendbuf_len must not be zero";
-        return false;
+        log_err("sendbuf_len cannot be zero - resetting to default value of 2048000");
+        params->sendbuf_len_ = 2048000;
     }
 
     if (params->recvbuf_len_ == 0) {
-        *invalidp = "recvbuf_len must not be zero";
-        return false;
+        log_err("recvbuf_len cannot be zero - resetting to default value of 2048000");
+        params->recvbuf_len_ = 2048000;
     }
     
     return true;
@@ -130,12 +138,20 @@ void
 ConnectionConvergenceLayer::dump_link(const LinkRef& link,
                                       oasys::StringBuffer* buf)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT((link->cl_info() != nullptr) || (link->sptr_cl_info() != nullptr));
+
         
-    LinkParams* params = dynamic_cast<LinkParams*>(link->cl_info());
-    ASSERT(params != NULL);
+    LinkParams* params = nullptr;
+
+    if (link->sptr_cl_info() != nullptr) {
+        params = dynamic_cast<LinkParams*>(link->sptr_cl_info().get());
+    } else {
+        params = dynamic_cast<LinkParams*>(link->cl_info());
+    }
+
+    ASSERT(params != nullptr);
     
     buf->appendf("reactive_frag_enabled: %u\n", params->reactive_frag_enabled_);
     buf->appendf("sendbuf_len: %u\n", params->sendbuf_len_);
@@ -152,16 +168,16 @@ bool
 ConnectionConvergenceLayer::init_link(const LinkRef& link,
                                       int argc, const char* argv[])
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() == NULL);
+    ASSERT(link->cl_info() == nullptr);
 
     log_debug("adding %s link %s", link->type_str(), link->nexthop());
 
     // Create a new parameters structure, parse the options, and store
     // them in the link's cl info slot.
     LinkParams* params = dynamic_cast<LinkParams *>(new_link_params());
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
 
     // Try to parse the link's next hop, but continue on even if the
     // parse fails since the hostname may not be resolvable when we
@@ -191,7 +207,7 @@ ConnectionConvergenceLayer::init_link(const LinkRef& link,
 void
 ConnectionConvergenceLayer::delete_link(const LinkRef& link)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
 
     log_debug("ConnectionConvergenceLayer::delete_link: "
@@ -204,11 +220,11 @@ ConnectionConvergenceLayer::delete_link(const LinkRef& link)
         return;
     }
 
-    ASSERT(link->contact() == NULL);
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->contact() == nullptr);
+    ASSERT(link->cl_info() != nullptr);
 
     delete link->cl_info();
-    link->set_cl_info(NULL);
+    link->set_cl_info(nullptr);
 }
 
 //----------------------------------------------------------------------
@@ -226,12 +242,12 @@ bool
 ConnectionConvergenceLayer::reconfigure_link(const LinkRef& link,
                                              int argc, const char* argv[])
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->cl_info() != nullptr);
         
     LinkParams* params = dynamic_cast<LinkParams*>(link->cl_info());
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
     
     const char* invalid;
     if (! parse_link_params(params, argc, argv, &invalid)) {
@@ -241,10 +257,10 @@ ConnectionConvergenceLayer::reconfigure_link(const LinkRef& link,
 
     if (link->isopen()) {
         LinkParams* params = dynamic_cast<LinkParams*>(link->cl_info());
-        ASSERT(params != NULL);
+        ASSERT(params != nullptr);
         
         CLConnection* conn = dynamic_cast<CLConnection*>(link->contact()->cl_info());
-        ASSERT(conn != NULL);
+        ASSERT(conn != nullptr);
         
         if ((params->sendbuf_len_ != conn->sendbuf_.size()) &&
             (params->sendbuf_len_ >= conn->sendbuf_.fullbytes()))
@@ -273,15 +289,15 @@ bool
 ConnectionConvergenceLayer::open_contact(const ContactRef& contact)
 {
     LinkRef link = contact->link();
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT(link->cl_info() != nullptr);
 
     log_debug("ConnectionConvergenceLayer::open_contact: "
               "opening contact on link *%p", link.object());
-    
+
     LinkParams* params = dynamic_cast<LinkParams*>(link->cl_info());
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
     
     // create a new connection for the contact, set up to use the
     // link's configured parameters
@@ -300,28 +316,45 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
     log_info("close_contact *%p", contact.object());
 
     const LinkRef& link = contact->link();
-    ASSERT(link != NULL);
-    
+    ASSERT(link != nullptr);
+
+
+    oasys::ScopeLock scoplock_link(link->lock(), __func__);   //dzdebug
+    oasys::ScopeLock scoplock(contact->lock(), __func__);   //dzdebug
+
     CLConnection* conn = dynamic_cast<CLConnection*>(contact->cl_info());
-    ASSERT(conn != NULL);
+    ASSERT(conn != nullptr);
 
     // if the connection isn't already broken, then we need to tell it
     // to do so
     if (! conn->contact_broken_) {
-        conn->cmdqueue_.push_back(
+        conn->cmdqueue_.push_front(
             CLConnection::CLMsg(CLConnection::CLMSG_BREAK_CONTACT));
     }
     
+    int ctr = 0;
     while (!conn->is_stopped()) {
-        log_debug("waiting for connection thread to stop...");
         usleep(100000);
         oasys::Thread::yield();
+        if (++ctr >= 20) {
+            break;
+        }
+    }
+
+    if (!conn->is_stopped()) {
+        //log_err("Connection not stopped after 2 seconds - trying to force it to stop");
+        conn->force_shutdown();
+
+        while (!conn->is_stopped()) {
+            usleep(100000);
+            oasys::Thread::yield();
+        }
     }
 
     // now that the connection thread is stopped, clean up the in
     // flight and incoming bundles
     LinkParams* params = dynamic_cast<LinkParams*>(link->cl_info());
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
     
     while (! conn->inflight_.empty()) {
         CLConnection::InFlightBundle* inflight = conn->inflight_.front();
@@ -335,13 +368,25 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
             // if we've started the bundle but not gotten anything
             // out, we need to push the bundle back onto the link
             // queue so it's there when the link re-opens
-            if (! link->del_from_inflight(inflight->bundle_,
-                                          inflight->total_length_) ||
-                ! link->add_to_queue(inflight->bundle_,
-                                     inflight->total_length_))
+            if (! link->del_from_inflight(inflight->bundle_))
             {
-                log_warn("inflight queue mismatch for bundle %" PRIbid,
+                log_warn("expected inflight bundle (%" PRIbid ") not on link's inflight_queue",
                          inflight->bundle_->bundleid());
+            } else {
+                // xmit_blocks are now deleted after transmit so we need to recreate them to re-queue
+                // XXX/dz - TODO - check for error and issue bundletransmit failed event?
+                if (inflight->bundle_->xmit_blocks()->find_blocks(link) == nullptr) {
+                    SPtr_BlockInfoVec sptr_blocks = BundleProtocol::prepare_blocks(inflight->bundle_.object(), link);
+                    BundleProtocol::generate_blocks(inflight->bundle_.object(), sptr_blocks.get(), link);
+                } else {
+                    //dzdebug
+                    log_always("closing contact - moving inflight bundle that still had xmit_blocks - good to go");
+                }
+
+                if (!link->add_to_queue(inflight->bundle_)) {
+                    log_err("error requeueing inflight bundle (%" PRIbid ") on link after connection lost",
+                             inflight->bundle_->bundleid());
+                }
             }
             
         } else {
@@ -349,10 +394,12 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
             // then post the event so that the core system can do
             // reactive fragmentation
             if (! inflight->transmit_event_posted_) {
-                BundleDaemon::post(
-                    new BundleTransmittedEvent(inflight->bundle_.object(),
-                                               contact, link,
-                                               sent_bytes, acked_bytes));
+                BundleTransmittedEvent* event_to_post;
+                event_to_post = new BundleTransmittedEvent(inflight->bundle_.object(),
+                                                           contact, link,
+                                                           sent_bytes, acked_bytes, true, false);
+                SPtr_BundleEvent sptr_event_to_post(event_to_post);
+                BundleDaemon::post(sptr_event_to_post);
             }
         }
 
@@ -363,29 +410,32 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
     // check the tail of the incoming queue to see if there's a
     // partially-received bundle that we need to post a received event
     // for (if reactive fragmentation is enabled)
-    if (! conn->incoming_.empty()) {
-        CLConnection::IncomingBundle* incoming = conn->incoming_.back();
-        if (!incoming->rcvd_data_.empty())
-        {  
-            size_t rcvd_len = incoming->rcvd_data_.last() + 1;
+    if (params->reactive_frag_enabled_) {
+        if (! conn->incoming_.empty()) {
+            CLConnection::IncomingBundle* incoming = conn->incoming_.back();
+            if (incoming->bytes_received_ != 0)
+            {  
+                size_t rcvd_len = incoming->bytes_received_;
             
-            size_t header_block_length =
-                BundleProtocol::payload_offset(&incoming->bundle_->recv_blocks());
+                size_t header_block_length =
+                    BundleProtocol::payload_offset(incoming->bundle_.object(), incoming->bundle_->recv_blocks().get());
         
-            if ((incoming->total_length_ == 0) && 
-                params->reactive_frag_enabled_ &&
-                (rcvd_len > header_block_length))
-            {
-                log_debug("partial arrival of bundle: "
-                          "got %zu bytes [hdr %zu payload %zu]",
-                          rcvd_len, header_block_length,
-                          incoming->bundle_->payload().length());
+                if ((incoming->total_length_ == 0) && 
+                    (rcvd_len > header_block_length))
+                {
+                    log_debug("partial arrival of bundle: "
+                              "got %zu bytes [hdr %zu payload %zu]",
+                              rcvd_len, header_block_length,
+                              incoming->bundle_->payload().length());
              
-                BundleDaemon::post(
-                    new BundleReceivedEvent(incoming->bundle_.object(),
-                                            EVENTSRC_PEER, rcvd_len,
-                                            contact->link()->remote_eid(),
-                                            contact->link().object()));
+                    BundleReceivedEvent* event_to_post;
+                    event_to_post = new BundleReceivedEvent(incoming->bundle_.object(),
+                                                            EVENTSRC_PEER, rcvd_len,
+                                                            contact->link()->remote_eid(),
+                                                            contact->link().object());
+                    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+                    BundleDaemon::post(sptr_event_to_post);
+                }
             }
         }
     }
@@ -403,12 +453,12 @@ ConnectionConvergenceLayer::close_contact(const ContactRef& contact)
     
     delete conn;
     
-    contact->set_cl_info(NULL);
+    contact->set_cl_info(nullptr);
 
     if (link->isdeleted()) {
-        ASSERT(link->cl_info() != NULL);
+        ASSERT(link->cl_info() != nullptr);
         delete link->cl_info();
-        link->set_cl_info(NULL);
+        link->set_cl_info(nullptr);
     }
 
     return true;
@@ -430,14 +480,19 @@ ConnectionConvergenceLayer::bundle_queued(const LinkRef& link,
     ASSERT(!link->isdeleted());
     
     const ContactRef contact = link->contact();
-    //dzdebug ASSERT(contact != NULL);
+    //dzdebug ASSERT(contact != nullptr);
     if (contact == nullptr) {
         log_err("ConnectionConvergenceLayer::bundle_queued called - contact is null - return");
         return;
     }
 
     CLConnection* conn = dynamic_cast<CLConnection*>(contact->cl_info());
-    ASSERT(conn != NULL);
+    if (conn == nullptr) {
+        log_always("%s: abort bundle_queued because Contact->cl_info() is null", __func__);
+        return;
+    }
+
+    //ASSERT(conn != nullptr);
     
     // the bundle was previously put on the link queue, so we just
     // kick the connection thread in case it's idle.
@@ -468,7 +523,7 @@ ConnectionConvergenceLayer::cancel_bundle(const LinkRef& link,
         /* 
          * (Taken from jmmikkel checkin comment on BBN source tree)
          *
-         * The dtnme internal convergence layer complains and does
+         * The dtn2 internal convergence layer complains and does
          * nothing if you try to cancel a bundle after the link has
          * closed instead of just considering the send cancelled. I
          * believe that posting a BundleCancelledEvent before
@@ -478,13 +533,23 @@ ConnectionConvergenceLayer::cancel_bundle(const LinkRef& link,
          */
         log_warn("cancel_bundle *%p but link *%p isn't open!!",
                  bundle.object(), link.object());
-        BundleDaemon::post(new BundleSendCancelledEvent(bundle.object(), link));
+        BundleSendCancelledEvent* event_to_post;
+        event_to_post = new BundleSendCancelledEvent(bundle.object(), link);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
         return;
     }
     
     const ContactRef contact = link->contact();
+
+    oasys::ScopeLock scoplock(contact->lock(), __func__);
+
     CLConnection* conn = dynamic_cast<CLConnection*>(contact->cl_info());
-    ASSERT(conn != NULL);
+    if (conn == nullptr) {
+        log_always("%s: abort cancel_bundle because Contact->cl_info() is null", __func__);
+        return;
+    }
+    //dzdebug ASSERT(conn != nullptr);
 
     ASSERT(contact->link() == link);
     log_debug("ConnectionConvergenceLayer::cancel_bundle: "

@@ -560,7 +560,7 @@ dtn_recv(dtn_handle_t h,
     // instead, so read in the data here
     if (location == DTN_PAYLOAD_MEM && payload->location == DTN_PAYLOAD_FILE)
     {
-        char filename[PATH_MAX];
+        char filename[PATH_MAX+1];
         strncpy(filename, payload->filename.filename_val, PATH_MAX);
         
         int fd = open(filename, O_RDONLY, 0);
@@ -574,6 +574,12 @@ dtn_recv(dtn_handle_t h,
         if (fstat(fd, &st) != 0) {
             fprintf(stderr, "DTN API internal error getting stat of payload file: %s\n",
                     strerror(errno));
+            return DTN_EXDR;
+        }
+
+        if (st.st_size > UINT32_MAX) {
+            fprintf(stderr, "DTN API unable to convert payload file of size %zu to memory\n",
+                    st.st_size);
             return DTN_EXDR;
         }
 
@@ -607,13 +613,17 @@ dtn_recv(dtn_handle_t h,
             return DTN_EXDR;
         }
     }
-    else if (location != payload->location)
+    else if ((location != DTN_PAYLOAD_VARIABLE) &&
+             (location != DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE))
     {
-        fprintf(stderr,
-                "DTN API internal error: location != payload location\n");
-        // shouldn't happen
-        handle->err = DTN_EXDR;
-        return -1;
+        if (location != payload->location)
+        {
+            fprintf(stderr,
+                    "DTN API internal error: location != payload location\n");
+            // shouldn't happen
+            handle->err = DTN_EXDR;
+            return -1;
+        }
     }
     
     return 0;
@@ -675,7 +685,7 @@ dtn_recv_raw(dtn_handle_t h,
     // instead, so read in the data here
     if (location == DTN_PAYLOAD_MEM && raw_bundle->location == DTN_PAYLOAD_FILE)
     {
-        char filename[PATH_MAX];
+        char filename[PATH_MAX+1];
         strncpy(filename, raw_bundle->filename.filename_val, PATH_MAX);
         
         int fd = open(filename, O_RDONLY, 0);
@@ -828,7 +838,7 @@ dtn_peek(dtn_handle_t h,
     // instead, so read in the data here
     if (location == DTN_PAYLOAD_MEM && payload->location == DTN_PAYLOAD_FILE)
     {
-        char filename[PATH_MAX];
+        char filename[PATH_MAX+1];
         strncpy(filename, payload->filename.filename_val, PATH_MAX);
         
         int fd = open(filename, O_RDONLY, 0);
@@ -1085,9 +1095,18 @@ dtn_set_payload(dtn_bundle_payload_t* payload,
         break;
     case DTN_PAYLOAD_FILE:
     case DTN_PAYLOAD_TEMP_FILE:
+    case DTN_PAYLOAD_RELEASED_DB_FILE:
         payload->filename.filename_val = val;
         payload->filename.filename_len = len;
         break;
+
+    case DTN_PAYLOAD_VARIABLE:
+        fprintf(stderr, "DTN_PAYLOAD_VARIABLE is an invalid payload location when sending bundles");
+        return DTN_EINVAL;
+
+    case DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE:
+        fprintf(stderr, "DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE is an invalid payload location when sending bundles");
+        return DTN_EINVAL;
     }
 
     return 0;

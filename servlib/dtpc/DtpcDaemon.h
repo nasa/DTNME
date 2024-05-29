@@ -24,15 +24,16 @@
 
 #ifdef DTPC_ENABLED
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/IdleTclExit.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/meutils/thread/MsgQueue.h>
+
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/IdleTclExit.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleEventHandler.h"
@@ -100,35 +101,29 @@ public:
      */
     virtual size_t event_queue_size()
     {
-    	return eventq_->size();
+    	return me_eventq_.size();
     }
 
     /**
      * Queues the event at the tail of the queue for processing by the
      * daemon thread.
      */
-    static void post(BundleEvent* event);
+    static void post(SPtr_BundleEvent& sptr_event, bool at_back=true);
  
     /**
      * Queues the event at the head of the queue for processing by the
      * daemon thread.
      */
-    static void post_at_head(BundleEvent* event);
+    static void post_at_head(SPtr_BundleEvent& sptr_event);
     
     /**
      * Post the given event and wait for it to be processed by the
      * daemon thread or for the given timeout to elapse.
      */
-    static bool post_and_wait(BundleEvent* event,
+    static bool post_and_wait(SPtr_BundleEvent& sptr_event,
                               oasys::Notifier* notifier,
                               int timeout = -1, bool at_back = true);
-    
-   /**
-    * Virtual post_event function, overridden by the Node class in
-     * the simulator to use a modified event queue.
-     */
-    virtual void post_event(BundleEvent* event, bool at_back = true);
-
+   
     /**
      * Format the given StringBuffer with the current 
      * statistics.
@@ -149,12 +144,12 @@ public:
     /**
      * Return the local endpoint identifier.
      */
-    virtual const EndpointID& local_eid() { return local_eid_; }
+    virtual const SPtr_EID local_eid() { return sptr_local_eid_; }
 
     /**
      * Return the local IPN endpoint identifier.
      */
-    virtual const EndpointID& local_eid_ipn() { return local_eid_ipn_; }
+    virtual const SPtr_EID local_eid_ipn() { return sptr_local_eid_ipn_; }
 
     /**
      * Set the local endpoint id.
@@ -204,8 +199,12 @@ public:
     /**
      * Main event handling function.
      */
-    virtual void handle_event(BundleEvent* event);
-    virtual void handle_event(BundleEvent* event, bool closeTransaction);
+    virtual void handle_event(SPtr_BundleEvent& sptr_event);
+
+protected:
+    friend class BundleDaemon;
+
+    virtual void post_event(SPtr_BundleEvent& sptr_event, bool at_back = true);
 
 protected:
 
@@ -226,33 +225,29 @@ protected:
     /**
      * Event type specific handlers.
      */
-    virtual void handle_dtpc_topic_registration(DtpcTopicRegistrationEvent* event);
-    virtual void handle_dtpc_topic_unregistration(DtpcTopicUnregistrationEvent* event);
-    virtual void handle_dtpc_send_data_item(DtpcSendDataItemEvent* event);
-    virtual void handle_dtpc_payload_aggregation_timer_expired(DtpcPayloadAggregationTimerExpiredEvent* event);
-    virtual void handle_dtpc_transmitted_event(DtpcPduTransmittedEvent* event);
-    virtual void handle_dtpc_delete_request(DtpcPduDeleteRequest* event);
-    virtual void handle_dtpc_retransmit_timer_expired(DtpcRetransmitTimerExpiredEvent* event);
-    virtual void handle_dtpc_ack_received_event(DtpcAckReceivedEvent* event);
-    virtual void handle_dtpc_data_received_event(DtpcDataReceivedEvent* event);
-    virtual void handle_dtpc_deliver_pdu_event(DtpcDeliverPduTimerExpiredEvent* event);
-    virtual void handle_dtpc_topic_expiration_check(DtpcTopicExpirationCheckEvent* event);
-    virtual void handle_dtpc_elision_func_response(DtpcElisionFuncResponse* event);
+    virtual void handle_dtpc_topic_registration(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_topic_unregistration(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_send_data_item(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_payload_aggregation_timer_expired(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_transmitted_event(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_delete_request(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_retransmit_timer_expired(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_ack_received_event(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_data_received_event(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_deliver_pdu_event(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_topic_expiration_check(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_dtpc_elision_func_response(SPtr_BundleEvent& sptr_event) override;
     ///@}
 
-    /// @{
-    virtual void event_handlers_completed(BundleEvent* event);
-    /// @}
-
     /// The event queue
-    oasys::MsgQueue<BundleEvent*>* eventq_;
+    meutils::MsgQueue<SPtr_BundleEvent> me_eventq_;
 
     /// The default endpoint id for reaching this daemon, used for
     /// bundle status reports, routing, etc.
-    EndpointID local_eid_;
+    SPtr_EID sptr_local_eid_;
 
     /// The IPN endpoint id used to take custody of bundles destined to an IPN node
-    EndpointID local_eid_ipn_;
+    SPtr_EID sptr_local_eid_ipn_;
 
     /// Mapping of topics to registrations
     DtpcTopicRegistrationMap topic_reg_map_;
@@ -279,9 +274,6 @@ protected:
 
     // indicator that a DtpcDaemon shutdown is in progress
     static bool shutting_down_;
-
-    /// Time value when the last event was handled
-    oasys::Time last_event_;
 };
 
 } // namespace dtn

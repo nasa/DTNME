@@ -20,7 +20,7 @@
 
 #include <list>
 
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "reg/APIRegistration.h"
 
@@ -91,13 +91,6 @@ protected:
     /// List of Topic Aggregators needing elision function invocations
     BlockingDtpcTopicAggregatorList* aggregator_list_;
 };
-
-
-/**
- * Typedef for a list of DtpcRegistrations.
- */
-class DtpcRegistrationList : public std::list<DtpcRegistration*> {};
-typedef DtpcRegistrationList::iterator  DtpcRegistrationIterator;
 
 
 } // namespace dtn

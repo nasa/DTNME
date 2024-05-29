@@ -18,20 +18,22 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 #include "EndpointIDOpt.h"
 #include "EndpointID.h"
 
+#include "bundling/BundleDaemon.h"
+
 namespace dtn {
 
-EndpointIDOpt::EndpointIDOpt(const char* opt, EndpointID* valp,
+EndpointIDOpt::EndpointIDOpt(const char* opt, SPtr_EID* valp,
                              const char* valdesc, const char* desc, bool* setp)
     : Opt(0, opt, valp, setp, true, valdesc, desc)
 {
 }
 
 EndpointIDOpt::EndpointIDOpt(char shortopt, const char* longopt,
-                             EndpointID* valp,
+                             SPtr_EID* valp,
                              const char* valdesc, const char* desc, bool* setp)
     : Opt(shortopt, longopt, valp, setp, true, valdesc, desc)
 {
@@ -41,13 +43,16 @@ int
 EndpointIDOpt::set(const char* val, size_t len)
 {
     std::string s(val, len);
-    
-    if (! ((EndpointID*)valp_)->assign(s)) {
+
+    (*(SPtr_EID*)valp_) = BD_MAKE_EID(s);
+
+    if (! ((*(SPtr_EID*)valp_)->valid())) {
         return -1;
     }
     
-    if (setp_)
+    if (setp_) {
         *setp_ = true;
+    }
     
     return 0;
 }
@@ -55,7 +60,52 @@ EndpointIDOpt::set(const char* val, size_t len)
 void
 EndpointIDOpt::get(oasys::StringBuffer* buf)
 {
-    buf->append(((EndpointID*)valp_)->c_str());
+    buf->append((*(SPtr_EID*)valp_)->c_str());
+}
+
+
+
+
+
+
+
+
+
+EIDPatternOpt::EIDPatternOpt(const char* opt, SPtr_EIDPattern* valp,
+                             const char* valdesc, const char* desc, bool* setp)
+    : Opt(0, opt, valp, setp, true, valdesc, desc)
+{
+}
+
+EIDPatternOpt::EIDPatternOpt(char shortopt, const char* longopt,
+                             SPtr_EIDPattern* valp,
+                             const char* valdesc, const char* desc, bool* setp)
+    : Opt(shortopt, longopt, valp, setp, true, valdesc, desc)
+{
+}
+
+int
+EIDPatternOpt::set(const char* val, size_t len)
+{
+    std::string s(val, len);
+
+    (*(SPtr_EIDPattern*)valp_) = BD_MAKE_PATTERN(s);
+
+    if (! ((*(SPtr_EIDPattern*)valp_)->valid())) {
+        return -1;
+    }
+    
+    if (setp_) {
+        *setp_ = true;
+    }
+    
+    return 0;
+}
+
+void
+EIDPatternOpt::get(oasys::StringBuffer* buf)
+{
+    buf->append((*(SPtr_EIDPattern*)valp_)->c_str());
 }
 
 } // namespace dtn

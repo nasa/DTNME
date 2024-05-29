@@ -36,9 +36,10 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "ContactManager.h"
+#include "ContactPlanner.h"
 #include "Contact.h"
 #include "Link.h"
 #include "bundling/BundleDaemon.h"
@@ -56,6 +57,9 @@ ContactManager::ContactManager()
 {
     links_ = new LinkSet();
     previous_links_ = new LinkSet();
+
+    ContactPlanner::instance()->start();
+    ContactPlanner::instance()->set_manager_handle(this);
 }
 
 //----------------------------------------------------------------------
@@ -87,27 +91,30 @@ ContactManager::add_new_link(const LinkRef& link)
     ASSERT(link != NULL);
     ASSERT(!link->isdeleted());
     
-	bool reincarnation = false;
+    bool reincarnation = false;
 
     log_debug("adding NEW link %s", link->name());
     if (has_link(link->name())) {
         return false;
     }
-    if (!consistent_with_previous_usage(link, &reincarnation))
-    {
-        log_err("rejecting link %s", link->name());
-    	return false;
-    }
+//dzdebu    if (!consistent_with_previous_usage(link, &reincarnation))
+//dzdebu    {
+//dzdebu        log_err("rejecting link %s", link->name());
+//dzdebu        return false;
+//dzdebu    }
 
     links_->insert(LinkRef(link.object(), "ContactManager"));
 
     if (reincarnation)
     {
-    	link->set_reincarnated();
+        link->set_reincarnated();
     }
 
     if (!link->is_create_pending()) {
-        BundleDaemon::post(new LinkCreatedEvent(link));
+        LinkCreatedEvent* event_to_post;
+        event_to_post = new LinkCreatedEvent(link);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
     }
 
     return true;
@@ -150,21 +157,23 @@ ContactManager::del_link(const LinkRef& link, bool wait,
 
     // Close the link if it is open or in the process of being opened.
     if (link->isopen() || link->isopening()) {
-        BundleDaemon::instance()->post(
-            new LinkStateChangeRequest(link, Link::CLOSED, reason));
+        LinkStateChangeRequest* event_to_post;
+        event_to_post = new LinkStateChangeRequest(link, Link::CLOSED, reason);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
     }
 
     // Cancel the link's availability timer (if one exists).
     AvailabilityTimerMap::iterator iter = availability_timers_.find(link);
     if (iter != availability_timers_.end()) {
-        LinkAvailabilityTimer* timer = iter->second;
+        oasys::SPtr_Timer timer = iter->second;
         availability_timers_.erase(link);
 
         // Attempt to cancel the timer, relying on the timer system to clean
         // up the timer state once it bubbles to the top of the timer queue.
         // If the timer is in the process of firing (i.e., race condition),
         // the timer should clean itself up in the timeout handler.
-        if (!timer->cancel()) {
+        if (!oasys::SharedTimerSystem::instance()->cancel_timer(timer)) {
             log_warn("ContactManager::del_link: "
                      "failed to cancel availability timer -- race condition");
         }
@@ -180,7 +189,7 @@ ContactManager::del_link(const LinkRef& link, bool wait,
     if (BundleDaemon::instance()->params_.persistent_links_) {
         if (link->used_in_fwdlog() && !link->reincarnated())
         {
-    	    previous_links_->insert(link);
+            previous_links_->insert(link);
         }
     }
 
@@ -191,10 +200,18 @@ ContactManager::del_link(const LinkRef& link, bool wait,
         // LinkDeletedEvent may wait for the lock, causing deadlock
         ASSERT(!lock()->is_locked_by_me());
         oasys::Notifier notifier("ContactManager::del_link");
-        BundleDaemon::post_and_wait(new LinkDeletedEvent(link), &notifier);
+
+        LinkDeletedEvent* event_to_post;
+        event_to_post = new LinkDeletedEvent(link);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post_and_wait(sptr_event_to_post, &notifier);
+
         link->delete_link();
     } else {
-        BundleDaemon::post(new LinkDeletedEvent(link));
+        LinkDeletedEvent* event_to_post;
+        event_to_post = new LinkDeletedEvent(link);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
     }
 }
 
@@ -278,25 +295,25 @@ ContactManager::find_previous_link(const char* name)
 bool
 ContactManager::consistent_with_previous_usage(const LinkRef& link, bool *reincarnation)
 {
-	/**
-	 * This routine checks that the mapping between the link name
-	 * and the major parameters of a proposed new link is consistent
-	 * with any recorded previous usage of the name.  There are
-	 * essentially two cases:
-	 * - (Originally) manually configured links with types other than OPPORTUNISTIC:
-	 *   The link add command has to specify the nexthop, type and convergence layer
-	 *   but the remote_eid will generally not be known until the link is actually
-	 *   opened.  In this case for consistency we require name, type, nexthop and
-	 *   convergence layer to match and allow the remote_eid to be undefined or
-	 *   the same as it was when previously used.
-	 * - New OPPORTUNISTIC links: In this case the remote_eid is always known and
-	 *   is the interesting parameter.  The link to the remote_eid can be made over
-	 *   any convergence layer and the nexthop address can be any value.
-	 * If a consistent link is found, the reincarnation parameter is set true to flag
-	 * that the new link is indeed a reincarnation of some previously known link with
-	 * the same name. This is later used to select whether to add or update the
-	 * corresponding persistent store entry.
-	 */
+    /**
+     * This routine checks that the mapping between the link name
+     * and the major parameters of a proposed new link is consistent
+     * with any recorded previous usage of the name.  There are
+     * essentially two cases:
+     * - (Originally) manually configured links with types other than OPPORTUNISTIC:
+     *   The link add command has to specify the nexthop, type and convergence layer
+     *   but the remote_eid will generally not be known until the link is actually
+     *   opened.  In this case for consistency we require name, type, nexthop and
+     *   convergence layer to match and allow the remote_eid to be undefined or
+     *   the same as it was when previously used.
+     * - New OPPORTUNISTIC links: In this case the remote_eid is always known and
+     *   is the interesting parameter.  The link to the remote_eid can be made over
+     *   any convergence layer and the nexthop address can be any value.
+     * If a consistent link is found, the reincarnation parameter is set true to flag
+     * that the new link is indeed a reincarnation of some previously known link with
+     * the same name. This is later used to select whether to add or update the
+     * corresponding persistent store entry.
+     */
     LinkSet::iterator iter;
     const char *name = link->name();
     bool test_name, test_spec;
@@ -307,42 +324,42 @@ ContactManager::consistent_with_previous_usage(const LinkRef& link, bool *reinca
 
     for (iter = previous_links_->begin(); iter != previous_links_->end(); ++iter)
     {
-    	log_debug("testing against %s", (*iter)->name());
+        log_debug("testing against %s", (*iter)->name());
         test_name = (strcasecmp((*iter)->name(), name) == 0)? true : false;
-        test_spec = (((link->remote_eid()	== EndpointID::NULL_EID())      ||
-					  (link->remote_eid()	== (*iter)->remote_eid())		  ) &&
-					 ((link->type()		== Link::OPPORTUNISTIC)             ||
-					  ((strcmp(link->nexthop(), (*iter)->nexthop()) == 0) &&
-					  (link->type() 			== (*iter)->type())       &&
-					  (strcmp(link->cl_name(), (*iter)->cl_name()) == 0)     )));
+        test_spec = (((link->remote_eid()    == BD_NULL_EID())      ||
+                      (link->remote_eid()    == (*iter)->remote_eid())          ) &&
+                     ((link->type()        == Link::OPPORTUNISTIC)             ||
+                      ((strcmp(link->nexthop(), (*iter)->nexthop()) == 0) &&
+                      (link->type()             == (*iter)->type())       &&
+                      (strcmp(link->cl_name(), (*iter)->cl_name()) == 0)     )));
         if (test_name)
         {
-        	log_debug("Found previous_link with same name");
-        	if (test_spec)
-        	{
-        		// We appear to be consistent
-        		// Force remote_eid to be consistent
-        		link->set_remote_eid((*iter)->remote_eid());
+            log_debug("Found previous_link with same name");
+            if (test_spec)
+            {
+                // We appear to be consistent
+                // Force remote_eid to be consistent
+                link->set_remote_eid((*iter)->remote_eid());
 
                         // copy the in_datastore flag
                         link->set_in_datastore((*iter)->in_datastore());
 
-        		// Record that this is a reincarnation
-        		*reincarnation = true;
+                // Record that this is a reincarnation
+                *reincarnation = true;
 
-        		return true;
-        	} else {
-        		return false;
-        	}
+                return true;
+            } else {
+                return false;
+            }
         } else {
-        	if (test_spec)
-        	{
-        		log_debug("Found previous link with same spec but different name");
-        		return false;
-        	} else {
-        		// neither name nor spec match - continue with other entries
-        		continue;
-        	}
+            if (test_spec)
+            {
+                log_debug("Found previous link with same spec but different name");
+                return false;
+            } else {
+                // neither name nor spec match - continue with other entries
+                continue;
+            }
         }
     }
 
@@ -362,24 +379,24 @@ ContactManager::config_links_consistent(void)
     bool reincarnation;
 
     for (iter = links_->begin(); iter != links_->end(); ) {
-    	// Need to do this to avoid erasing the element the iterator is pointing at
-    	link = *iter;
-    	++iter;
+        // Need to do this to avoid erasing the element the iterator is pointing at
+        link = *iter;
+        ++iter;
         if (consistent_with_previous_usage(link, &reincarnation))
         {
-        	if (reincarnation)
-        	{
-        		link->set_reincarnated();
-        	}
+            if (reincarnation)
+            {
+                link->set_reincarnated();
+            }
         }
         else
         {
-        	// Deletion is permissible because the link has not yet been completely created
-        	// This just undoes what had been done in add_new_link.
-        	log_err("Link %s created by configuration file is inconsistent with previous usage - deleting",
-        			link->name());
-        	link->delete_link();
-        	links_->erase(link);
+            // Deletion is permissible because the link has not yet been completely created
+            // This just undoes what had been done in add_new_link.
+            log_err("Link %s created by configuration file is inconsistent with previous usage - deleting",
+                    link->name());
+            link->delete_link();
+            links_->erase(link);
         }
     }
     return;
@@ -389,10 +406,10 @@ ContactManager::config_links_consistent(void)
 void
 ContactManager::reincarnate_links(void)
 {
-	/**
-	 * Reincarnate any non-OPPORTUNISTIC links not set up by configuration file
-	 */
-	log_debug("reincarnate_links");
+    /**
+     * Reincarnate any non-OPPORTUNISTIC links not set up by configuration file
+     */
+    log_debug("reincarnate_links");
 }
 
 //----------------------------------------------------------------------
@@ -417,7 +434,6 @@ ContactManager::LinkAvailabilityTimer::timeout(const struct timeval& now)
 {
     (void)now;
     cm_->reopen_link(link_);
-    delete this;
 }
 
 //----------------------------------------------------------------------
@@ -444,9 +460,11 @@ ContactManager::reopen_link(const LinkRef& link)
     ASSERT(!link->isdeleted());
     
     if (link->state() == Link::UNAVAILABLE) {
-        BundleDaemon::post(
-            new LinkStateChangeRequest(link, Link::OPEN,
-                                       ContactEvent::RECONNECT));
+        LinkStateChangeRequest* event_to_post;
+        event_to_post = new LinkStateChangeRequest(link, Link::OPEN,
+                                                   ContactEvent::RECONNECT);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
     } else {
         // state race (possibly due to user action)
         log_err("availability timer fired for link %s but state is %s",
@@ -456,8 +474,16 @@ ContactManager::reopen_link(const LinkRef& link)
 
 //----------------------------------------------------------------------
 void
-ContactManager::handle_link_created(LinkCreatedEvent* event)
+ContactManager::handle_link_created(SPtr_BundleEvent& sptr_event)
 {
+    LinkCreatedEvent* event = nullptr;
+    event = dynamic_cast<LinkCreatedEvent*>(sptr_event.get());
+    if (event == nullptr) {
+        log_err("Error casting event type %s as a LinkCreatedEvent", 
+                event_to_str(sptr_event->type_));
+        return;
+    }
+
     oasys::ScopeLock l(&lock_, "ContactManager::handle_link_created");
 
     LinkRef link = event->link_;
@@ -482,8 +508,16 @@ ContactManager::handle_link_created(LinkCreatedEvent* event)
 
 //----------------------------------------------------------------------
 void
-ContactManager::handle_link_available(LinkAvailableEvent* event)
+ContactManager::handle_link_available(SPtr_BundleEvent& sptr_event)
 {
+    LinkAvailableEvent* event = nullptr;
+    event = dynamic_cast<LinkAvailableEvent*>(sptr_event.get());
+    if (event == nullptr) {
+        log_err("Error casting event type %s as a LinkAvailableEvent", 
+                event_to_str(sptr_event->type_));
+        return;
+    }
+
     oasys::ScopeLock l(&lock_, "ContactManager::handle_link_available");
 
     if (shutting_down_) {
@@ -512,14 +546,14 @@ ContactManager::handle_link_available(LinkAvailableEvent* event)
         return; // no timer for this link
     }
 
-    LinkAvailabilityTimer* timer = iter->second;
+    oasys::SPtr_Timer timer = iter->second;
     availability_timers_.erase(link);
 
     // try to cancel the timer and rely on the timer system to clean
     // it up once it bubbles to the top of the queue... if there's a
     // race and the timer is in the process of firing, it should clean
     // itself up in the timeout handler.
-    if (!timer->cancel()) {
+    if (!oasys::SharedTimerSystem::instance()->cancel_timer(timer)) {
         log_warn("ContactManager::handle_link_available: "
                  "can't cancel availability timer: race condition");
     }
@@ -527,8 +561,16 @@ ContactManager::handle_link_available(LinkAvailableEvent* event)
 
 //----------------------------------------------------------------------
 void
-ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
+ContactManager::handle_link_unavailable(SPtr_BundleEvent& sptr_event)
 {
+    LinkUnavailableEvent* event = nullptr;
+    event = dynamic_cast<LinkUnavailableEvent*>(sptr_event.get());
+    if (event == nullptr) {
+        log_err("Error casting event type %s as a LinkUnavailableEvent", 
+                event_to_str(sptr_event->type_));
+        return;
+    }
+
     oasys::ScopeLock l(&lock_, "ContactManager::handle_link_unavailable");
 
     if (shutting_down_) {
@@ -569,7 +611,12 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
                   event->reason_to_str(event->reason_));
         return;
     }
-    
+
+    if (shutting_down_) {
+        return;
+    }
+
+
     // adjust the retry interval in the link to handle backoff in case
     // it continuously fails to open, then schedule the timer. note
     // that if this is the first time the link is opened, the
@@ -586,13 +633,12 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
         link->retry_interval_ = link->params().max_retry_interval_;
     }
 
-    LinkAvailabilityTimer* timer = new LinkAvailabilityTimer(this, link);
+    SPtr_LinkAvailabilityTimer timer = std::make_shared<LinkAvailabilityTimer>(this, link);
 
     AvailabilityTimerMap::value_type val(link, timer);
     if (availability_timers_.insert(val).second == false) {
         log_err("ContactManager::handle_link_unavailable: "
                 "error inserting timer for link %s into table!", link->name());
-        delete timer;
         return;
     }
 
@@ -603,13 +649,23 @@ ContactManager::handle_link_unavailable(LinkUnavailableEvent* event)
 
     log_debug("link %s unavailable (%s): scheduling retry timer in %d seconds",
               link->name(), event->reason_to_str(event->reason_), timeout);
-    timer->schedule_in(timeout * 1000);
+
+    oasys::SPtr_Timer base_sptr = timer;
+    oasys::SharedTimerSystem::instance()->schedule_in(timeout * 1000, base_sptr);
 }
 
 //----------------------------------------------------------------------
 void
-ContactManager::handle_contact_up(ContactUpEvent* event)
+ContactManager::handle_contact_up(SPtr_BundleEvent& sptr_event)
 {
+    ContactUpEvent* event = nullptr;
+    event = dynamic_cast<ContactUpEvent*>(sptr_event.get());
+    if (event == nullptr) {
+        log_err("Error casting event type %s as a ContactUpEvent", 
+                event_to_str(sptr_event->type_));
+        return;
+    }
+
     oasys::ScopeLock l(&lock_, "ContactManager::handle_contact_up");
 
     if (shutting_down_) {
@@ -646,33 +702,33 @@ ContactManager::handle_contact_up(ContactUpEvent* event)
 LinkRef
 ContactManager::find_link_to(ConvergenceLayer* cl,
                              const std::string& nexthop,
-                             const EndpointID& remote_eid,
+                             const SPtr_EID& sptr_remote_eid,
                              Link::link_type_t type,
                              u_int states)
 {
-	log_debug("find current link using find_any_link_to and links_");
-	return find_any_link_to(links_, cl, nexthop, remote_eid, type, states);
+    log_debug("find current link using find_any_link_to and links_");
+    return find_any_link_to(links_, cl, nexthop, sptr_remote_eid, type, states);
 }
 
 //----------------------------------------------------------------------
 LinkRef
 ContactManager::find_previous_link_to(ConvergenceLayer* cl,
-									  const std::string& nexthop,
-									  const EndpointID& remote_eid,
-									  Link::link_type_t type,
-									  u_int states)
+                                      const std::string& nexthop,
+                                      const SPtr_EID& sptr_remote_eid,
+                                      Link::link_type_t type,
+                                      u_int states)
 {
-	log_debug("find previously existing link using find_any_link_to and previous_links_");
-	return find_any_link_to(previous_links_, cl, nexthop, remote_eid, type, states);
+    log_debug("find previously existing link using find_any_link_to and previous_links_");
+    return find_any_link_to(previous_links_, cl, nexthop, sptr_remote_eid, type, states);
 }
 //----------------------------------------------------------------------
 LinkRef
 ContactManager::find_any_link_to(LinkSet *link_set,
-								 ConvergenceLayer* cl,
-								 const std::string& nexthop,
-								 const EndpointID& remote_eid,
-								 Link::link_type_t type,
-								 u_int states)
+                                 ConvergenceLayer* cl,
+                                 const std::string& nexthop,
+                                 const SPtr_EID& sptr_remote_eid,
+                                 Link::link_type_t type,
+                                 u_int states)
 {
     oasys::ScopeLock l(&lock_, "ContactManager::find_link_to");
 
@@ -686,22 +742,22 @@ ContactManager::find_any_link_to(LinkSet *link_set,
     log_debug("find_link_to: cl %s nexthop %s remote_eid %s "
               "type %s states 0x%x",
               cl ? cl->name() : "ANY",
-              nexthop.c_str(), remote_eid.c_str(),
+              nexthop.c_str(), sptr_remote_eid->c_str(),
               type == Link::LINK_INVALID ? "ANY" : Link::link_type_to_str(type),
               states);
 
     // make sure some sane criteria was specified
     ASSERT((cl != NULL) ||
            (nexthop != "") ||
-           (remote_eid != EndpointID::NULL_EID()) ||
+           (sptr_remote_eid != BD_NULL_EID()) ||
            (type != Link::LINK_INVALID));
     
     for (iter = link_set->begin(); iter != link_set->end(); ++iter) {
         if ( ((type == Link::LINK_INVALID) || (type == (*iter)->type())) &&
              ((cl == NULL) || ((*iter)->clayer() == cl)) &&
              ((nexthop == "") || (nexthop == (*iter)->nexthop())) &&
-             ((remote_eid == EndpointID::NULL_EID()) ||
-              (remote_eid == (*iter)->remote_eid())) &&
+             ((sptr_remote_eid == BD_NULL_EID()) ||
+              (sptr_remote_eid == (*iter)->remote_eid())) &&
              ((states & (*iter)->state()) != 0) )
         {
             link = *iter;
@@ -722,7 +778,7 @@ ContactManager::find_any_link_to(LinkSet *link_set,
     }
 
     log_debug("ContactManager::find_any_link_to: no match - link %s NULL",
-    		  (link==NULL)? "is" : "is not");
+              (link==NULL)? "is" : "is not");
     return link;
 }
 
@@ -735,11 +791,11 @@ ContactManager::find_any_link_to(LinkSet *link_set,
 LinkRef
 ContactManager::new_opportunistic_link(ConvergenceLayer* cl,
                                        const std::string& nexthop,
-                                       const EndpointID& remote_eid,
+                                       const SPtr_EID& sptr_remote_eid,
                                        const std::string* link_name)
 {
     log_debug("new_opportunistic_link: cl %s nexthop %s remote_eid %s",
-              cl->name(), nexthop.c_str(), remote_eid.c_str());
+              cl->name(), nexthop.c_str(), sptr_remote_eid->c_str());
     LinkRef link;
 
 
@@ -762,34 +818,33 @@ ContactManager::new_opportunistic_link(ConvergenceLayer* cl,
     // over from statically configured to OPPORTUNISTIC or vice versa between runs
     // then the routing might send bundles again, but this is a nuisance rather than
     // a big problem.
-    link = find_previous_link_to(NULL, "", remote_eid, Link::OPPORTUNISTIC);
+//dzdebug    link = find_previous_link_to(NULL, "", sptr_remote_eid, Link::OPPORTUNISTIC);
     
     if (link != NULL)
     {
-    	strcpy(name, link->name());
+        strcpy(name, link->name());
     }
     else
     {
-		// find a unique link name
-		if (link_name)
-		{
-			strncpy(name_fmt, link_name->c_str(), sizeof(name_fmt) - MAX_OPP_LINK_DIGITS - 2);
-			strcat(name_fmt, "-%d");
-		}
-		else
-		{
-			strcpy(name_fmt, "opplink-%d");
-		}
+        // find a unique link name
+        if (link_name)
+        {
+            strncpy(name_fmt, link_name->c_str(), sizeof(name_fmt) - MAX_OPP_LINK_DIGITS - 2);
+            strcat(name_fmt, "-%d");
+        }
+        else
+        {
+            strcpy(name_fmt, "opplink-%d");
+        }
 
-		do {
-			snprintf(name, sizeof(name), name_fmt, opportunistic_cnt_);
-			opportunistic_cnt_++;
-			//dz ASSERT(opportunistic_cnt_ < 1000000);
-			if (opportunistic_cnt_ >= 100000000)
-                        {
-                            opportunistic_cnt_ = 0;
-                        }
-		} while ((find_link(name) != NULL) || (find_previous_link(name) != NULL));
+        do {
+            snprintf(name, sizeof(name), name_fmt, opportunistic_cnt_);
+            opportunistic_cnt_++;
+            if (opportunistic_cnt_ >= 100000000)
+            {
+                opportunistic_cnt_ = 0;
+            }
+        } while ((find_link(name) != NULL) || (find_previous_link(name) != NULL));
     }
 
     link = Link::create_link(name, Link::OPPORTUNISTIC, cl,
@@ -803,7 +858,7 @@ ContactManager::new_opportunistic_link(ConvergenceLayer* cl,
     LinkRef new_link(link.object(),
                      "ContactManager::new_opportunistic_link: return value");
     
-    new_link->set_remote_eid(remote_eid);
+    new_link->set_remote_eid(sptr_remote_eid);
 
     if (!add_new_link(new_link)) {
         new_link->delete_link();

@@ -20,11 +20,14 @@
 
 #include <ctype.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/util/Glob.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/Glob.h>
 
 #include "applib/dtn_types.h"
 #include "EndpointID.h"
+#include "DTNScheme.h"
+#include "IMCScheme.h"
+#include "IPNScheme.h"
 #include "Scheme.h"
 #include "SchemeTable.h"
 #include "bundling/BundleDaemon.h"
@@ -32,11 +35,10 @@
 namespace dtn {
 
 //----------------------------------------------------------------------
-EndpointID        GlobalEndpointIDs::null_eid_;
-EndpointIDPattern GlobalEndpointIDs::wildcard_eid_;
 
-EndpointID::singleton_info_t
-  EndpointID::is_singleton_default_ = EndpointID::MULTINODE;
+EndpointID::eid_dest_type_t
+  EndpointID::unknown_eid_dest_type_default_ = EndpointID::MULTINODE;
+
 bool EndpointID::glob_unknown_schemes_ = true;
 
 //----------------------------------------------------------------------
@@ -69,97 +71,47 @@ EndpointID::validate()
     valid_ = true;
 
     if ((scheme_ = SchemeTable::instance()->lookup(uri_.scheme())) != NULL) {
-        valid_ = scheme_->validate(uri_, is_pattern_);
+        valid_ = scheme_->validate(uri_, is_pattern_, is_node_wildcard_, is_service_wildcard_);
+    }
+
+    if (valid_) {
+        set_node_num();
+    } else {
+        node_num_ = 0;
+        service_num_ = 0;
+        is_node_wildcard_ = false;
+        is_service_wildcard_ = false;
     }
 
     return valid_;
 }
 
 //----------------------------------------------------------------------
-bool
-EndpointID::append_service_tag(const char* tag)
+EndpointID::eid_dest_type_t
+EndpointID::eid_dest_type() const
 {
-    if (!scheme_)
-        return false;
-
-    bool ok = scheme_->append_service_tag(&uri_, tag);
-    if (!ok)
-        return false;
-
-    // rebuild the string
-    if (!uri_.valid()) {
-        log_err_p("/dtn/naming/endpoint/",
-                  "EndpointID::append_service_tag: "
-                  "failed to format appended URI");
-        
-        // XXX/demmer this leaves the URI in a bogus state... that
-        // doesn't seem good since this really shouldn't ever happen
-        return false;
+    if (! known_scheme()) {
+        eid_dest_type_t ret = unknown_eid_dest_type_default_;
+        log_warn_p("/dtn/naming/endpoint/",
+                   "returning default eid_dest_type=%s for unknown scheme %s",
+                   ret == SINGLETON ? "SINGLETON" :
+                   ret == MULTINODE ? "MULTINODE" :
+                   "unknown",
+                   scheme_str().c_str());
+        return ret;
     }
-
-    return true;
+    return scheme_->eid_dest_type(uri_);
 }
 
 //----------------------------------------------------------------------
 bool
-EndpointID::append_service_wildcard()
-{
-    if (!scheme_)
-        return false;
-
-    bool ok = scheme_->append_service_wildcard(&uri_);
-    if (!ok)
-        return false;
-
-    // rebuild the string
-    if (!uri_.valid()) {
-        log_err_p("/dtn/naming/endpoint/",
-                  "EndpointID::append_service_wildcard: "
-                  "failed to format appended URI");
-        
-        // XXX/demmer this leaves the URI in a bogus state... that
-        // doesn't seem good since this really shouldn't ever happen
-        return false;
-    }
-
-    return true;
-}
-
-//----------------------------------------------------------------------
-bool
-EndpointID::remove_service_tag()
-{
-    if (! scheme_)
-        return false;
-
-    bool ok = scheme_->remove_service_tag(&uri_);
-    if (!ok)
-        return false;
-
-    // rebuild the string
-    if (!uri_.valid()) {
-        log_err_p("/dtn/naming/endpoint/",
-                  "EndpointID::remove_service_tag: "
-                  "failed to format reduced URI");
-        
-        // see note in append_service_wildcard() ... :(
-        return false;
-    }
-
-    return true;
-}
-
-//----------------------------------------------------------------------
-EndpointID::singleton_info_t
 EndpointID::is_singleton() const
 {
     if (! known_scheme()) {
-        singleton_info_t ret = is_singleton_default_;
+        bool ret = (unknown_eid_dest_type_default_ == SINGLETON);
         log_warn_p("/dtn/naming/endpoint/",
                    "returning is_singleton=%s for unknown scheme %s",
-                   ret == SINGLETON ? "true" :
-                   ret == MULTINODE ? "false" :
-                   "unknown",
+                   ret ? "true" : "false",
                    scheme_str().c_str());
         return ret;
     }
@@ -171,6 +123,8 @@ bool
 EndpointID::assign(const dtn_endpoint_id_t* eid)
 {
     uri_.assign(std::string(eid->uri));
+    node_num_ = 0;
+    service_num_ = 0;
     return validate();
 }
     
@@ -194,34 +148,145 @@ EndpointID::serialize(oasys::SerializeAction* a)
 
 //----------------------------------------------------------------------
 bool
-EndpointIDPattern::match(const EndpointID& eid) const
+EndpointID::subsume_ipn(const EndpointID& other) const
 {
-    // only match if we're valid
-    if (!uri_.valid()) {
-        log_warn_p("/dtn/naming/endpoint",
-                   "match error: pattern '%s' not a valid uri",
-                   uri_.c_str());
+    bool result = false;
+
+    if (is_ipn_scheme() && other.is_ipn_scheme()) {
+        result = node_num_ == other.node_num();
+    }
+
+    return result;
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointID::subsume_ipn(const SPtr_EID& other) const
+{
+    bool result = false;
+
+    if (is_ipn_scheme() && other->is_ipn_scheme()) {
+        result = node_num_ == other->node_num();
+    }
+
+    return result;
+}
+
+//----------------------------------------------------------------------
+void
+EndpointID::set_node_num()
+{
+    node_num_ = 0;
+    service_num_ = 0;
+    is_null_eid_ = false;
+
+    if (scheme_ == IPNScheme::instance()) {
+        IPNScheme::parse(uri_.ssp(), &node_num_, &service_num_);
+    } else if (scheme_ == IMCScheme::instance()) {
+        IMCScheme::parse(uri_.ssp(), &node_num_, &service_num_);
+    } else if (scheme_ == DTNScheme::instance()) {
+        is_null_eid_ = (uri_.ssp() == "none");
+    }
+
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointID::is_dtn_scheme() const
+{
+    return (scheme_ == DTNScheme::instance());
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointID::is_ipn_scheme() const
+{
+    return (scheme_ == IPNScheme::instance());
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointID::is_imc_scheme() const
+{
+    return (scheme_ == IMCScheme::instance());
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointID::is_cbhe_compat() const
+{
+    return ((scheme_ == IPNScheme::instance()) || 
+            (scheme_ == IMCScheme::instance()) ||
+            is_null_eid_);
+}
+
+//----------------------------------------------------------------------
+size_t
+EndpointID::node_num() const
+{
+    return node_num_;
+}
+
+//----------------------------------------------------------------------
+size_t
+EndpointID::service_num() const
+{
+    return service_num_;
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointIDPattern::match(const SPtr_EID& sptr_eid) const
+{
+    if (!valid_) {
+        log_crit_p("/dtn/naming/endpointpattern",
+                   "match error: pattern '%s' is not valid",
+                   c_str());
         return false;
     }
-    
+
+    if (!sptr_eid->valid()) {
+        log_crit_p("/dtn/naming/endpointpattern",
+                   "match error: EID to match '%s' is not valid",
+                   sptr_eid->c_str());
+        return false;
+    }
+
+    if (known_scheme()) {
+        return scheme()->match(*this, sptr_eid);
+    }
+
     // only match valid eids
-    if (!eid.uri().valid()) {
+    if (!sptr_eid->uri().valid()) {
         log_warn_p("/dtn/naming/endpoint",
                    "match error: eid '%s' not a valid uri",
-                   eid.c_str());
+                   sptr_eid->c_str());
         return false;
-    }
     
-    if (known_scheme()) {
-        return scheme()->match(*this, eid);
-
     } else if (glob_unknown_schemes_) {
-        return oasys::Glob::fixed_glob(uri_.c_str(), eid.c_str());
+        return oasys::Glob::fixed_glob(uri_.c_str(), sptr_eid->c_str());
         
     } else {
-        return (*this == eid);
+        return (*this == *sptr_eid);
     }
 
+}
+
+//----------------------------------------------------------------------
+bool
+EndpointIDPattern::match_ipn(size_t test_node_num) const
+{
+    bool result = false;
+
+    if (!valid_) {
+        log_crit_p("/dtn/naming/endpointpattern",
+                   "match error: pattern '%s' is not valid",
+                   c_str());
+    } else if (scheme() == IPNScheme::instance()) {
+        result = is_node_wildcard_ || (node_num_ == test_node_num);
+    }
+
+    return result;
 }
 
 

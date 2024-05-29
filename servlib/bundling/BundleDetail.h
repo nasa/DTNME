@@ -16,7 +16,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,15 +36,10 @@
 #ifndef _BUNDLE_DETAIL_H_
 #define _BUNDLE_DETAIL_H_
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/storage/StoreDetail.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/storage/StoreDetail.h>
 
 #include "Bundle.h"
-
-#ifdef BPQ_ENABLED
-#include "BPQBlock.h"
-#endif /* BPQ_ENABLED */
-
 
 
 // This functionality is only useful with ODBC/SQL  data storage
@@ -98,16 +93,6 @@ class BundleDetail : public oasys::StoreDetail
 		size_t payload_length_;				///< Length of bundle payload (might be fragment)
 		u_int32_t fragment_offset_;			///< Offset of fragment (if it is one)
 		u_int32_t original_length_;			///< If a fragment, total length of bundle payload
-
-#ifdef BPQ_ENABLED
-		/*
-		 * These items come from the BPQ block if they are compiled in and there is one
-		 */
-		bool has_BPQ_blk_;
-		BPQBlock *bpq_blk_;					///< Copy of BPQ block
-        BPQBlock::kind_t bpq_kind_;			///< The kind of BPQ block
-        u_int bpq_matching_rule_;			///< The matching rule to apply
-#endif /* BPQ_ENABLED */
 
 };
 

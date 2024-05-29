@@ -18,8 +18,9 @@
 #  include <dtn-config.h>
 #endif
 
+#include "BundleDaemon.h"
 #include "Dictionary.h"
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 namespace dtn {
 
@@ -48,7 +49,7 @@ Dictionary::~Dictionary()
 
 //----------------------------------------------------------------------
 void
-Dictionary::set_dict(const u_char* dict, u_int32_t length)
+Dictionary::set_dict(const u_char* dict, size_t length)
 {
     ASSERT(dict_ == NULL);
     dict_ = (u_char*)malloc(length);
@@ -108,7 +109,13 @@ Dictionary::add_str(const std::string& str)
             dict_length_ = (dict_length_ == 0) ? 64 : dict_length_ * 2;
         } while (dict_length_ < length_ + str.length() + 1);
         
-        dict_ = (u_char*)realloc(dict_, dict_length_);
+        u_char* tmp = (u_char*)realloc(dict_, dict_length_);
+        if (tmp == nullptr) {
+        log_err_p("/dtn/bundle/protocol", "error adding string to dictionary - realloc call failed");
+            return;
+        } else {
+            dict_ = tmp;
+        }
     }
 
     memcpy(&dict_[length_], str.data(), str.length());
@@ -128,11 +135,14 @@ Dictionary::serialize(oasys::SerializeAction* a)
 
 //----------------------------------------------------------------------
 bool
-Dictionary::extract_eid(EndpointID* eid,
-                        u_int32_t scheme_offset,
-                        u_int32_t ssp_offset)
+Dictionary::extract_eid(SPtr_EID& sptr_eid,
+                        size_t scheme_offset,
+                        size_t ssp_offset)
 {
     static const char* log = "/dtn/bundle/protocol";
+
+    // default to dtn:none
+    sptr_eid = BD_MAKE_EID_NULL();
 
     // If there's nothing in the dictionary, return
     if (dict_length_ == 0) {
@@ -141,49 +151,38 @@ Dictionary::extract_eid(EndpointID* eid,
     }    
 
     if (scheme_offset >= (dict_length_ - 1)) {
-	log_err_p(log, "illegal offset for scheme dictionary offset: "
-                  "offset %d, total length %u",
+        log_err_p(log, "illegal offset for scheme dictionary offset: "
+                  "offset %zu, total length %zu",
                   scheme_offset, dict_length_);
-	return false;
+        return false;
     }
 
     if (ssp_offset >= (dict_length_ - 1)) {
-	log_err_p(log, "illegal offset for ssp dictionary offset: "
-                  "offset %d, total length %u",
+        log_err_p(log, "illegal offset for ssp dictionary offset: "
+                  "offset %zu, total length %zu",
                   ssp_offset, dict_length_);
-	return false;
+        return false;
     }
-    
-    eid->assign((char*)&dict_[scheme_offset],
-                (char*)&dict_[ssp_offset]);
 
-    if (! eid->valid()) {
-	log_err_p(log, "invalid endpoint id '%s': "
-                  "scheme '%s' offset %u/%u ssp '%s' offset %u/%u",
-                  eid->c_str(),
-                  eid->scheme_str().c_str(),
+    sptr_eid = BD_MAKE_EID_SCHEME((const char*) &dict_[scheme_offset], (const char*) &dict_[ssp_offset]);
+
+    if (! sptr_eid->valid()) {
+        log_err_p(log, "invalid endpoint id '%s': "
+                  "scheme '%s' offset %zu/%zu ssp '%s' offset %zu/%zu",
+                  sptr_eid->c_str(),
+                  sptr_eid->scheme_str().c_str(),
                   scheme_offset, dict_length_,
-                  eid->ssp().c_str(),
+                  sptr_eid->ssp().c_str(),
                   ssp_offset, dict_length_);
         return false;                                                      
     }                                                                   
     
-    log_debug_p(log, "parsed eid (offsets %u, %u) %s", 
-                scheme_offset, ssp_offset, eid->c_str());
+    log_debug_p(log, "parsed eid (offsets %zu, %zu) %s", 
+                scheme_offset, ssp_offset, sptr_eid->c_str());
     return true;
 }
 
-//----------------------------------------------------------------------
-bool
-Dictionary::extract_eid(EndpointID* eid,
-                        u_int64_t scheme_offset,
-                        u_int64_t ssp_offset)
-{
-	u_int32_t scheme_offset32 = scheme_offset;
-	u_int32_t ssp_offset32 = ssp_offset;
-	
-	return extract_eid(eid, scheme_offset32, ssp_offset32);
-}
+
 
 #if 0
 // the routines here are slightly different from those
@@ -200,11 +199,11 @@ PrimaryBlockProcessor::get_dictionary_offsets(DictionaryVector *dict,
 {
     DictionaryVector::iterator iter;
     for (iter = dict->begin(); iter != dict->end(); ++iter) {
-	if (iter->str == eid.scheme_str())
-	    *scheme_offset = htons(iter->offset);
+    if (iter->str == eid.scheme_str())
+        *scheme_offset = htons(iter->offset);
 
-	if (iter->str == eid.ssp())
-	    *ssp_offset = htons(iter->offset);
+    if (iter->str == eid.ssp())
+        *ssp_offset = htons(iter->offset);
     }
 }
 
@@ -225,24 +224,24 @@ PrimaryBlockProcessor::extract_dictionary_eid(EndpointID* eid,
     ssp_offset = ntohs(ssp_offset);
 
     if (scheme_offset >= (dictionary_len - 1)) {
-	log_err_p(log, "illegal offset for %s scheme dictionary offset: "
+    log_err_p(log, "illegal offset for %s scheme dictionary offset: "
                   "offset %d, total length %u", what,
                   scheme_offset, dictionary_len);
-	return false;
+    return false;
     }
 
     if (ssp_offset >= (dictionary_len - 1)) {
-	log_err_p(log, "illegal offset for %s ssp dictionary offset: "
+    log_err_p(log, "illegal offset for %s ssp dictionary offset: "
                   "offset %d, total length %u", what,
                   ssp_offset, dictionary_len);
-	return false;
+    return false;
     }
     
     eid->assign((char*)&dictionary[scheme_offset],
                 (char*)&dictionary[ssp_offset]);
 
     if (! eid->valid()) {
-	log_err_p(log, "invalid %s endpoint id '%s': "
+    log_err_p(log, "invalid %s endpoint id '%s': "
                   "scheme '%s' offset %u/%u ssp '%s' offset %u/%u",
                   what, eid->c_str(),
                   eid->scheme_str().c_str(),

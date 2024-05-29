@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -58,7 +58,7 @@ public:
      * Constructor.
      */
     APIRegistration(u_int32_t regid,
-                    const EndpointIDPattern& endpoint,
+                    const SPtr_EIDPattern& sptr_endpoint,
                     failure_action_t failure_action,
                     replay_action_t replay_action,
                     u_int32_t session_flags,
@@ -73,17 +73,21 @@ public:
     void serialize(oasys::SerializeAction* a);
     
     /// Virtual from Registration
-    int format(char *buf, size_t sz) const;
-    void deliver_bundle(Bundle* bundle);
-    void delete_bundle(Bundle* bundle);
-    void session_notify(Bundle* bundle);
-    void set_active_callback(bool a);
+    int format(char *buf, size_t sz) const override;
+    int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) override;
+    void delete_bundle(Bundle* bundle) override;
+    void set_active_callback(bool a) override;
 
     /*
      * Return front bundle and move from bundle_list to appropriate
      * secondary list (unacked or acked)
      */
     BundleRef deliver_front();
+
+    /*
+     * APIServer to inform registration that the bundle was successfully delivered
+     */
+    void bundle_delivery_succeeded(BundleRef& bref);
 
     /**
      * Record delivery attempts to the appropriate history list
@@ -103,7 +107,7 @@ public:
     /**
      * Handle application bundle delivery acknowledgements
      */
-    void bundle_ack(const EndpointID& source_eid,
+    void bundle_ack(const SPtr_EID& sptr_source,
                     const BundleTimestamp& creation_ts);
     
     /**
@@ -111,18 +115,7 @@ public:
      */
     BlockingBundleList* bundle_list() { return bundle_list_; }
 
-    /**
-     * Accessor for notification of session subscribers /
-     * unsubscribers (currently just the subscription bundles).
-     */
-    BlockingBundleList* session_notify_list() { return session_notify_list_; }
-    
     u_int64_t reg_token() { return reg_token_; }
-
-#ifdef DTPC_ENABLED
-    u_int32_t dtpc_topic_id()            {return dtpc_topic_id_; }
-    void set_dtpc_topic_id(u_int32_t t)  { dtpc_topic_id_ = t; }
-#endif
 
 protected:
     /// App-supplied token identifying the registration
@@ -130,9 +123,6 @@ protected:
 
     /// Queue of bundles for the registration
     BlockingBundleList* bundle_list_;
-
-    /// Queue of subscription notification bundles
-    BlockingBundleList* session_notify_list_;
 
     /// Queue of delivered bundles that haven't yet been acked
     BundleList* unacked_bundle_list_;
@@ -152,7 +142,7 @@ protected:
 /**
  * Typedef for a list of APIRegistrations.
  */
-class APIRegistrationList : public std::list<APIRegistration*> {};
+//class APIRegistrationList : public std::list<APIRegistration*> {};
 
 } // namespace dtn
 

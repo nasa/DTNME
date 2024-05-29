@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "LoggingRegistration.h"
 #include "Registration.h"
@@ -30,19 +30,24 @@
 
 namespace dtn {
 
-LoggingRegistration::LoggingRegistration(const EndpointIDPattern& endpoint)
+//LoggingRegistration::LoggingRegistration(const EndpointIDPattern& endpoint)
+LoggingRegistration::LoggingRegistration(const SPtr_EIDPattern& endpoint)
     : Registration(GlobalStore::instance()->next_regid(), endpoint,
                    Registration::DEFER, Registration::NEW, 0, 0)
 {
     logpathf("/dtn/reg/logging/%d", regid_);
     set_active(true);
     
-    log_info("new logging registration on endpoint %s", endpoint.c_str());
+    log_info("new logging registration on endpoint %s", endpoint->c_str());
+
+    reg_list_type_str_ = "LoggingReg";
 }
 
-void
-LoggingRegistration::deliver_bundle(Bundle* b)
+int
+LoggingRegistration::deliver_bundle(Bundle* b, SPtr_Registration& sptr_reg)
 {
+    (void) sptr_reg;
+
     // use the bundle's builtin verbose formatting function and
     // generate the log output for all the header info
     oasys::StringBuffer buf;
@@ -73,8 +78,10 @@ LoggingRegistration::deliver_bundle(Bundle* b)
                  payload_len, (int)len, hex.data());
     }
 
-    // post the transmitted event
-    BundleDaemon::post(new BundleDeliveredEvent(b, this));
+    // mark bundle as delivered
+    b->fwdlog()->update(this, ForwardingInfo::DELIVERED);
+
+    return REG_DELIVER_BUNDLE_SUCCESS;
 }
 
 } // namespace dtn

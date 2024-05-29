@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,7 +36,9 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
+#include <memory>
+
+#include <third_party/oasys/util/OptParser.h>
 #include "StreamConvergenceLayer.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/SDNV.h"
@@ -52,8 +54,10 @@ StreamConvergenceLayer::StreamLinkParams::StreamLinkParams(bool init_defaults)
     : LinkParams(init_defaults),
       segment_ack_enabled_(true),
       negative_ack_enabled_(true),
-      keepalive_interval_(0),
-      segment_length_(2048000)
+      keepalive_interval_(10),
+      break_contact_on_keepalive_fault_(true),
+      segment_length_(10000000),
+      max_inflight_bundles_(100)
 {
 }
 
@@ -61,18 +65,20 @@ StreamConvergenceLayer::StreamLinkParams::StreamLinkParams(bool init_defaults)
 void
 StreamConvergenceLayer::StreamLinkParams::serialize(oasys::SerializeAction *a)
 {
-	log_debug_p("StreamLinkParams", "StreamLinkParams::serialize");
-	ConnectionConvergenceLayer::LinkParams::serialize(a);
-	a->process("segment_ack_enabled", &segment_ack_enabled_);
-	a->process("negative_ack_enabled", &negative_ack_enabled_);
-	a->process("keepalive_interval", &keepalive_interval_);
-	a->process("segment_length", &segment_length_);
+    log_debug_p("StreamLinkParams", "StreamLinkParams::serialize");
+    ConnectionConvergenceLayer::LinkParams::serialize(a);
+    a->process("segment_ack_enabled", &segment_ack_enabled_);
+    a->process("negative_ack_enabled", &negative_ack_enabled_);
+    a->process("keepalive_interval", &keepalive_interval_);
+    a->process("break_contact_on_keepalive_fault", &break_contact_on_keepalive_fault_);
+    a->process("segment_length", &segment_length_);
+    a->process("max_inflight_bundles", &max_inflight_bundles_);
 }
 
 //----------------------------------------------------------------------
 StreamConvergenceLayer::StreamConvergenceLayer(const char* logpath,
                                                const char* cl_name,
-                                               u_int8_t    cl_version)
+                                               uint8_t    cl_version)
     : ConnectionConvergenceLayer(logpath, cl_name),
       cl_version_(cl_version)
 {
@@ -87,7 +93,7 @@ StreamConvergenceLayer::parse_link_params(LinkParams* lparams,
     // all subclasses should create a params structure that derives
     // from StreamLinkParams
     StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(lparams);
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
                                
     oasys::OptParser p;
 
@@ -97,11 +103,17 @@ StreamConvergenceLayer::parse_link_params(LinkParams* lparams,
     p.addopt(new oasys::BoolOpt("negative_ack_enabled",
                                 &params->negative_ack_enabled_));
     
-    p.addopt(new oasys::UIntOpt("keepalive_interval",
+    p.addopt(new oasys::UInt16Opt("keepalive_interval",
                                 &params->keepalive_interval_));
     
-    p.addopt(new oasys::UIntOpt("segment_length",
+    p.addopt(new oasys::BoolOpt("break_contact_on_keepalive_fault",
+                                &params->break_contact_on_keepalive_fault_));
+
+    p.addopt(new oasys::UInt64Opt("segment_length",
                                 &params->segment_length_));
+    
+    p.addopt(new oasys::UIntOpt("max_inflight_bundles",
+                                &params->max_inflight_bundles_));
     
     p.addopt(new oasys::UInt8Opt("cl_version",
                                  &cl_version_));
@@ -122,7 +134,7 @@ StreamConvergenceLayer::finish_init_link(const LinkRef& link,
                                          LinkParams* lparams)
 {
     StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(lparams);
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
 
     // make sure to set the reliability bit in the link structure
     if (params->segment_ack_enabled_) {
@@ -136,20 +148,29 @@ StreamConvergenceLayer::finish_init_link(const LinkRef& link,
 void
 StreamConvergenceLayer::dump_link(const LinkRef& link, oasys::StringBuffer* buf)
 {
-    ASSERT(link != NULL);
+    ASSERT(link != nullptr);
     ASSERT(!link->isdeleted());
-    ASSERT(link->cl_info() != NULL);
+    ASSERT((link->cl_info() != nullptr) || (link->sptr_cl_info() != nullptr));
 
     ConnectionConvergenceLayer::dump_link(link, buf);
-    
-    StreamLinkParams* params =
-        dynamic_cast<StreamLinkParams*>(link->cl_info());
-    ASSERT(params != NULL);
+  
+
+    StreamLinkParams* params = nullptr;
+
+    if (link->sptr_cl_info() != nullptr) {
+        params = dynamic_cast<StreamLinkParams*>(link->sptr_cl_info().get());
+    } else {
+        params = dynamic_cast<StreamLinkParams*>(link->cl_info());
+    }
+
+    ASSERT(params != nullptr);
     
     buf->appendf("segment_ack_enabled: %u\n", params->segment_ack_enabled_);
     buf->appendf("negative_ack_enabled: %u\n", params->negative_ack_enabled_);
     buf->appendf("keepalive_interval: %u\n", params->keepalive_interval_);
-    buf->appendf("segment_length: %u\n", params->segment_length_);
+    buf->appendf("break_contact_on_keepalive_fault: %s\n", params->break_contact_on_keepalive_fault_ ? "true" : "false" );
+    buf->appendf("segment_length: %" PRIu64 "\n", params->segment_length_);
+    buf->appendf("max_inflight_bundles: %" PRIu32 "\n", params->max_inflight_bundles_);
     buf->appendf("cl_version: %u\n", cl_version_);
 }
 
@@ -159,15 +180,11 @@ StreamConvergenceLayer::Connection::Connection(const char* classname,
                                                StreamConvergenceLayer* cl,
                                                StreamLinkParams* params,
                                                bool active_connector)
-    : CLConnection(classname, logpath, cl, params, active_connector),
-      current_inflight_(NULL),
-      send_segment_todo_(0),
-      recv_segment_todo_(0),
-      breaking_contact_(false),
-      contact_initiated_(false),
-      delay_reads_to_free_some_storage_(0),
-      incoming_bundle_to_retry_to_accept_(NULL)
+    : CLConnection(classname, logpath, cl, params, active_connector)
 {
+    cl_version_ = ((StreamConvergenceLayer*)cl_)->cl_version_;
+
+    bdaemon_ = BundleDaemon::instance();
 }
 
 //----------------------------------------------------------------------
@@ -177,12 +194,10 @@ StreamConvergenceLayer::Connection::initiate_contact()
     size_t local_eid_len;
     size_t sdnv_len;
 
-    log_debug("initiate_contact called");
-
     // format the contact header
     ContactHeader contacthdr;
     contacthdr.magic   = htonl(MAGIC);
-    contacthdr.version = ((StreamConvergenceLayer*)cl_)->cl_version_;
+    contacthdr.version = cl_version_;
     
     contacthdr.flags = 0;
 
@@ -208,13 +223,12 @@ StreamConvergenceLayer::Connection::initiate_contact()
     sendbuf_.fill(sizeof(ContactHeader));
     
     // follow up with the local endpoint id length + data
-    BundleDaemon* bd = BundleDaemon::instance();
 
-    if(!bd->params_.announce_ipn_)
+    if(!bdaemon_->params_.announce_ipn_)
     {
-        local_eid_len = bd->local_eid().length();
+        local_eid_len = bdaemon_->local_eid()->length();
     } else {
-        local_eid_len = bd->local_eid_ipn().length();
+        local_eid_len = bdaemon_->local_eid_ipn()->length();
     }
 
     sdnv_len = SDNV::encoding_len(local_eid_len);
@@ -230,10 +244,10 @@ StreamConvergenceLayer::Connection::initiate_contact()
                             sendbuf_.tailbytes());
     sendbuf_.fill(sdnv_len);
    
-    if(!bd->params_.announce_ipn_)
-        memcpy(sendbuf_.end(), bd->local_eid().data(), local_eid_len);
+    if(!bdaemon_->params_.announce_ipn_)
+        memcpy(sendbuf_.end(), bdaemon_->local_eid()->data(), local_eid_len);
     else 
-        memcpy(sendbuf_.end(), bd->local_eid_ipn().data(), local_eid_len);
+        memcpy(sendbuf_.end(), bdaemon_->local_eid_ipn()->data(), local_eid_len);
 
     sendbuf_.fill(local_eid_len);
 
@@ -265,7 +279,7 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
     /*
      * First check for valid magic number.
      */
-    u_int32_t magic = 0;
+    uint32_t magic = 0;
     size_t len_needed = sizeof(magic);
     if (recvbuf_.fullbytes() < len_needed) {
  tooshort:
@@ -279,7 +293,7 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
     magic = ntohl(magic);
    
     if (magic != MAGIC) {
-        log_warn("remote sent magic number 0x%.8x, expected 0x%.8x "
+        log_err("remote sent magic number 0x%.8x, expected 0x%.8x "
                  "-- disconnecting.", magic, MAGIC);
         break_contact(ContactEvent::CL_ERROR);
         oasys::Breaker::break_here();
@@ -297,7 +311,7 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
     /*
      * Now check for enough data for the peer's eid
      */
-    u_int64_t peer_eid_len;
+    uint64_t peer_eid_len;
     int sdnv_len = SDNV::decode((u_char*)recvbuf_.start() +
                                   sizeof(ContactHeader),
                                 recvbuf_.fullbytes() -
@@ -329,10 +343,9 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
      * it to go through and thereby allow them to downgrade to this
      * version.
      */
-    u_int8_t cl_version = ((StreamConvergenceLayer*)cl_)->cl_version_;
-    if (contacthdr.version < cl_version) {
-        log_warn("remote sent version %d, expected version %d "
-                 "-- disconnecting.", contacthdr.version, cl_version);
+    if (contacthdr.version < cl_version_) {
+        log_err("remote sent version %d, expected version %d "
+                 "-- disconnecting.", contacthdr.version, cl_version_);
         break_contact(ContactEvent::CL_VERSION);
         return;
     }
@@ -342,9 +355,7 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
      */
     StreamLinkParams* params = stream_lparams();
     
-    params->keepalive_interval_ =
-        std::min(params->keepalive_interval_,
-                 (u_int)contacthdr.keepalive_interval);
+    params->keepalive_interval_ = std::min(params->keepalive_interval_, contacthdr.keepalive_interval);
 
     params->segment_ack_enabled_ = params->segment_ack_enabled_ &&
                                    (contacthdr.flags & SEGMENT_ACK_ENABLED);
@@ -376,17 +387,18 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
      * class to handle (i.e. by linking us to a Contact if we don't
      * have one).
      */
-    EndpointID peer_eid;
-    if (! peer_eid.assign(recvbuf_.start(), peer_eid_len)) {
+    std::string eid_str(recvbuf_.start(), peer_eid_len);
+    SPtr_EID sptr_peer_eid = BD_MAKE_EID(eid_str);
+    if (!sptr_peer_eid->valid()) {
         log_err("protocol error: invalid endpoint id '%s' (len %llu)",
-                peer_eid.c_str(), U64FMT(peer_eid_len));
+                sptr_peer_eid->c_str(), U64FMT(peer_eid_len));
         break_contact(ContactEvent::CL_ERROR);
         return;
     }
 
-    if (!find_contact(peer_eid)) {
-        ASSERT(contact_ == NULL);
-        log_debug("StreamConvergenceLayer::Connection::"
+    if (!find_contact(sptr_peer_eid)) {
+        ASSERT(contact_ == nullptr);
+        log_err("StreamConvergenceLayer::Connection::"
                   "handle_contact_initiation: failed to find contact");
         break_contact(ContactEvent::CL_ERROR);
         return;
@@ -397,14 +409,25 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
      * Make sure that the link's remote eid field is properly set.
      */
     LinkRef link = contact_->link();
-    if (link->remote_eid().str() == EndpointID::NULL_EID().str()) {
-        link->set_remote_eid(peer_eid);
-    } else if (link->remote_eid() != peer_eid) {
-        log_warn("handle_contact_initiation: remote eid mismatch: "
+    if (link->remote_eid() == BD_NULL_EID()) {
+        link->set_remote_eid(sptr_peer_eid);
+    } else if (link->remote_eid() != sptr_peer_eid) {
+        //dzdebug log_warn("handle_contact_initiation: remote eid mismatch: "
+        log_always("handle_contact_initiation: remote eid mismatch: "
                  "link remote eid was set to %s but peer eid is %s",
-                 link->remote_eid().c_str(), peer_eid.c_str());
+                 link->remote_eid()->c_str(), sptr_peer_eid->c_str());
     }
-    
+
+
+    // change the logpath to output the peer_eid
+    if (base_logpath_.length() > 0) {
+        logpathf(base_logpath_.c_str(), link->name(), sptr_peer_eid->c_str());
+        cmdqueue_.logpathf("%s/cmdq", logpath_);
+    } else {
+        logpathf("%s/conn3/%s", cl_->logpath(), sptr_peer_eid->c_str());
+        cmdqueue_.logpathf("%s/cmdq", logpath_);
+    }
+
     /*
      * Finally, we note that the contact is now up.
      */
@@ -412,7 +435,7 @@ StreamConvergenceLayer::Connection::handle_contact_initiation()
 
 
     // If external router - delay 5 seconds befoe reading bundles to give time for contact up to be processed?
-    int secs_to_delay = BundleDaemon::instance()->router()->delay_after_contact_up();
+    int secs_to_delay = bdaemon_->router()->delay_after_contact_up();
     if (0 != secs_to_delay) {
         sleep(secs_to_delay);
     }
@@ -445,7 +468,7 @@ StreamConvergenceLayer::Connection::send_pending_data()
     // through to send acks, otherwise we return to try to finish it
     // again later.
     if (send_segment_todo_ != 0) {
-        ASSERT(current_inflight_ != NULL);        
+        ASSERT(current_inflight_ != nullptr);        
         send_data_todo(current_inflight_);
     }
     
@@ -467,13 +490,13 @@ StreamConvergenceLayer::Connection::send_pending_data()
     // if the connection failed during ack transmission, stop
     if (contact_broken_)
     {
-    	return sent_ack;
+        return sent_ack;
     }
 
     // check if we need to start a new bundle. if we do, then
     // start_next_bundle handles the correct return code
     bool sent_data;
-    if (current_inflight_ == NULL) {
+    if (current_inflight_ == nullptr) {
         sent_data = start_next_bundle();
     } else {
         // otherwise send the next segment of the current bundle
@@ -487,85 +510,30 @@ StreamConvergenceLayer::Connection::send_pending_data()
 bool
 StreamConvergenceLayer::Connection::send_pending_acks()
 {
-    if (contact_broken_ || incoming_.empty()) {
+    if (contact_broken_ || (admin_msg_list_.size() == 0)) {
         return false; // nothing to do
     }
-    IncomingBundle* incoming = incoming_.front();
-    DataBitmap::iterator iter = incoming->ack_data_.begin();
+
     bool generated_ack = false;
-    
-    StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
-    ASSERT(params != NULL); 
-   
-    if (!incoming->bundle_accepted_) {
-        // wait until bundle is "accepted" as far as payload storage is concerned
-        // before sending any acks for the bundle
-        return true;  // signal incoming list is not empty
-    }
- 
-    // when data segment headers are received, the last bit of the
-    // segment is marked in ack_data, thus if there's nothing in
-    // there, we don't need to send out an ack.
-    if (iter == incoming->ack_data_.end() || incoming->rcvd_data_.empty()) {
-        goto check_done;
-    }
+    std::string* msg = nullptr;;
 
-    // however, we have to be careful to check the recv_data as well
-    // to make sure we've actually gotten the segment, since the bit
-    // in ack_data is marked when the segment is begun, not when it's
-    // completed
-    while (1) {
-        size_t rcvd_bytes  = incoming->rcvd_data_.num_contiguous();
-        size_t ack_len     = *iter + 1;
-        size_t segment_len = ack_len - incoming->acked_length_;
-        (void)segment_len;
-
-    	if (ack_len > rcvd_bytes) {
-	    //log_debug("send_pending_acks: "
-	    //  	  "waiting to send ack length %zu for %zu byte segment "
-	    //  	  "since only received %zu",
-	    //      ack_len, segment_len, rcvd_bytes);
-	    break;
-        }
-
-	if(params->segment_ack_enabled_)
-        {       
-
-            // make sure we have space in the send buffer
-            size_t encoding_len = 1 + SDNV::encoding_len(ack_len);
-            if (encoding_len > sendbuf_.tailbytes()) {
-                //log_debug("send_pending_acks: "
-                //      "no space for ack in buffer (need %zu, have %zu)",
-                //      encoding_len, sendbuf_.tailbytes());
-                break;
-            }
-        
-            //log_debug("send_pending_acks: "
-            //      "sending ack length %zu for %zu byte segment "
-            //      "[range %u..%u] ack_data *%p",
-            //      ack_len, segment_len, incoming->acked_length_, *iter,
-            //      &incoming->ack_data_);
-        
-            *sendbuf_.end() = ACK_SEGMENT;
-            int len = SDNV::encode(ack_len, (u_char*)sendbuf_.end() + 1,
-                               sendbuf_.tailbytes() - 1);
-            ASSERT(encoding_len = len + 1);
-            sendbuf_.fill(encoding_len);
-
-            generated_ack = true;
-	}
-        incoming->acked_length_ = ack_len;
-        incoming->ack_data_.clear(*iter);
-        iter = incoming->ack_data_.begin();
-        
-        if (iter == incoming->ack_data_.end()) {
-            // XXX/demmer this should check if there's another bundle
-            // with acks we could send
+    while (admin_msg_list_.size() > 0) {
+        if (!admin_msg_list_.try_pop(&msg)) {
             break;
         }
-        
-        //log_debug("send_pending_acks: "
-        //          "found another segment (%u)", *iter);
+
+        if (msg->length() > sendbuf_.tailbytes()) {
+            // not enough space so add back to the queue
+            admin_msg_list_.push_front(msg);
+            break;
+        }
+
+        memcpy(sendbuf_.end(), msg->c_str(), msg->length());
+        sendbuf_.fill(msg->length());
+
+        generated_ack = true;
+
+        delete msg;
     }
     
     if (generated_ack) {
@@ -573,84 +541,156 @@ StreamConvergenceLayer::Connection::send_pending_acks()
         note_data_sent();
     }
 
-    // now, check if a) we've gotten everything we're supposed to
-    // (i.e. total_length_ isn't zero), and b) we're done with all the
-    // acks we need to send
- check_done:
-    if ((incoming->total_length_ != 0) &&
-        (incoming->total_length_ == incoming->acked_length_))
-    {
-        incoming_.pop_front();
-        delete incoming;
-    }
-    else
-    {
-        //log_debug("send_pending_acks: "
-        //          "still need to send acks -- acked_range %u",
-        //          incoming->ack_data_.num_contiguous());
+    // return true if we've sent something or send buffer filled up with more acks to send
+    return generated_ack || (admin_msg_list_.size() > 0);
+
+/*
+
+    if (true) return;
+
+
+    if (contact_broken_ || ack_list_.empty()) {
+        return false; // nothing to do
     }
 
-    // return true if we've sent something
-//dz debug    return generated_ack;
-    return generated_ack || incoming_.size() > 0;
+    bool generated_ack = false;
+
+    AckList::iterator iter = ack_list_.begin();
+
+    while (iter != ack_list_.end()) {
+        SPtr_AckObject ackptr = ack_list_.front();
+
+        // make sure we have space in the send buffer
+        size_t encoding_len = 1 + SDNV::encoding_len(ackptr->acked_len_);
+        if (encoding_len > sendbuf_.tailbytes()) {
+            //log_debug("send_pending_acks: "
+            //      "no space for ack in buffer (need %zu, have %zu)",
+            //      encoding_len, sendbuf_.tailbytes());
+            break;
+        }
+
+        *sendbuf_.end() = ACK_SEGMENT;
+        int len = SDNV::encode(ackptr->acked_len_, (u_char*)sendbuf_.end() + 1,
+                               sendbuf_.tailbytes() - 1);
+        ASSERT(encoding_len = len + 1);
+        sendbuf_.fill(encoding_len);
+
+        generated_ack = true;
+
+        ack_list_.pop_front();
+        iter = ack_list_.begin();
+    }
+    
+    if (generated_ack) {
+        send_data();
+        note_data_sent();
+    }
+
+    // return true if we've sent something or send buffer filled up with more acks to send
+    return generated_ack || !ack_list_.empty();
+*/
+
 }
-         
+
+//----------------------------------------------------------------------
+void
+StreamConvergenceLayer::Connection::queue_acks_for_incoming_bundle(IncomingBundle* incoming)
+{
+    StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
+    ASSERT(params != nullptr); 
+   
+    while (!incoming->pending_acks_.empty()) {
+        SPtr_AckObject in_ackptr = incoming->pending_acks_.front();
+
+        if(params->segment_ack_enabled_)
+        {
+            // make sure we have space in the send buffer
+            size_t encoding_len = 1 + SDNV::encoding_len(in_ackptr->acked_len_);
+
+            char buf[encoding_len];
+            buf[0] = ACK_SEGMENT;
+            int len = SDNV::encode(in_ackptr->acked_len_, (u_char*)&buf[1],
+                               encoding_len - 1);
+            ASSERT(encoding_len = len + 1);
+
+            admin_msg_list_.push_back(new std::string(buf, encoding_len));
+        }
+
+        incoming->acked_length_ = in_ackptr->acked_len_;
+
+        incoming->pending_acks_.pop_front();
+    }
+}
+
 //----------------------------------------------------------------------
 bool
 StreamConvergenceLayer::Connection::start_next_bundle()
 {
-    ASSERT(current_inflight_ == NULL);
+    ASSERT(current_inflight_ == nullptr);
+
 
     if (! contact_up_) {
         log_debug("start_next_bundle: contact not yet set up");
         return false;
     }
     
+    StreamLinkParams* params = stream_lparams();
+
+    if (inflight_.size() >= params->max_inflight_bundles_) {
+        return false;
+    }
+
+
     const LinkRef& link = contact_->link();
+    //Check Contact Planner State to see if contact is ready for sending
+    if(!link->get_contact_state()){
+      return false;
+    }
+
     BundleRef bundle("StreamCL::Connection::start_next_bundle");
 
     // try to pop the next bundle off the link queue and put it in
     // flight, making sure to hold the link queue lock until it's
     // safely on the link's inflight queue
-    oasys::ScopeLock l(link->queue()->lock(),
-                       "StreamCL::Connection::start_next_bundle");
-
     bundle = link->queue()->front();
-    if (bundle == NULL) {
-        log_debug("start_next_bundle: nothing to start");
+    if (bundle == nullptr) {
+        //log_debug("start_next_bundle: nothing to start");
         return false;
     }
 
+    // release the lock before calling send_next_segment since it
+    // might take a while
+
+
     if (bundle->expired() || bundle->manually_deleting())
     {    
-        BlockInfoVec* blocks = bundle->xmit_blocks()->find_blocks(link);
-        size_t total_len        = BundleProtocol::total_length(blocks);
-
-        // do not add to the LTP session
-        link->del_from_queue(bundle, total_len); 
-        BundleDaemon::instance()->post_at_head(
-            new BundleExpiredEvent(bundle.object()));
-        log_warn("start_next_bundle: ignoring expired/deleted bundle" ); 
+        link->del_from_queue(bundle); 
         return false;
     }    
  
-
     InFlightBundle* inflight = new InFlightBundle(bundle.object());
-    //log_debug("trying to find xmit blocks for bundle id:%" PRIbid " on link %s",
-    //          bundle->bundleid(), link->name());
-    inflight->blocks_ = bundle->xmit_blocks()->find_blocks(contact_->link());
-    ASSERT(inflight->blocks_ != NULL);
-    inflight->total_length_ = BundleProtocol::total_length(inflight->blocks_);
+
+    // transfer_Id is used by TCPCL4
+    inflight->transfer_id_ = sender_transfer_id_++;
+
+    oasys::ScopeLock scoplok(bundle->lock(), __func__);
+
+    inflight->blocks_ = bundle->xmit_blocks()->find_blocks(link);
+
+    scoplok.unlock();
+
+    if (inflight->blocks_ == nullptr) {
+        log_warn("StreamCL:start_next_bundle found bundle without xmit blocks - probably expired: *%p",
+                 bundle.object());
+        return false;
+    }
+    inflight->total_length_ = BundleProtocol::total_length(bundle.object(), inflight->blocks_.get());
     inflight_.push_back(inflight);
     current_inflight_ = inflight;
 
-    link->add_to_inflight(bundle, inflight->total_length_);
-    link->del_from_queue(bundle, inflight->total_length_);
+    link->add_to_inflight(bundle);
+    link->del_from_queue(bundle);
 
-    // release the lock before calling send_next_segment since it
-    // might take a while
-    l.unlock();
-    
     // now send the first segment for the bundle
     return send_next_segment(current_inflight_);
 }
@@ -665,6 +705,12 @@ StreamConvergenceLayer::Connection::send_next_segment(InFlightBundle* inflight)
 
     ASSERT(send_segment_todo_ == 0);
 
+    if (inflight->bundle_refused_) {
+        return finish_bundle(inflight);
+    }
+
+
+
     StreamLinkParams* params = stream_lparams();
 
     size_t bytes_sent = inflight->sent_data_.empty() ? 0 :
@@ -678,7 +724,7 @@ StreamConvergenceLayer::Connection::send_next_segment(InFlightBundle* inflight)
         return finish_bundle(inflight);
     }
 
-    u_int8_t flags = 0;
+    uint8_t flags = 0;
     size_t segment_len;
 
     if (bytes_sent == 0) {
@@ -732,10 +778,10 @@ StreamConvergenceLayer::Connection::send_data_todo(InFlightBundle* inflight)
         size_t send_len   = std::min(send_segment_todo_, sendbuf_.tailbytes());
     
         Bundle* bundle       = inflight->bundle_.object();
-        BlockInfoVec* blocks = inflight->blocks_;
+        SPtr_BlockInfoVec sptr_blocks = inflight->blocks_;
 
         size_t ret =
-            BundleProtocol::produce(bundle, blocks, (u_char*)sendbuf_.end(),
+            BundleProtocol::produce(bundle, sptr_blocks.get(), (u_char*)sendbuf_.end(),
                                     bytes_sent, send_len,
                                     &inflight->send_complete_);
         ASSERT(ret == send_len);
@@ -781,11 +827,15 @@ StreamConvergenceLayer::Connection::send_data_todo(InFlightBundle* inflight)
 bool
 StreamConvergenceLayer::Connection::finish_bundle(InFlightBundle* inflight)
 {
-    ASSERT(inflight->send_complete_);
+    ASSERT(inflight->send_complete_ || inflight->bundle_refused_);
     
     ASSERT(current_inflight_ == inflight);
-    current_inflight_ = NULL;
-    
+    current_inflight_ = nullptr;
+   
+    // It is now safe to release the blocks
+    inflight->blocks_ = nullptr;
+    BundleProtocol::delete_blocks(inflight->bundle_.object(), contact_->link());
+ 
     check_completed(inflight);
 
     return true;
@@ -801,17 +851,18 @@ StreamConvergenceLayer::Connection::check_completed(InFlightBundle* inflight)
     // for the bundle has been received (determined by looking at
     // inflight->ack_data_)
 
-    StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
-    ASSERT(params != NULL);
-
     if (current_inflight_ == inflight) {
         //log_debug("check_completed: bundle %" PRIbid " still waiting for finish_bundle",
         //          inflight->bundle_->bundleid());
         return;
     }
 
-    if(params->segment_ack_enabled_) { 
-        u_int32_t acked_len = inflight->ack_data_.num_contiguous();
+    StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
+    ASSERT(params != nullptr);
+
+    if (params->segment_ack_enabled_ && !inflight->bundle_refused_) { 
+        uint64_t acked_len = inflight->ack_data_.num_contiguous();
+
         if (acked_len < inflight->total_length_) {
             //log_debug("check_completed: bundle %" PRIbid " only acked %u/%u",
             //      inflight->bundle_->bundleid(),
@@ -819,20 +870,35 @@ StreamConvergenceLayer::Connection::check_completed(InFlightBundle* inflight)
             return;
         }
     }
-    else {
+
+    if (!inflight->transmit_event_posted_)
+    {
         inflight->transmit_event_posted_ = true;
 
-        BundleDaemon::post(
-           new BundleTransmittedEvent(inflight->bundle_.object(),
-           contact_,contact_->link(),
-           inflight->sent_data_.num_contiguous(),
-           inflight->sent_data_.num_contiguous()));
+        if (!inflight->bundle_refused_) {
+            BundleTransmittedEvent* event_to_post;
+            event_to_post = new BundleTransmittedEvent(inflight->bundle_.object(),
+                                                       contact_,contact_->link(),
+                                                       inflight->sent_data_.num_contiguous(),
+                                                       inflight->sent_data_.num_contiguous(),
+                                                       true, true);
+            SPtr_BundleEvent sptr_event_to_post(event_to_post);
+            BundleDaemon::post(sptr_event_to_post);
+        } else {
+            BundleTransmittedEvent* event_to_post;
+            event_to_post = new BundleTransmittedEvent(inflight->bundle_.object(),
+                                                       contact_,contact_->link(),
+                                                       0, 0, false, true);
+            SPtr_BundleEvent sptr_event_to_post(event_to_post);
+            BundleDaemon::post(sptr_event_to_post);
+        }
     }
 
     //log_debug("check_completed: bundle %" PRIbid " transmission complete",
     //          inflight->bundle_->bundleid());
     ASSERT(inflight == inflight_.front());
     inflight_.pop_front();
+
     delete inflight;
 }
 
@@ -857,10 +923,10 @@ StreamConvergenceLayer::Connection::send_keepalive()
     // of a bundle currently being sent -- verified in check_keepalive
     ASSERT(send_segment_todo_ == 0);
 
-    ::gettimeofday(&keepalive_sent_, 0);
-
     *(sendbuf_.end()) = KEEPALIVE;
     sendbuf_.fill(1);
+
+    ::gettimeofday(&keepalive_sent_, 0);
 
     // don't note_data_sent() here since keepalive messages shouldn't
     // be counted for keeping an idle link open
@@ -893,7 +959,7 @@ StreamConvergenceLayer::Connection::handle_cancel_bundle(Bundle* bundle)
                         //          bundle->bundleid());
                         return;
                     }
-                    current_inflight_ = NULL;
+                    current_inflight_ = nullptr;
                 }
                 
                 //log_debug("handle_cancel_bundle: "
@@ -901,8 +967,11 @@ StreamConvergenceLayer::Connection::handle_cancel_bundle(Bundle* bundle)
                 //          bundle->bundleid());
                 inflight_.erase(iter);
                 delete inflight;
-                BundleDaemon::post(
-                    new BundleSendCancelledEvent(bundle, contact_->link()));
+
+                BundleSendCancelledEvent* event_to_post;
+                event_to_post = new BundleSendCancelledEvent(bundle, contact_->link());
+                SPtr_BundleEvent sptr_event_to_post(event_to_post);
+                BundleDaemon::post(sptr_event_to_post);
                 return;
             } else {
                 //log_debug("handle_cancel_bundle: "
@@ -930,7 +999,7 @@ StreamConvergenceLayer::Connection::handle_poll_timeout()
     // handle_poll_timeout calls
     if (BundleDaemon::shutting_down())
     {
-        sleep(1);
+        usleep(100000);
         return;
     }
     
@@ -938,14 +1007,15 @@ StreamConvergenceLayer::Connection::handle_poll_timeout()
     // connections which have not been initiated yet
     if (!contact_initiated_)
     {
-    	return;
+        return;
     }
 
+
     struct timeval now;
-    u_int elapsed, elapsed2;
+    uint elapsed, elapsed2;
 
     StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
     
     ::gettimeofday(&now, 0);
     
@@ -954,25 +1024,26 @@ StreamConvergenceLayer::Connection::handle_poll_timeout()
     elapsed = TIMEVAL_DIFF_MSEC(now, data_rcvd_);
     if (params->keepalive_interval_ > 0 && elapsed > params->data_timeout_) { 
         if (!active_connector_ || active_connector_expects_keepalive_) {
-            log_warn("handle_poll_timeout: no data heard for %d msecs "
-                     "(keepalive_sent %u.%u, data_rcvd %u.%u, now %u.%u, poll_timeout %d) "
-                     "-- closing contact",
-                     elapsed,
-                     (u_int)keepalive_sent_.tv_sec,
-                     (u_int)keepalive_sent_.tv_usec,
-                     (u_int)data_rcvd_.tv_sec, (u_int)data_rcvd_.tv_usec,
-                     (u_int)now.tv_sec, (u_int)now.tv_usec,
-                     poll_timeout_);
-            
-            break_contact(ContactEvent::BROKEN);
+            if (params->break_contact_on_keepalive_fault_) {
+                log_info("handle_poll_timeout: no data heard for %d msecs "
+                         "-- closing contact",
+                         elapsed);
+                break_contact(ContactEvent::BROKEN);
+            } else {
+                log_info("handle_poll_timeout: no data heard for %d msecs "
+                          "-- but confgured to not close contact",
+                          elapsed);
+                // start the clock ticking again
+                note_data_rcvd();
+            }
             return;
         }
     }
     
     //make sure the contact still exists
     ContactManager* cm = BundleDaemon::instance()->contactmgr();
-    oasys::ScopeLock l(cm->lock(),"StreamConvergenceLayer::Connection::handle_poll_timeout");
-    if (contact_ == NULL)
+    oasys::ScopeLock l(cm->lock(), __func__);
+    if (contact_ == nullptr)
     {
         return;
     }
@@ -980,7 +1051,7 @@ StreamConvergenceLayer::Connection::handle_poll_timeout()
     // check if the connection has been idle for too long
     // (on demand links only)
     if (contact_->link()->type() == Link::ONDEMAND) {
-        u_int idle_close_time = contact_->link()->params().idle_close_time_;
+        uint idle_close_time = contact_->link()->params().idle_close_time_;
 
         elapsed  = TIMEVAL_DIFF_MSEC(now, data_rcvd_);
         elapsed2 = TIMEVAL_DIFF_MSEC(now, data_sent_);
@@ -1010,15 +1081,15 @@ StreamConvergenceLayer::Connection::handle_poll_timeout()
 void
 StreamConvergenceLayer::Connection::check_keepalive()
 {
-    struct timeval now;
-    u_int elapsed, elapsed2;
-
     StreamLinkParams* params = dynamic_cast<StreamLinkParams*>(params_);
-    ASSERT(params != NULL);
+    ASSERT(params != nullptr);
 
-    ::gettimeofday(&now, 0);
-    
     if (params->keepalive_interval_ != 0) {
+        struct timeval now;
+        uint elapsed, elapsed2;
+
+        ::gettimeofday(&now, 0);
+    
         elapsed  = TIMEVAL_DIFF_MSEC(now, data_sent_);
         elapsed2 = TIMEVAL_DIFF_MSEC(now, keepalive_sent_);
 
@@ -1028,13 +1099,13 @@ StreamConvergenceLayer::Connection::check_keepalive()
         // 
         // give a 500ms fudge to the keepalive interval to make sure
         // we send it when we should
-        if (std::min(elapsed, elapsed2) > ((params->keepalive_interval_ * 1000) - 500))
+        if (std::min(elapsed, elapsed2) > (uint)((params->keepalive_interval_ * 1000) - 500))
         {
             // it's possible that the link is blocked while in the
             // middle of a segment, triggering a poll timeout, so make
             // sure not to send a keepalive in this case
             if (send_segment_todo_ != 0) {
-                //log_debug("not issuing keepalive in the middle of a segment");
+                log_debug("not issuing keepalive in the middle of a segment");
                 return;
             }
     
@@ -1047,6 +1118,10 @@ StreamConvergenceLayer::Connection::check_keepalive()
 void
 StreamConvergenceLayer::Connection::process_data()
 {
+    //dzdebug
+    //log_debug("%s - entered - recvbuf: size= %zu fullbytes= %zu tailbytes= %zu  recv_segment_todo= %zu",
+    //           __func__, recvbuf_.size(), recvbuf_.fullbytes(), recvbuf_.tailbytes(), recv_segment_todo_);
+
     if (recvbuf_.fullbytes() == 0) {
         return;
     }
@@ -1072,6 +1147,19 @@ StreamConvergenceLayer::Connection::process_data()
         bool ok = handle_data_todo();
         
         if (!ok) {
+            if (recvbuf_.fullbytes() == recvbuf_.size()) {
+                log_always("process_data (after error from handle_data_todo): "
+                         "%zu byte recv buffer full but too small... "
+                         "doubling buffer size",
+                         recvbuf_.size());
+                
+                recvbuf_.reserve(recvbuf_.size() * 2);
+
+            } else if (recvbuf_.tailbytes() == 0) {
+                // force it to move the full bytes up to the front
+                recvbuf_.reserve(recvbuf_.size() - recvbuf_.fullbytes());
+                ASSERT(recvbuf_.tailbytes() != 0);
+            }
             return;
         }
     }
@@ -1084,12 +1172,18 @@ StreamConvergenceLayer::Connection::process_data()
     while (recvbuf_.fullbytes() != 0) {
         if (contact_broken_) return;
         
-        u_int8_t type  = *recvbuf_.start() & 0xf0;
-        u_int8_t flags = *recvbuf_.start() & 0x0f;
+        uint8_t type  = *recvbuf_.start() & 0xf0;
+        uint8_t flags = *recvbuf_.start() & 0x0f;
+
 
         bool ok;
         switch (type) {
         case DATA_SEGMENT:
+            if (delay_reads_to_free_some_storage_) {
+                note_data_rcvd(); // prevent keep_alive timerout
+                return;
+            }
+
             ok = handle_data_segment(flags);
             break;
         case ACK_SEGMENT:
@@ -1111,11 +1205,12 @@ StreamConvergenceLayer::Connection::process_data()
             return;
         }
 
+
         // if there's not enough data in the buffer to handle the
         // message, make sure there's space to receive more
         if (! ok) {
             if (recvbuf_.fullbytes() == recvbuf_.size()) {
-                log_warn("process_data: "
+                log_always("process_data: "
                          "%zu byte recv buffer full but too small for msg %u... "
                          "doubling buffer size",
                          recvbuf_.size(), type);
@@ -1151,9 +1246,9 @@ StreamConvergenceLayer::Connection::note_data_sent()
 
 //----------------------------------------------------------------------
 bool
-StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
+StreamConvergenceLayer::Connection::handle_data_segment(uint8_t flags)
 {
-    IncomingBundle* incoming = NULL;
+    IncomingBundle* incoming = nullptr;
     if (flags & BUNDLE_START)
     {
         // make sure we're done with the last bundle if we got a new
@@ -1164,8 +1259,7 @@ StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
         if (!incoming_.empty()) {
             incoming = incoming_.back();
 
-            if (incoming->rcvd_data_.empty() &&
-                incoming->ack_data_.empty())
+            if ((incoming->bytes_received_ == 0) && incoming->pending_acks_.empty())
             {
                 log_debug("found empty incoming bundle for BUNDLE_START");
                 create_new_incoming = false;
@@ -1183,7 +1277,7 @@ StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
 
         if (create_new_incoming) {
             //log_debug("got BUNDLE_START segment, creating new IncomingBundle");
-            IncomingBundle* incoming = new IncomingBundle(new Bundle());
+            IncomingBundle* incoming = new IncomingBundle(new Bundle(BundleProtocol::BP_VERSION_UNKNOWN));
             incoming_.push_back(incoming);
         }
     }
@@ -1202,7 +1296,7 @@ StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
     u_char* bp = (u_char*)recvbuf_.start();
 
     // Decode the segment length and then call handle_data_todo
-    u_int32_t segment_len;
+    uint64_t segment_len;
     int sdnv_len = SDNV::decode(bp + 1, recvbuf_.fullbytes() - 1,
                                 &segment_len);
 
@@ -1221,16 +1315,11 @@ StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
         return false;
     }
 
-    size_t segment_offset = incoming->rcvd_data_.num_contiguous();
-    //log_debug("handle_data_segment: "
-    //          "got segment of length %u at offset %zu ",
-    //          segment_len, segment_offset);
-    
-    incoming->ack_data_.set(segment_offset + segment_len - 1);
+    size_t segment_offset = incoming->bytes_received_;
 
-    //log_debug("handle_data_segment: "
-    //          "updated ack_data (segment_offset %zu) *%p ack_data *%p",
-    //          segment_offset, &incoming->rcvd_data_, &incoming->ack_data_);
+    SPtr_AckObject ackptr = std::make_shared<AckObject>();
+    ackptr->acked_len_ = segment_offset + segment_len;
+    incoming->pending_acks_.push_back(ackptr);
 
 
     // if this is the last segment for the bundle, we calculate and
@@ -1238,11 +1327,7 @@ StreamConvergenceLayer::Connection::handle_data_segment(u_int8_t flags)
     // send_pending_acks knows when we're done.
     if (flags & BUNDLE_END)
     {
-        incoming->total_length_ = incoming->rcvd_data_.num_contiguous() +
-                                  segment_len;
-        
-        //log_debug("got BUNDLE_END: total length %u",
-        //          incoming->total_length_);
+        incoming->total_length_ = segment_offset + segment_len;
     }
     
     recv_segment_todo_ = segment_len;
@@ -1257,12 +1342,15 @@ StreamConvergenceLayer::Connection::handle_data_todo()
     // incoming and there's something left to read
     ASSERT(!incoming_.empty());
     ASSERT(recv_segment_todo_ != 0);
-    
+
+
     // Note that there may be more than one incoming bundle on the
     // IncomingList. There's always only one (at the back) that we're
     // reading in data for, the rest are waiting for acks to go out
     IncomingBundle* incoming = incoming_.back();
-    size_t rcvd_offset    = incoming->rcvd_data_.num_contiguous();
+    size_t rcvd_offset    = incoming->bytes_received_;
+    ASSERT(rcvd_offset == incoming->bytes_received_);
+
     size_t rcvd_len       = recvbuf_.fullbytes();
     size_t chunk_len      = std::min(rcvd_len, recv_segment_todo_);
 
@@ -1270,30 +1358,39 @@ StreamConvergenceLayer::Connection::handle_data_todo()
         return false; // nothing to do
     }
     
-    //log_debug("handle_data_todo: "
-    //          "reading todo segment %zu/%zu at offset %zu",
-    //          chunk_len, recv_segment_todo_, rcvd_offset);
+    if (recv_segment_to_refuse_ > 0) {
+        // skipping data for this segment because bundle was refused
+        ASSERT(chunk_len <= recv_segment_to_refuse_);
+
+        recv_segment_todo_ -= chunk_len;
+        recv_segment_to_refuse_ -= chunk_len;
+        recvbuf_.consume(chunk_len);
+
+        return (recv_segment_todo_ == 0);
+    }
 
     bool last;
-    int cc = BundleProtocol::consume(incoming->bundle_.object(),
-                                     (u_char*)recvbuf_.start(),
-                                     chunk_len, &last);
+    ssize_t cc = BundleProtocol::consume(incoming->bundle_.object(),
+                                         (u_char*)recvbuf_.start(),
+                                         chunk_len, &last);
+
     if (cc < 0) {
         log_err("protocol error parsing bundle data segment");
         break_contact(ContactEvent::CL_ERROR);
         return false;
     }
 
-    ASSERT(cc == (int)chunk_len);
+    if (cc == 0) {
+        return false;
+    }
 
-    recv_segment_todo_ -= chunk_len;
-    recvbuf_.consume(chunk_len);
+    //ASSERT(cc == (int)chunk_len); - BPv7 cannot always process all data in a chunk - not an error
 
-    incoming->rcvd_data_.set(rcvd_offset, chunk_len);
-    
-    //log_debug("handle_data_todo: "
-    //          "updated recv_data (rcvd_offset %zu) *%p ack_data *%p",
-    //          rcvd_offset, &incoming->rcvd_data_, &incoming->ack_data_);
+    recv_segment_todo_ -= cc;
+    recvbuf_.consume(cc);
+
+    incoming->bytes_received_ += cc;
+
     
     if (recv_segment_todo_ == 0) {
         check_completed(incoming);
@@ -1307,14 +1404,21 @@ StreamConvergenceLayer::Connection::handle_data_todo()
 void
 StreamConvergenceLayer::Connection::retry_to_accept_incoming_bundle(IncomingBundle* incoming)
 {
-    check_completed(incoming);
+    (void) incoming;
+
+    if (!incoming_.empty()) {
+        IncomingBundle* incoming_bundle = incoming_.front();
+        check_completed(incoming_bundle);
+    } else {
+        log_always("retry_to_accept_incoming_bundle  called but incoming_ list is empty");
+    }
 }
 
 //----------------------------------------------------------------------
 void
 StreamConvergenceLayer::Connection::check_completed(IncomingBundle* incoming)
 {
-    u_int32_t rcvd_len = incoming->rcvd_data_.num_contiguous();
+    uint64_t rcvd_len = incoming->bytes_received_;
 
     // if we don't know the total length yet, we haven't seen the
     // BUNDLE_END message
@@ -1322,11 +1426,13 @@ StreamConvergenceLayer::Connection::check_completed(IncomingBundle* incoming)
         return;
     }
     
-    u_int32_t formatted_len =
-        BundleProtocol::total_length(&incoming->bundle_->recv_blocks());
+    uint64_t formatted_len =
+        BundleProtocol::total_length(incoming->bundle_.object(), incoming->bundle_->recv_blocks().get());
     
-    //log_debug("check_completed: rcvd %u / %u (formatted length %u)",
-    //          rcvd_len, incoming->total_length_, formatted_len);
+    //if (delay_reads_to_free_some_storage_) {
+    //    log_always("check_completed while reads delayed [*%p]:  total_len: %zu formatted_len: %zu rcvd_len: %zu ",
+    //                incoming->bundle_.object(), incoming->total_length_, formatted_len, rcvd_len);
+    //}
 
     if (rcvd_len < incoming->total_length_) {
         return;
@@ -1334,14 +1440,13 @@ StreamConvergenceLayer::Connection::check_completed(IncomingBundle* incoming)
     
     if (rcvd_len > incoming->total_length_) {
         log_err("protocol error: received too much data -- "
-                "got %u, total length %u",
+                "got %" PRIu64 ", total length %" PRIu64,
                 rcvd_len, incoming->total_length_);
 
         // we pretend that we got nothing so the cleanup code in
         // ConnectionCL::close_contact doesn't try to post a received
         // event for the bundle
-protocol_err:
-        incoming->rcvd_data_.clear();
+        incoming->bytes_received_ = 0;
         break_contact(ContactEvent::CL_ERROR);
         return;
     }
@@ -1349,64 +1454,73 @@ protocol_err:
     // validate that the total length as conveyed by the convergence
     // layer matches the length according to the bundle protocol
     if (incoming->total_length_ != formatted_len) {
-        log_err("protocol error: CL total length %u "
-                "doesn't match bundle protocol total %u",
+        log_err("protocol error: CL total length %" PRIu64
+                " doesn't match bundle protocol total %" PRIu64,
                 incoming->total_length_, formatted_len);
-        goto protocol_err;
+
+        // we pretend that we got nothing so the cleanup code in
+        // ConnectionCL::close_contact doesn't try to post a received
+        // event for the bundle
+        incoming->bytes_received_ = 0;
+        break_contact(ContactEvent::CL_ERROR);
+        return;
         
     }
-
 
     // bundle is complete. now we just need to wait for presumed acceptance to ACK it
     incoming->bundle_complete_ = true;
 
-    // pause processing until there is storage available for this bundle
-    BundleStore* bs = BundleStore::instance();
-    u_int64_t    tmp_payload_storage_bytes_reserved = 0;
-    u_int64_t    payload_len = incoming->bundle_.object()->durable_size();
-    int32_t      ctr = 0;
-    while (!should_stop() && (++ctr < 50) && (tmp_payload_storage_bytes_reserved != payload_len))
-    {
-        if (bs->try_reserve_payload_space(payload_len)) {
-            tmp_payload_storage_bytes_reserved = payload_len;
-        } else {
-            usleep(100000);
-            // log a message every few minutes??
-        }
-    }
-        
-    if (!should_stop()) {
-        if (tmp_payload_storage_bytes_reserved != payload_len) {
-            log_warn("TCP CL Unable to reserve payload space for 5 seconds - pausing reading ");
-            delay_reads_to_free_some_storage_ = 1000; // allow 10 sends to free up some memory
-            incoming_bundle_to_retry_to_accept_ = incoming;
-            return;
-        }
 
-        // bundle already approved to use payload space
-        bs->reserve_payload_space(incoming->bundle_.object());
+    // verify it is okay to accept this bundle
+    bool space_reserved = false;  // an output not an input
+    bool accept_bundle = bdaemon_->query_accept_bundle_based_on_quotas(incoming->bundle_.object(), 
+                                                                       space_reserved,
+                                                                       incoming->payload_bytes_reserved_);
 
-        // release the temp reserved space since the bundle now has the actually space reserved
-        bs->release_payload_space(tmp_payload_storage_bytes_reserved, 0);
+    if (should_stop()) {
+        return;
     }
- 
+
+    if (!accept_bundle) {
+        log_warn("TCP CL Unable to reserve [*%p] payload space for 5 seconds - pausing reading ", 
+                 incoming->bundle_.object());
+        delay_reads_to_free_some_storage_ = true; // allow some sends to free up some memory
+        delay_reads_timer_.get_time();
+        incoming_bundle_to_retry_to_accept_ = incoming;
+        return;
+    }
+
+    
+    delay_reads_to_free_some_storage_ = false;
+    incoming_bundle_to_retry_to_accept_ = nullptr;
+
     incoming->bundle_accepted_ = true;  // as far as payload storage is concerned
 
-    BundleDaemon::post(
-        new BundleReceivedEvent(incoming->bundle_.object(),
-                                EVENTSRC_PEER,
-                                incoming->total_length_,
-                                contact_->link()->remote_eid(),
-                                contact_->link().object()));
+    BundleReceivedEvent* event_to_post;
+    event_to_post = new BundleReceivedEvent(incoming->bundle_.object(),
+                                            EVENTSRC_PEER,
+                                            incoming->total_length_,
+                                            contact_->link()->remote_eid(),
+                                            contact_->link().object());
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
+
+    queue_acks_for_incoming_bundle(incoming);
+
+    incoming_.pop_front();
+
+    delete incoming;
+
+
 }
 
 //----------------------------------------------------------------------
 bool
-StreamConvergenceLayer::Connection::handle_ack_segment(u_int8_t flags)
+StreamConvergenceLayer::Connection::handle_ack_segment(uint8_t flags)
 {
     (void)flags;
     u_char* bp = (u_char*)recvbuf_.start();
-    u_int32_t acked_len;
+    uint32_t acked_len;
     int sdnv_len = SDNV::decode(bp + 1, recvbuf_.fullbytes() - 1, &acked_len);
     
     if (sdnv_len < 0) {
@@ -1454,20 +1568,18 @@ StreamConvergenceLayer::Connection::handle_ack_segment(u_int8_t flags)
 
         inflight->transmit_event_posted_ = true;
         
-        BundleDaemon::post(
-            new BundleTransmittedEvent(inflight->bundle_.object(),
-                                       contact_,
-                                       contact_->link(),
-                                       inflight->sent_data_.num_contiguous(),
-                                       inflight->ack_data_.num_contiguous()));
+        BundleTransmittedEvent* event_to_post;
+        event_to_post = new BundleTransmittedEvent(inflight->bundle_.object(),
+                                                   contact_,
+                                                   contact_->link(),
+                                                   inflight->sent_data_.num_contiguous(),
+                                                   inflight->ack_data_.num_contiguous(),
+                                                   true, true);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
 
         // might delete inflight
         check_completed(inflight);
-        
-    } else {
-        //log_debug("handle_ack_segment: "
-        //          "got acked_len %u (%zu byte range) -- ack_data *%p",
-        //          acked_len, (size_t)acked_len - ack_begin, &inflight->ack_data_);
     }
 
     return true;
@@ -1475,7 +1587,7 @@ StreamConvergenceLayer::Connection::handle_ack_segment(u_int8_t flags)
 
 //----------------------------------------------------------------------
 bool
-StreamConvergenceLayer::Connection::handle_refuse_bundle(u_int8_t flags)
+StreamConvergenceLayer::Connection::handle_refuse_bundle(uint8_t flags)
 {
     (void)flags;
     //log_debug("got refuse_bundle message");
@@ -1485,10 +1597,9 @@ StreamConvergenceLayer::Connection::handle_refuse_bundle(u_int8_t flags)
 }
 //----------------------------------------------------------------------
 bool
-StreamConvergenceLayer::Connection::handle_keepalive(u_int8_t flags)
+StreamConvergenceLayer::Connection::handle_keepalive(uint8_t flags)
 {
     (void)flags;
-    //log_debug("got keepalive message");
     recvbuf_.consume(1);
     return true;
 }
@@ -1586,7 +1697,7 @@ StreamConvergenceLayer::Connection::break_contact(ContactEvent::reason_t reason)
 
 //----------------------------------------------------------------------
 bool
-StreamConvergenceLayer::Connection::handle_shutdown(u_int8_t flags)
+StreamConvergenceLayer::Connection::handle_shutdown(uint8_t flags)
 {
     log_debug("got SHUTDOWN byte");
     size_t shutdown_len = 1;
@@ -1636,7 +1747,7 @@ StreamConvergenceLayer::Connection::handle_shutdown(u_int8_t flags)
         recvbuf_.consume(1);
     }
 
-    u_int16_t delay = 0;
+    uint16_t delay = 0;
     if (flags & SHUTDOWN_HAS_DELAY)
     {
         memcpy(&delay, recvbuf_.start(), 2);
@@ -1644,7 +1755,7 @@ StreamConvergenceLayer::Connection::handle_shutdown(u_int8_t flags)
         recvbuf_.consume(2);
     }
 
-    log_info("got SHUTDOWN (%s) [reconnect delay %u]",
+    log_always("got SHUTDOWN (%s) [reconnect delay %u]",
              shutdown_reason_to_str(reason), delay);
 
     break_contact(ContactEvent::SHUTDOWN);

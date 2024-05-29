@@ -28,26 +28,31 @@ namespace dtn {
  * seconds since Jan 1, 2000 (not 1970) so we use a different type.
  */
 struct BundleTimestamp {
-    u_int64_t seconds_; ///< Seconds since 1/1/2000
-    u_int64_t seqno_;   ///< Sequence number
+    size_t secs_or_millisecs_; ///< (BPv6) Seconds or (BPv7) Milliseconds since 1/1/2000
+    size_t seqno_;             ///< Sequence number
 
     /**
      * Default constructor
      */
     BundleTimestamp()
-        : seconds_(0), seqno_(0) {}
+        : secs_or_millisecs_(0), 
+          seqno_(0) {}
     
     /**
      * Constructor by parts.
      */
-    BundleTimestamp(u_int64_t seconds, u_int64_t seqno)
-        : seconds_(seconds), seqno_(seqno) {}
-    
+    BundleTimestamp(size_t secs_or_millis, size_t seqno)
+        :  secs_or_millisecs_(secs_or_millis), 
+          seqno_(seqno) {}
+
     /**
      * Return the current time in the correct format for the bundle
      * protocol, i.e. seconds since Jan 1, 2000 in UTC.
+     *
+     * NOTE: BPv6 uses seconds and BPv7 uses millisecs
      */
-    static u_int32_t get_current_time();
+    static size_t get_current_time_millis();
+    static size_t get_current_time_secs();
 
     /**
      * Check that the local clock setting is valid (i.e. is at least
@@ -60,7 +65,7 @@ struct BundleTimestamp {
      */
     bool operator==(const BundleTimestamp& other) const
     {
-        return seconds_ == other.seconds_ &&
+        return secs_or_millisecs_ == other.secs_or_millisecs_ &&
             seqno_ == other.seqno_;
     }
         
@@ -69,8 +74,8 @@ struct BundleTimestamp {
      */
     bool operator<(const BundleTimestamp& other) const
     {
-        if (seconds_ < other.seconds_) return true;
-        if (seconds_ > other.seconds_) return false;
+        if (secs_or_millisecs_ < other.secs_or_millisecs_) return true;
+        if (secs_or_millisecs_ > other.secs_or_millisecs_) return false;
         return (seqno_ < other.seqno_);
     }
         
@@ -79,15 +84,15 @@ struct BundleTimestamp {
      */
     bool operator>(const BundleTimestamp& other) const
     {
-        if (seconds_ > other.seconds_) return true;
-        if (seconds_ < other.seconds_) return false;
+        if (secs_or_millisecs_ > other.secs_or_millisecs_) return true;
+        if (secs_or_millisecs_ < other.secs_or_millisecs_) return false;
         return (seqno_ > other.seqno_);
     }
         
     /**
      * The number of seconds between 1/1/1970 and 1/1/2000.
      */
-    static u_int32_t TIMEVAL_CONVERSION;
+    static size_t TIMEVAL_CONVERSION_SECS;
 };
 
 } // namespace dtn

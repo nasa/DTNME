@@ -19,12 +19,10 @@
 #ifndef _PENDING_ACS_STORE_H_
 #define _PENDING_ACS_STORE_H_
 
-#ifdef ACS_ENABLED
-
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/serialize/TypeShims.h>
-#include <oasys/storage/InternalKeyDurableTable.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/serialize/TypeShims.h>
+#include <third_party/oasys/storage/InternalKeyDurableTable.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 
@@ -63,6 +61,5 @@ public:
 
 } // namespace dtn
 
-#endif // ACS_ENABLED
 
 #endif /* _PENDING_ACS_STORE_H_ */

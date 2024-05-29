@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -42,6 +42,7 @@
 
 #include "Bundle.h"
 #include "BundleProtocol.h"
+#include "BundleProtocolVersion6.h"
 
 namespace dtn {
 
@@ -67,7 +68,7 @@ public:
         u_int64_t       orig_frag_length_;
         BundleTimestamp custody_signal_tv_;
         BundleTimestamp orig_creation_tv_;
-        EndpointID      orig_source_eid_;
+        SPtr_EID        sptr_orig_source_eid_;
     };
 
     /**
@@ -75,7 +76,7 @@ public:
      */
     static void create_custody_signal(Bundle*           bundle,
                                       const Bundle*     orig_bundle,
-                                      const EndpointID& source_eid,
+                                      const SPtr_EID&   sptr_source_eid,
                                       bool              succeeded,
                                       reason_t          reason);
 
@@ -83,7 +84,7 @@ public:
      * Parsing function for custody signal bundles.
      */
     static bool parse_custody_signal(data_t* data,
-                                     const u_char* bp, u_int len);
+                                     const u_char* bp, size_t len);
 
     /**
      * Pretty printer for custody signal reasons.

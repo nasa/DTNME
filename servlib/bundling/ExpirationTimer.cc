@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,31 +37,73 @@
 #endif
 
 #include "BundleDaemon.h"
-#include "BundleEvent.h"
 #include "ExpirationTimer.h"
 
 namespace dtn {
 
 ExpirationTimer::ExpirationTimer(Bundle* bundle)
-    : bundleref_(bundle, "expiration timer")
+    : bref_(bundle, "expiration timer")
 {
+}
+
+ExpirationTimer::~ExpirationTimer()
+{
+}
+
+
+void
+ExpirationTimer::start(int64_t expiration_ms, SPtr_ExpirationTimer sptr)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    sptr_ = sptr;
+
+    if (sptr_ != nullptr) {
+        oasys::SharedTimer::schedule_in(expiration_ms, sptr_);
+    }
+}
+
+bool
+ExpirationTimer::cancel()
+{
+    bool result = false;
+
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    bref_.release();
+
+    if (sptr_ != nullptr) {
+        result = oasys::SharedTimer::cancel_timer(sptr_);
+
+        // clear self reference
+        sptr_ = nullptr;
+    }
+
+    return result;
 }
 
 void
 ExpirationTimer::timeout(const struct timeval& now)
 {
-    (void)now;
-    oasys::ScopeLock l(bundleref_->lock(), "ExpirationTimer::timeout");
+    (void) now;
 
-    // null out the pointer to ourself in the bundle class
-    bundleref_->set_expiration_timer(NULL);
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (!cancelled() && (bref_ != nullptr)) {
+        // null out the pointer to ourself in the bundle class
+        bref_->clear_expiration_timer();
     
-    // post the expiration event
-    //log_debug_p("/timer/expiration", "Bundle %" PRIbid " expired", bundleref_.object()->bundleid());
-    BundleDaemon::post_at_head(new BundleExpiredEvent(bundleref_.object()));
+        // post the expiration event
+        BundleExpiredEvent* event_to_post;
+        event_to_post = new BundleExpiredEvent(bref_.object());
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post_at_head(sptr_event_to_post);
+    }
 
-    // clean ourselves up
-    delete this;
+    bref_.release();
+
+    // clear self reference in case  it has not been done yet
+    sptr_ = nullptr;
 }
 
 } // namespace dtn

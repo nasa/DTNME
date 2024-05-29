@@ -1,24 +1,10 @@
-/*
- *    Copyright 2004-2006 Intel Corporation
- * 
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- * 
- *        http://www.apache.org/licenses/LICENSE-2.0
- * 
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 #ifndef _BUNDLE_STATUS_REPORT_H_
 #define _BUNDLE_STATUS_REPORT_H_
 
 #include "Bundle.h"
 #include "BundleProtocol.h"
+#include "CborUtilBP7.h"
 #include "BundleTimestamp.h"
 
 namespace dtn {
@@ -48,20 +34,22 @@ public:
      * Specification of the contents of a Bundle Status Report
      */
     struct data_t {
-        u_int8_t        admin_type_;
-        u_int8_t        admin_flags_;
-        u_int8_t        status_flags_;
-        u_int8_t        reason_code_;
-        u_int64_t       orig_frag_offset_;
-        u_int64_t       orig_frag_length_;
-        BundleTimestamp receipt_tv_;
-        BundleTimestamp custody_tv_;
-        BundleTimestamp forwarding_tv_;
-        BundleTimestamp delivery_tv_;
-        BundleTimestamp deletion_tv_;
-        BundleTimestamp ack_by_app_tv_;
-        BundleTimestamp orig_creation_tv_;
-        EndpointID      orig_source_eid_;
+        bool            received_             = false;
+        size_t        received_timestamp_   = 0;
+        bool            forwarded_            = false;
+        size_t        forwarded_timestamp_  = 0;
+        bool            delivered_            = false;
+        size_t        delivered_timestamp_  = 0;
+        bool            deleted_              = false;
+        size_t        deleted_timestamp_    = 0;
+
+        size_t        reason_code_          = 0;
+
+        SPtr_EID        sptr_orig_source_eid_;
+        BundleTimestamp orig_creation_ts_;
+
+        uint64_t       orig_frag_offset_    = 0;
+        uint64_t       orig_frag_length_    = 0 ;
     };
 
     /**
@@ -75,7 +63,7 @@ public:
      */
     static void create_status_report(Bundle*           bundle,
                                      const Bundle*     orig_bundle,
-                                     const EndpointID& source,
+                                     const SPtr_EID&   sptr_source,
                                      flag_t            status_flag,
                                      reason_t          reason);
     
@@ -84,20 +72,29 @@ public:
      * store the fields in the given struct. Returns false if parsing
      * failed.
      */
-    static bool parse_status_report(data_t* data,
-                                    const u_char* bp, u_int len);
+    static bool parse_status_report(CborValue& cvPayloadElements, CborUtilBP7& cborutil, data_t& sr_data);
 
-    /**
-     * Parse the payload of the given bundle into the given struct.
-     * Returns false if the bundle is not a well formed status report.
-     */
-    static bool parse_status_report(data_t* data,
-                                    const Bundle* bundle);
 
     /**
      * Return a string version of the reason code.
      */
     static const char* reason_to_str(u_int8_t reason);
+
+protected:
+    static bool parse_status_indication_array(CborValue& cvStatusElements, CborUtilBP7& cborutil, data_t& sr_data);
+
+
+    static int64_t encode_report(uint8_t* buf, int64_t buflen, 
+                                 CborUtilBP7& cborutil,
+                                 const Bundle*     orig_bundle,
+                                 flag_t            status_flags,
+                                 reason_t          reason);
+
+    static int encode_status_indicators(CborEncoder& rptArrayEncode, flag_t status_flags, 
+                                        const bool include_timestamp);
+
+    static int encode_indicator(CborEncoder& indicatorArrayEncoder, size_t indicated, 
+                                const bool include_timestamp);
 };
 
 } // namespace dtn

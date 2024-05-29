@@ -18,12 +18,12 @@
 #ifndef _AGGREGATE_CUSTODY_SIGNAL_H_
 #define _AGGREGATE_CUSTODY_SIGNAL_H_
 
-#ifdef ACS_ENABLED
 
 #include <map>
 
 #include "AcsExpirationTimer.h"
 #include "BundleProtocol.h"
+#include "CborUtil.h"
 #include "naming/EndpointID.h"
 
 namespace dtn {
@@ -33,8 +33,8 @@ class Bundle;
 class PendingAcs;
 
 // map of ACS Entries
-typedef std::map<u_int64_t, AcsEntry*> AcsEntryMap;
-typedef std::pair<u_int64_t, AcsEntry*> AcsEntryPair;
+typedef std::map<uint64_t, AcsEntry*> AcsEntryMap;
+typedef std::pair<uint64_t, AcsEntry*> AcsEntryPair;
 typedef AcsEntryMap::iterator AcsEntryIterator;
 
 // map of Pending ACS's
@@ -58,11 +58,12 @@ public:
      * Struct to hold the payload data of the aggregate custody signal.
      */
     struct data_t {
-        u_int8_t        admin_type_;
-        u_int8_t        admin_flags_;
-        bool            succeeded_;
-        u_int8_t        reason_;
-        AcsEntryMap*    acs_entry_map_;
+        uint8_t        admin_type_  = 0;
+        uint8_t        admin_flags_ = 0;
+        bool           succeeded_   = false;
+        bool           redundant_   = false;
+        uint8_t        reason_      = 0;
+        AcsEntryMap*   acs_entry_map_ = nullptr;
     };
 
     /**
@@ -70,18 +71,30 @@ public:
      */
     static void create_aggregate_custody_signal(Bundle*           bundle,
                                                 PendingAcs*       pacs, 
-                                                const EndpointID& source_eid);
+                                                const SPtr_EID&   sptr_source_eid);
 
     /**
      * Parsing function for aggregate custody signal bundles.
      */
     static bool parse_aggregate_custody_signal(data_t* data,
-                                               const u_char* bp, u_int len);
+                                               const u_char* bp, uint32_t len);
 
     /**
      * Pretty printer for custody signal reasons.
      */
-    static const char* reason_to_str(u_int8_t reason);
+    static const char* reason_to_str(uint8_t reason);
+
+    /**
+     * Constructor-like function to create a new BIBE custody signal bundle.
+     */
+    static void create_bibe_custody_signal(Bundle* bundle,
+                                           PendingAcs* pacs,
+                                           const SPtr_EID& sptr_source_eid);
+
+    /**
+     * Parsing function for a BIBE custody signal bundles.
+     */
+    static bool parse_bibe_custody_signal(CborValue& cvAdminElements, CborUtil& cborutil, data_t* data);
 };
 
 /**
@@ -113,13 +126,13 @@ public:
     void serialize(oasys::SerializeAction* a);
 
     /// Left Edge Custody ID
-    u_int64_t left_edge_;
+    uint64_t left_edge_;
 
     /// Difference between this left edge and the right edge of previous fill 
-    u_int64_t diff_to_prev_right_edge_;
+    uint64_t diff_to_prev_right_edge_;
 
     /// Length of fill
-    u_int64_t length_of_fill_;
+    uint64_t length_of_fill_;
 
     /// SDNV length of entry (diff + fill len)
     int sdnv_length_;
@@ -165,33 +178,41 @@ public:
     /// @{ Accessors
     oasys::Lock&        lock()                  { return lock_; }
     std::string&        key()                   { return key_; }
-    u_int32_t&          pacs_id()               { return pacs_id_; }
-    EndpointID&         custody_eid()           { return custody_eid_; }
-    bool&               succeeded()             { return succeeded_; }
-    BundleProtocol::custody_signal_reason_t& reason() { return reason_; }
-    u_int32_t&          acs_payload_length()    { return acs_payload_length_; }
-    u_int32_t&          num_custody_ids()       { return num_custody_ids_; }
+    uint32_t            pacs_id()               { return pacs_id_; }
+    int32_t             bp_version()            { return bp_version_; }
+    SPtr_EID            custody_eid()           { return sptr_custody_eid_; }
+    bool                succeeded()             { return succeeded_; }
+    uint32_t            reason()                { return reason_; }
+    uint32_t            acs_payload_length()    { return acs_payload_length_; }
+    uint32_t            num_custody_ids()       { return num_custody_ids_; }
     AcsEntryMap*        acs_entry_map()         { return acs_entry_map_; }
-    AcsExpirationTimer* acs_expiration_timer()  { return acs_expiration_timer_; }
-    bool              in_datastore()      const { return in_datastore_; }
-    bool      queued_for_datastore()      const { return queued_for_datastore_;	}
-    u_int               params_revision()       { return params_revision_; }
-    u_int               acs_delay()             { return acs_delay_; }
-    u_int               acs_size()              { return acs_size_; }
+    SPtr_AcsExpirationTimer acs_expiration_timer()  { return acs_expiration_timer_; }
+    bool                in_datastore()          { return in_datastore_; }
+    bool                queued_for_datastore()  { return queued_for_datastore_;	}
+    uint32_t            params_revision()       { return params_revision_; }
+    uint32_t            acs_delay()             { return acs_delay_; }
+    uint32_t            acs_size()              { return acs_size_; }
     /// @}
 
     /// @{ Setters and mutable accessors
     void set_acs_entry_map(AcsEntryMap* m )     { acs_entry_map_ = m; }
-    void set_acs_expiration_timer(AcsExpirationTimer* t)  { 
+
+    void set_acs_expiration_timer(SPtr_AcsExpirationTimer t)  {
         acs_expiration_timer_ = t; 
     }
+    void clear_acs_expiration_timer()          { acs_expiration_timer_ = nullptr; }
+
     void set_in_datastore(bool t)              { in_datastore_ = t; }
+    void set_bp_version(int32_t bpv)           { bp_version_ = bpv; }
     void set_queued_for_datastore(bool t)      { queued_for_datastore_ = t; }
-    u_int* mutable_params_revision()           { return &params_revision_; }
-    u_int* mutable_acs_delay()                 { return &acs_delay_; }
-    u_int* mutable_acs_size()                  { return &acs_size_; }
+    uint32_t* mutable_params_revision()        { return &params_revision_; }
+    uint32_t* mutable_acs_delay()              { return &acs_delay_; }
+    uint32_t* mutable_acs_size()               { return &acs_size_; }
     /// @}
 private:
+    friend class AggregateCustodySignal;
+    friend class BundleDaemonACS;
+
     /// lock to serialize access
     oasys::SpinLock lock_;
 
@@ -200,28 +221,28 @@ private:
 
     /// unique ID for a pending ACS so expiration timer can verify
     /// that it is sending the correct ACS when triggered
-    u_int32_t pacs_id_;
+    uint32_t pacs_id_;
 
     /// Custodian EID to receive this ACS when it is generated
-    EndpointID custody_eid_;
+    SPtr_EID sptr_custody_eid_;
 
     /// signal type (SUCCESS or FAILURE)
     bool succeeded_;
 
     /// reason code
-    BundleProtocol::custody_signal_reason_t reason_;
+    uint32_t reason_;
 
     /// ACS length length of payload
-    u_int32_t acs_payload_length_;
+    uint32_t acs_payload_length_;
 
     /// Number of custody ids to be acked with this ACS
-    u_int32_t num_custody_ids_;
+    uint32_t num_custody_ids_;
 
     /// map of the Custody IDs for this ACS
     AcsEntryMap* acs_entry_map_; 
 
     /// Pointer to an ACS Expiration Timer
-    AcsExpirationTimer* acs_expiration_timer_;
+    SPtr_AcsExpirationTimer acs_expiration_timer_;
 
     /// Is in persistent store
     bool in_datastore_;
@@ -231,17 +252,19 @@ private:
 
     /// ACS parameter revision tracker so it can be determined if
     /// the values have changed
-    u_int params_revision_;
+    uint32_t params_revision_;
 
     /// Seconds to accumulate Custody IDs before sending an ACS
-    u_int acs_delay_;
+    uint32_t acs_delay_;
 
     /// Max size for the ACS payload 
-    u_int acs_size_;
+    uint32_t acs_size_;
+
+    /// Bundle Protocol version
+    int32_t bp_version_;
 };
 
 } // namespace dtn
 
-#endif // ACS_ENABLED
 
 #endif /* _AGGREGATE_CUSTODY_SIGNAL_H_ */

@@ -36,17 +36,66 @@ DtpcDeliverPduTimer::DtpcDeliverPduTimer(std::string key, u_int64_t seq_ctr)
 }
 
 void
+DtpcDeliverPduTimer::set_sptr(SPtr_DtpcDeliverPduTimer sptr)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    sptr_ = sptr;
+}
+
+void
+DtpcDeliverPduTimer::start(int seconds)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        schedule_in(seconds, sptr_);
+    } else {
+        log_err_p("dtpc/topic/expiration", 
+                  "Attempt to start DtpcDeliverPduTimer(%s - %" PRIu64 ") without a SPtr_Timer defined", 
+                  key_.c_str(), seq_ctr_);
+    }
+}
+
+bool
+DtpcDeliverPduTimer::cancel()
+{
+    bool result = false;
+
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        result = oasys::SharedTimer::cancel_timer(sptr_);
+
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
+
+    return result;
+}
+
+void
 DtpcDeliverPduTimer::timeout(const struct timeval& now)
 {
     (void)now;
     
-    // post the expiration event
-    log_debug_p("dtpc/timer/deliverpdu", "Deliver PDU timer expired: %s", 
-                key_.c_str());
-    DtpcDaemon::post_at_head(new DtpcDeliverPduTimerExpiredEvent(key_, seq_ctr_));
+    oasys::ScopeLock scoplok(&lock_, __func__);
 
-    // clean ourselves up
-    delete this;
+    if (cancelled() || (sptr_ == nullptr)) {
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    } else {
+        // post the expiration event
+        //log_debug_p("dtpc/timer/deliverpdu", "Deliver PDU timer expired: %s", 
+        //            key_.c_str());
+
+        DtpcDeliverPduTimerExpiredEvent* event = new DtpcDeliverPduTimerExpiredEvent(key_, seq_ctr_);
+        SPtr_BundleEvent sptr_event(event);
+        DtpcDaemon::post_at_head(sptr_event);
+
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
 }
 
 } // namespace dtn

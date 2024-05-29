@@ -20,9 +20,9 @@
 
 #include <list>
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "naming/EndpointID.h"
 
@@ -45,7 +45,7 @@ public:
     /**
      * Constructor
      */
-    DtpcApplicationDataItem(const EndpointID& remote_eid, 
+    DtpcApplicationDataItem(const SPtr_EID& remote_eid, 
                             u_int32_t topic_id);
 
     /**
@@ -66,14 +66,14 @@ public:
     /// @{ Accessors
     virtual oasys::Lock&        lock()           { return lock_; }
     virtual u_int32_t           topic_id()       { return topic_id_; }
-    virtual const EndpointID&   remote_eid()     { return remote_eid_; }
+    virtual const SPtr_EID      remote_eid()     { return sptr_remote_eid_; }
     virtual size_t              size()           { return size_; }
     virtual const u_int8_t*     data()           { return data_; }
     /// @}
 
     /// @{ Setters and mutable accessors
     virtual void set_topic_id(u_int32_t t)               { topic_id_ = t; }
-    virtual void set_remote_eid(const EndpointID& eid)   { remote_eid_.assign(eid); }
+    virtual void set_remote_eid(const SPtr_EID& sptr_eid)   { sptr_remote_eid_ = sptr_eid; }
     virtual void set_expiration_ts(u_int64_t t)          { expiration_ts_ = t; }
     virtual void set_data(size_t size, u_int8_t* data);
     virtual void reserve(size_t size);
@@ -87,7 +87,7 @@ private:
     u_int32_t topic_id_;
 
     /// EID - Remote EID - Source or Destination depending on context
-    EndpointID remote_eid_;
+    SPtr_EID sptr_remote_eid_;
 
     /// Expiration time (seconds since 1/1/1970 - actual time, not a lifetime)
     /// 

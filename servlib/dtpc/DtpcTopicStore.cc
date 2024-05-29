@@ -35,6 +35,18 @@ DtpcTopicStore::DtpcTopicStore()
 }
 
 
+int
+DtpcTopicStore::init(const oasys::StorageConfig& cfg,
+                                 oasys::DurableStore*        store)
+{
+    if (instance_ != nullptr) {
+        PANIC("DtpcTopicStore::init called multiple times");
+    }
+    instance_ = new DtpcTopicStore();
+    return instance_->do_init(cfg, store);
+}
+    
+
 } // namespace dtn
 
 #endif // DTPC_ENABLED

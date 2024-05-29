@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -61,7 +61,7 @@ bool
 RouteTable::add_entry(RouteEntry* entry)
 {
     oasys::ScopeLock l(&lock_, "RouteTable::add_entry");
-    
+   
     route_table_.push_back(entry);
     
     return true;
@@ -69,7 +69,7 @@ RouteTable::add_entry(RouteEntry* entry)
 
 //----------------------------------------------------------------------
 bool
-RouteTable::del_entry(const EndpointIDPattern& dest, const LinkRef& next_hop)
+RouteTable::del_entry(const SPtr_EIDPattern& sptr_dest, const LinkRef& next_hop)
 {
     oasys::ScopeLock l(&lock_, "RouteTable::del_entry");
 
@@ -79,7 +79,7 @@ RouteTable::del_entry(const EndpointIDPattern& dest, const LinkRef& next_hop)
     for (iter = route_table_.begin(); iter != route_table_.end(); ++iter) {
         entry = *iter;
 
-        if (entry->dest_pattern().equals(dest) && entry->link() == next_hop) {
+        if ((entry->dest_pattern() == sptr_dest) && (entry->link() == next_hop)) {
             log_debug("del_entry *%p", entry);
             
             route_table_.erase(iter);
@@ -89,16 +89,16 @@ RouteTable::del_entry(const EndpointIDPattern& dest, const LinkRef& next_hop)
     }    
 
     log_debug("del_entry %s -> %s: no match!",
-              dest.c_str(), next_hop->nexthop());
+              sptr_dest->c_str(), next_hop->nexthop());
     return false;
 }
 
 //----------------------------------------------------------------------
 size_t
-RouteTable::del_entries(const EndpointIDPattern& dest)
+RouteTable::del_entries(const SPtr_EIDPattern& sptr_dest)
 {
     oasys::ScopeLock l(&lock_, "RouteTable::del_entries");
-    return del_matching_entries(RouteEntry::DestMatches(dest));
+    return del_matching_entries(RouteEntry::DestMatches(sptr_dest));
 }
 
 //----------------------------------------------------------------------
@@ -124,26 +124,43 @@ RouteTable::clear()
 
 //----------------------------------------------------------------------
 size_t
-RouteTable::get_matching(const EndpointID& eid,
+RouteTable::get_matching(const SPtr_EID& sptr_eid,
                          const LinkRef& next_hop,
                          RouteEntryVec* entry_vec) const
 {
     oasys::ScopeLock l(&lock_, "RouteTable::get_matching");
 
     bool loop = false;
-    log_debug("get_matching %s (link %s)...", eid.c_str(),
+    log_debug("get_matching %s (link %s)...", sptr_eid->c_str(),
               next_hop != NULL ? next_hop->name() : "NULL");
-    size_t ret = get_matching_helper(eid, next_hop, entry_vec, &loop, 0);
+    size_t ret = get_matching_helper(sptr_eid, next_hop, entry_vec, &loop, 0);
     if (loop) {
         log_warn("route destination %s caused route table lookup loop",
-                 eid.c_str());
+                 sptr_eid->c_str());
     }
     return ret;
 }
 
 //----------------------------------------------------------------------
 size_t
-RouteTable::get_matching_helper(const EndpointID& eid,
+RouteTable::get_matching_ipn(size_t test_node_num,
+                         const LinkRef& next_hop,
+                         RouteEntryVec* entry_vec) const
+{
+    oasys::ScopeLock l(&lock_, "RouteTable::get_matching");
+
+    bool loop = false;
+    size_t ret = get_matching_helper(test_node_num, next_hop, entry_vec, &loop, 0);
+    if (loop) {
+        log_warn("route destination IPN Node Num %zu caused route table lookup loop",
+                 test_node_num);
+    }
+    return ret;
+}
+
+//----------------------------------------------------------------------
+size_t
+RouteTable::get_matching_helper(const SPtr_EID&   sptr_eid,
                                 const LinkRef&    next_hop,
                                 RouteEntryVec*    entry_vec,
                                 bool*             loop,
@@ -157,18 +174,21 @@ RouteTable::get_matching_helper(const EndpointID& eid,
     {
         entry = *iter;
 
-        log_debug("RouteTable::get_matching_helper: check entry *%p", entry);
+        //log_debug("dzdebug RouteTable::get_matching_helper: check entry *%p against EID: %s", 
+        //           entry, sptr_eid->c_str());
         
-        if ((strstr(eid.uri().c_str(),"*") != NULL) && (strcmp(entry->dest_pattern().uri().c_str(),eid.uri().c_str()) == 0)) {
-          //XXX/dz drop through on special case to match wildcards in both uri(s)
+        if ((strstr(sptr_eid->c_str(),"*") != NULL) && 
+            (strcmp(entry->dest_pattern()->c_str(), sptr_eid->c_str()) == 0)) {
+          //XXX/dz drop through on special case with matching wildcards in both uri(s)
  
-        } else if (! entry->dest_pattern().match(eid)) {
+        } else if (! entry->dest_pattern()->match(sptr_eid)) {
             continue;
         }
         
+
         if (entry->link() == NULL)
         {
-            ASSERT(entry->route_to().length() != 0);
+            ASSERT(entry->route_to()->length() != 0);
 
             if (level >= BundleRouter::config_.max_route_to_chain_) {
                 *loop = true;
@@ -190,7 +210,59 @@ RouteTable::get_matching_helper(const EndpointID& eid,
         }
     }
 
-    log_debug("get_matching %s done (level %d), %zu match(es)", eid.c_str(), level, count);
+    log_debug("get_matching %s done (level %d), %zu match(es)", sptr_eid->c_str(), level, count);
+    return count;
+}
+
+//----------------------------------------------------------------------
+size_t
+RouteTable::get_matching_helper(size_t test_node_num,
+                                const LinkRef&    next_hop,
+                                RouteEntryVec*    entry_vec,
+                                bool*             loop,
+                                int               level) const
+{
+    RouteEntryVec::const_iterator iter;
+    RouteEntry* entry;
+    size_t count = 0;
+
+    for (iter = route_table_.begin(); iter != route_table_.end(); ++iter)
+    {
+        entry = *iter;
+
+        //log_debug("RouteTable::get_matching_helper: check entry *%p against EID: %s", 
+        //           entry, test_node_num);
+        
+        if (! entry->dest_pattern()->match_ipn(test_node_num)) {
+            continue;
+        }
+        
+
+        if (entry->link() == NULL)
+        {
+            ASSERT(entry->route_to()->length() != 0);
+
+            if (level >= BundleRouter::config_.max_route_to_chain_) {
+                *loop = true;
+                continue;
+            }
+            
+            count += get_matching_helper(entry->route_to(), next_hop,
+                                         entry_vec, loop, level + 1);
+        }
+        else if (next_hop == NULL || entry->link() == next_hop)
+        {
+            if (std::find(entry_vec->begin(), entry_vec->end(), entry) == entry_vec->end()) {
+                log_debug("match entry *%p", entry);
+                entry_vec->push_back(entry);
+                ++count;
+            } else {
+                log_debug("entry *%p already in matches... ignoring", entry);
+            }
+        }
+    }
+
+    //log_debug("get_matching %s done (level %d), %zu match(es)", sptr_eid->c_str(), level, count);
     return count;
 }
 
@@ -211,13 +283,13 @@ RouteTable::dump(oasys::StringBuffer* buf) const
     for (iter = route_table_.begin(); iter != route_table_.end(); ++iter) {
         RouteEntry* e = *iter;
         dest_eid_width   = std::max(dest_eid_width,
-                                    e->dest_pattern().length());
+                                    e->dest_pattern()->length());
         source_eid_width = std::max(source_eid_width,
-                                    e->source_pattern().length());
+                                    e->source_pattern()->length());
         next_hop_width   = std::max(next_hop_width,
                                     (e->link() != NULL) ?
                                     e->link()->name_str().length() :
-                                    e->route_to().length());
+                                    e->route_to()->length());
     }
 
     dest_eid_width   = std::min(dest_eid_width, (size_t)25);

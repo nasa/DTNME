@@ -17,9 +17,9 @@
 #ifndef _BP_LOCAL_H_
 #define _BP_LOCAL_H_
 
-#include <oasys/util/Ref.h>
-#include <oasys/util/RefCountedObject.h>
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/util/Ref.h>
+#include <third_party/oasys/util/RefCountedObject.h>
+#include <third_party/oasys/debug/Log.h>
 
 
 namespace dtn {

@@ -22,12 +22,12 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
-#include "reg/APIRegistration.h"
+#include "reg/Registration.h"
 
 namespace dtn {
 
@@ -68,14 +68,14 @@ public:
     /**
      * Wait for a bundle to arrive
      */
-    virtual int wait_for_notify(const char*       operation,
-                                u_int32_t         dtn_timeout,
-                                APIRegistration** recv_ready_reg);
+    virtual int wait_for_notify(const char*         operation,
+                                u_int32_t           dtn_timeout,
+                                SPtr_Registration&  sptr_recv_ready_reg);
 
     /**
      * Process a received bundle
      */
-    virtual void receive_bundle(APIRegistration* reg);
+    virtual void receive_bundle(SPtr_Registration& sptr_reg);
 
 protected:
 
@@ -98,7 +98,7 @@ protected:
     Stats stats_;
 
     /// List of DTPC Registrations (dtn and ipn schemes)
-    APIRegistrationList* bindings_;
+    RegistrationList* bindings_;
 
     /// Notifier used to wait for BundleDaemon response
     oasys::Notifier notifier_;

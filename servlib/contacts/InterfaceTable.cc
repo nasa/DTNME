@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -38,7 +38,7 @@
 
 #include "InterfaceTable.h"
 #include "conv_layers/ConvergenceLayer.h"
-#include "oasys/util/StringBuffer.h"
+#include <third_party/oasys/util/StringBuffer.h>
 
 namespace dtn {
 
@@ -54,8 +54,6 @@ InterfaceTable::~InterfaceTable()
 {
     oasys::ScopeLock sl(&lock_, "~InterfaceTable");
 
-    //NOTREACHED;
-    //printf("Deleting InterfaceTable\n");
     InterfaceList::iterator iter;
     for(iter = iflist_.begin();iter != iflist_.end(); iter++) {
         (*iter)->clayer()->interface_down(*iter);

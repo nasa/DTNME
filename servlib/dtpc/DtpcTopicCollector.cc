@@ -21,6 +21,7 @@
 
 #ifdef DTPC_ENABLED
 
+#include "bundling/BundleDaemon.h"
 #include "bundling/SDNV.h"
 
 #include "DtpcTopicCollector.h"
@@ -82,8 +83,14 @@ DtpcTopicCollector::serialize(oasys::SerializeAction* a)
 {
     DtpcTopicAggregator::serialize(a);
 
-    a->process("remote_eid_", &remote_eid_);
+    std::string tmp_remote_eid = sptr_remote_eid_->str();
+
+    a->process("remote_eid_", &tmp_remote_eid);
     a->process("expireation_ts", &expiration_ts_);
+
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_remote_eid_ = BD_MAKE_EID(tmp_remote_eid);
+    }
 }
 
 //----------------------------------------------------------------------

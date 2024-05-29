@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -50,11 +50,11 @@ BundleInfoCache::BundleInfoCache(const std::string& logpath, size_t capacity)
 
 //----------------------------------------------------------------------
 bool
-BundleInfoCache::add_entry(const Bundle* bundle, const EndpointID& prevhop)
+BundleInfoCache::add_entry(Bundle* bundle, bundleid_t bid)
 {
     Cache::Handle h;
-    std::string id = bundle->gbofid_str();
-    bool ok = cache_.put_and_pin(id, prevhop, &h);
+//    std::string key = bundle->gbofid_str();
+    bool ok = cache_.put_and_pin(bundle->gbofid_str(), bid, &h);
     if (!ok) {
         return false;
     }
@@ -66,17 +66,19 @@ BundleInfoCache::add_entry(const Bundle* bundle, const EndpointID& prevhop)
 
 //----------------------------------------------------------------------
 void
-BundleInfoCache::remove_entry(const Bundle* bundle)
+BundleInfoCache::remove_entry(Bundle* bundle)
 {
     cache_.evict(bundle->gbofid_str());
 }
 
+/*
 //----------------------------------------------------------------------
 bool
-BundleInfoCache::lookup(const Bundle* bundle, EndpointID* prevhop)
+BundleInfoCache::lookup(Bundle* bundle, SPtr_EID& sptr_prevhop)
 {
-    return cache_.get(bundle->gbofid_str(), prevhop);
+    return cache_.get(bundle->gbofid_str(), sptr_prevhop);
 }
+*/
 
 //----------------------------------------------------------------------
 void

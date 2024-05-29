@@ -18,8 +18,10 @@
 #define __FRAGMENT_MANAGER_H__
 
 #include <string>
-#include <oasys/debug/Log.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/StringUtils.h>
+
+#include "BlockInfo.h"
 
 namespace oasys {
 class SpinLock;
@@ -30,7 +32,6 @@ namespace dtn {
 class Link;
 class Bundle;
 class BundleList;
-class BlockInfoVec;
 class FragmentState;
 class BlockInfoPointerList;
 
@@ -73,8 +74,24 @@ public:
      *   pointer to the newly created bundle
      */
     Bundle* create_fragment(Bundle* bundle,
-                            const BlockInfoVec &blocks,
-                            const BlockInfoVec *xmit_blocks,
+                            const BlockInfoVec* blocks,
+                            const BlockInfoVec* xmit_blocks,
+                            size_t offset,
+                            size_t length,
+                            bool first=false,
+                            bool last=false);
+
+    Bundle* create_fragment_bp6(Bundle* bundle,
+                            const BlockInfoVec* blocks,
+                            const BlockInfoVec* xmit_blocks,
+                            size_t offset,
+                            size_t length,
+                            bool first=false,
+                            bool last=false);
+
+    Bundle* create_fragment_bp7(Bundle* bundle,
+                            const BlockInfoVec* blocks,
+                            const BlockInfoVec* xmit_blocks,
                             size_t offset,
                             size_t length,
                             bool first=false,
@@ -100,6 +117,12 @@ public:
     FragmentState* proactively_fragment(Bundle* bundle, 
                                         const LinkRef& link,
                                         size_t max_length);
+    FragmentState* proactively_fragment_bp6(Bundle* bundle, 
+                                        const LinkRef& link,
+                                        size_t max_length);
+    FragmentState* proactively_fragment_bp7(Bundle* bundle, 
+                                        const LinkRef& link,
+                                        size_t max_length);
     
     FragmentState* get_fragment_state(Bundle* bundle);
     
@@ -111,7 +134,7 @@ public:
      *
      * Return true if a fragment was created
      */
-    bool try_to_reactively_fragment(Bundle* bundle, BlockInfoVec *blocks,
+    bool try_to_reactively_fragment(Bundle* bundle, BlockInfoVec* blocks,
                                     size_t bytes_sent);
 
     /**

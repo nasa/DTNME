@@ -17,7 +17,7 @@
 #ifndef _BUNDLE_COMMAND_H_
 #define _BUNDLE_COMMAND_H_
 
-#include <oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
 
 namespace dtn {
 
@@ -31,7 +31,7 @@ public:
     /**
      * Virtual from CommandModule.
      */
-    virtual int exec(int objc, Tcl_Obj** objv, Tcl_Interp* interp);
+    virtual int exec(int argc, const char** argv, Tcl_Interp* interp);
 
 private:
 
@@ -56,7 +56,7 @@ private:
     /**
      * Parse the "bundle inject" command line options
      */
-    bool parse_inject_options(InjectOpts* options, int objc, Tcl_Obj** objv,
+    bool parse_inject_options(InjectOpts* options, int argc, const char** argv,
                               const char** invalidp);
     
 };

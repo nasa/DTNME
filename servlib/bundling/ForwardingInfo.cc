@@ -24,22 +24,50 @@
 #endif
 
 #include "ForwardingInfo.h"
+
 #include "bundling/BundleDaemon.h"
 #include "contacts/ContactManager.h"
 
 namespace dtn {
 
+ForwardingInfo::ForwardingInfo()
+        : Logger("ForwardingInfo", "/dtn/bundle/forwardingInfo"),
+          state_(NONE),
+          action_(INVALID_ACTION),
+          link_name_(""),
+          regid_(0xffffffff),
+          custody_spec_()
+{
+    sptr_remote_eid_ = BD_MAKE_EID_NULL();
+}
+
+ForwardingInfo::ForwardingInfo(const oasys::Builder& builder)
+        : Logger("ForwardingInfo", "/dtn/bundle/forwardingInfo"),
+          state_(NONE),
+          action_(INVALID_ACTION),
+          link_name_(""),
+          regid_(0xffffffff),
+          custody_spec_()
+{
+    sptr_remote_eid_ = std::make_shared<EndpointID>(builder);
+}
+    
 void 
 ForwardingInfo::serialize(oasys::SerializeAction *a)
 {
+    std::string tmp_eid = sptr_remote_eid_->str();
+
     a->process("state", &state_);
     a->process("action", &action_);
     a->process("link_name", &link_name_);
     a->process("regid", &regid_);
-    a->process("remote_eid", &remote_eid_);
+    a->process("remote_eid", &tmp_eid);
     a->process("timestamp_sec", &timestamp_.sec_);
     a->process("timestamp_usec", &timestamp_.usec_);
+
     if(a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_remote_eid_ = BD_MAKE_EID(tmp_eid);
+     
         if(state_ == QUEUED && !BundleDaemon::instance()->contactmgr()->has_link(link_name_.c_str())) {
             state_ = TRANSMIT_FAILED;
             timestamp_.get_time();

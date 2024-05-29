@@ -17,7 +17,7 @@
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
 
-#include <oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
 #include <servlib/naming/EndpointID.h>
 
 namespace dtn {
@@ -35,9 +35,9 @@ public:
     virtual void serialize( oasys::SerializeAction *a );
     
     /// @{ Accessors
-    u_int32_t     length() const { return length_; }
+    size_t length() const { return length_; }
     const u_char* dict()   const { return dict_; }
-    void set_dict(const u_char* dict, u_int32_t length);
+    void set_dict(const u_char* dict, size_t length);
     /// @}
 
     /**
@@ -49,10 +49,10 @@ public:
     /**
      * Add the scheme and ssp of the given endpoint id to the dictionary.
      */
-    void add_eid(const EndpointID& eid)
+    void add_eid(const SPtr_EID& sptr_eid)
     {
-        add_str(eid.scheme_str());
-        add_str(eid.ssp());
+        add_str(sptr_eid->scheme_str());
+        add_str(sptr_eid->ssp());
     }
 
     /**
@@ -67,38 +67,34 @@ public:
      * Look up the given eid in the dictionary, returning true and
      * assigning the offsets if found.
      */
-    bool get_offsets(const EndpointID& eid,
+    bool get_offsets(const SPtr_EID& sptr_eid,
                      u_int32_t* scheme_offset,
                      u_int32_t* ssp_offset)
     {
-        return (get_offset(eid.scheme_str(), scheme_offset) &&
-                get_offset(eid.ssp(), ssp_offset));
+        return (get_offset(sptr_eid->scheme_str(), scheme_offset) &&
+                get_offset(sptr_eid->ssp(), ssp_offset));
     }
 
-    bool get_offsets(const EndpointID& eid,
+    bool get_offsets(const SPtr_EID& sptr_eid,
                      u_int64_t* scheme_offset,
                      u_int64_t* ssp_offset)
     {
-        return (get_offset(eid.scheme_str(), scheme_offset) &&
-                get_offset(eid.ssp(), ssp_offset));
+        return (get_offset(sptr_eid->scheme_str(), scheme_offset) &&
+                get_offset(sptr_eid->ssp(), ssp_offset));
     }
 
     /**
      * Create an eid from the dictionary, given the offsets.
      * Return true upon success.
      */
-    bool extract_eid(EndpointID* eid,
-                     u_int32_t scheme_offset,
-                     u_int32_t ssp_offset);
-    
-    bool extract_eid(EndpointID* eid,
-                     u_int64_t scheme_offset,
-                     u_int64_t ssp_offset);
+    bool extract_eid(SPtr_EID& sptr_eid,
+                     size_t scheme_offset,
+                     size_t ssp_offset);
     
 protected:
-    u_char*   dict_;		///< Dictionary buffer
-    u_int32_t dict_length_;	///< Length of the dictionary buffer
-    u_int32_t length_;		///< Length of the filled-in portion
+    u_char*   dict_;        ///< Dictionary buffer
+    size_t dict_length_;    ///< Length of the dictionary buffer
+    size_t length_;         ///< Length of the filled-in portion
 };
 
 } // namespace dtn

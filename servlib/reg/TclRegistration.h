@@ -17,9 +17,9 @@
 #ifndef _TCL_REGISTRATION_H_
 #define _TCL_REGISTRATION_H_
 
-#include <oasys/debug/Log.h>
-#include <oasys/tclcmd/TclCommand.h>
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/thread/Thread.h>
 
 #include "Registration.h"
 #include "bundling/Bundle.h"
@@ -41,7 +41,7 @@ class BlockingBundleList;
  */
 class TclRegistration : public Registration {
 public:
-    TclRegistration(const EndpointIDPattern& endpoint,
+    TclRegistration(const SPtr_EIDPattern& sptr_endpoint,
                     Tcl_Interp* interp);
     int exec(int argc, const char** argv, Tcl_Interp* interp);
 
@@ -67,7 +67,7 @@ public:
                                  Tcl_Obj** result);
 
     /// virtual from Registration
-    void deliver_bundle(Bundle* bundle);
+    int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) override;
 
 protected:
     BlockingBundleList* bundle_list_;

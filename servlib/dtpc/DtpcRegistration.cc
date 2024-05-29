@@ -23,11 +23,13 @@
 
 #include "DtpcRegistration.h"
 
+#include "bundling/BundleDaemon.h"
+
 namespace dtn {
 
 //----------------------------------------------------------------------
 DtpcRegistration::DtpcRegistration(u_int32_t topic_id, bool has_elision_func)
-    : APIRegistration(topic_id, EndpointID::NULL_EID(), Registration::DROP,
+    : APIRegistration(topic_id, BD_MAKE_PATTERN_NULL(), Registration::DROP,
                       Registration::NONE, 0, 0, false),
       has_elision_func_(has_elision_func)
 {

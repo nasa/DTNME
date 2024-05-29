@@ -109,7 +109,6 @@ public:
         
         u_int test_read_delay_;		///< Msecs to sleep between read calls
         u_int test_write_delay_;	///< Msecs to sleep between write calls
-        u_int test_recv_delay_;		///< Msecs to sleep before recv evt
 
         u_int test_read_limit_;		///< Max amount to read from the channel
         u_int test_write_limit_;	///< Max amount to write to the channel

@@ -20,12 +20,12 @@
 
 #ifdef DTPC_ENABLED
 
-#include <oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
 
 namespace dtn {
 
 /**
- * CommandModule for the "interface" command.
+ * CommandModule for the "dtpc" command.
  */
 class DtpcCommand : public oasys::TclCommand {
 public:

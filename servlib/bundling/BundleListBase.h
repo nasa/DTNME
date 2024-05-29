@@ -18,9 +18,9 @@
 #ifndef _BUNDLE_LIST_BASE_H_
 #define _BUNDLE_LIST_BASE_H_
 
-#include <oasys/compat/inttypes.h>
-#include <oasys/thread/Notifier.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "BundleRef.h"
 
@@ -32,6 +32,9 @@ namespace dtn {
 
 class Bundle;
 struct BundleTimestamp;
+
+class BundleListBase;
+typedef std::shared_ptr<BundleListBase> SPtr_BundleListBase;
 
 /**
  * This is the base class for BundleLists which can be of various 
@@ -126,6 +129,12 @@ public:
      */
     void set_name_only(const std::string& name);
 
+
+    /**
+     * Return the max size the list has reached
+     */
+    size_t max_size() { return max_size_; }
+
 private:
     // Derived classes should declare the List structure here
     //List             list_;	///< underlying list data structure
@@ -134,8 +143,10 @@ protected:
     std::string      name_;	///< name of the list
     std::string      ltype_;	///< list type (path for the logger)
 
+    size_t           max_size_ = 0; ///< max size for the list
+
     oasys::SpinLock* lock_;	///< lock for notifier
-    bool             own_lock_; ///< bit to define lock ownership
+    bool             own_lock_ = false; ///< bit to define lock ownership
     oasys::Notifier* notifier_; ///< notifier for blocking list
 };
 

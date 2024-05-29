@@ -24,7 +24,7 @@
 #include "DtpcProfileStore.h"
 
 template <>
-dtn::DtpcProfileStore* oasys::Singleton<dtn::DtpcProfileStore, false>::instance_ = 0;
+dtn::DtpcProfileStore* oasys::Singleton<dtn::DtpcProfileStore, false>::instance_ = nullptr;
 
 namespace dtn {
 
@@ -35,6 +35,18 @@ DtpcProfileStore::DtpcProfileStore()
 }
 
 
+
+int
+DtpcProfileStore::init(const oasys::StorageConfig& cfg,
+                                 oasys::DurableStore*        store)
+{
+    if (instance_ != nullptr) {
+        PANIC("DtpcProfileStore::init called multiple times");
+    }
+    instance_ = new DtpcProfileStore();
+    return instance_->do_init(cfg, store);
+}
+    
 } // namespace dtn
 
 #endif // DTPC_ENABLED

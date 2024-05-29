@@ -19,7 +19,7 @@
 
 #include <vector>
 
-#include <oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
 #include "ForwardingInfo.h"
 #include "contacts/Link.h"
 
@@ -99,7 +99,7 @@ public:
      * concatenation of the requested states/actions to filter the
      * count.
      */
-    size_t get_count(const EndpointID& eid,
+    size_t get_count(const SPtr_EID& sptr_eid,
                      unsigned int states   = ForwardingInfo::ANY_STATE,
                      unsigned int actions  = ForwardingInfo::ANY_ACTION) const;
     
@@ -135,7 +135,7 @@ public:
      * bundle can be prevented from being forwarded to any other
      * nodes.
      */
-    void add_entry(const EndpointID&        eid,
+    void add_entry(const SPtr_EID&        sptr_eid,
                    ForwardingInfo::action_t action,
                    state_t                  state);
     

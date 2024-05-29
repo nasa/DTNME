@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,12 +37,12 @@
 
 #include <list>
 
-#include <oasys/compat/rpc.h>
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/io/TCPClient.h>
-#include <oasys/io/TCPServer.h>
+#include <third_party/oasys/compat/rpc.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/io/TCPClient.h>
+#include <third_party/oasys/io/TCPServer.h>
 
 #include "dtn_api.h"
 #include "dtn_ipc.h"
@@ -50,14 +50,14 @@
 #include "dtpc_types.h"
 
 #include "conv_layers/RecvRawConvergenceLayer.h"
+#include "reg/Registration.h"
 
 namespace dtn {
 
 class APIClient;
 class APIRegistration;
-class APIRegistrationList;
+class RegistrationList;
 class DtpcRegistration;
-class DtpcRegistrationList;
 
 /**
  * Class that implements the main server side handling of the DTN
@@ -128,7 +128,6 @@ protected:
     int handle_begin_poll();
     int handle_cancel_poll();
     int handle_close();
-    int handle_session_update();
     int handle_peek();
 
     // block the calling thread, waiting for bundle arrival on a bound
@@ -139,11 +138,10 @@ protected:
     // internal error. returns 0 if there is a bundle waiting or
     // socket data on the channel, and assigns the reg or sock_ready
     // pointers appropriately
-    int wait_for_notify(const char*       operation,
-                        dtn_timeval_t     timeout,
-                        APIRegistration** recv_ready_reg,
-                        APIRegistration** session_ready_reg,
-                        bool*             sock_ready);
+    int wait_for_notify(const char*        operation,
+                        dtn_timeval_t      timeout,
+                        SPtr_Registration& sptr_recv_ready_reg,
+                        bool*              sock_ready);
 
     int handle_unexpected_data(const char* operation);
 
@@ -163,20 +161,20 @@ protected:
     // similar to wait_for_notify above but with a DTPC focus
     virtual int wait_for_dtpc_notify(const char*        operation,
                                      dtn_timeval_t      dtn_timeout,
-                                     DtpcRegistration** recv_ready_reg,
+                                     SPtr_Registration& sptr_recv_ready_reg,
                                      bool*              sock_ready);
 
     // search the DTPC bindings for the given topic ID registration and returns it
-    virtual bool is_dtpc_bound(u_int32_t topic_id, DtpcRegistration** reg);
+    virtual bool is_dtpc_bound(u_int32_t topic_id, SPtr_Registration& reg);
 
-    DtpcRegistrationList* dtpc_bindings_;
+    RegistrationList* dtpc_bindings_;
 #endif //DTPC_ENABLED
 
     char buf_[DTN_MAX_API_MSG];
     XDR xdr_encode_;
     XDR xdr_decode_;
-    APIRegistrationList* bindings_;
-    APIRegistrationList* sessions_;
+    RegistrationList* bindings_;
+    RegistrationList* sessions_;
     oasys::Notifier notifier_;
     APIServer* parent_;
     size_t total_sent_;
@@ -184,6 +182,7 @@ protected:
 
     RecvRawConvergenceLayer* raw_convergence_layer_;
     LinkRef raw_convergence_layer_linkref_;
+
 };
 
 } // namespace dtn

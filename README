@@ -12,26 +12,38 @@ of the code, particularly in reference to the various internet drafts
 and (someday) RFCs that describe the bundling protocol. Also, the file
 RELEASE-NOTES describes major changes in each release. This implementation
 is based on DTN2, but also includes all the changes that Marshal Space
-Flight Center has made over the years. As such intermediary version DTNME
-v0.1 will include some things that will not be in the final version DTNME v1.0
+Flight Center has made over the years. This is the beta release of version 
+DTNME v1.2.0. As such it has only been through internal development testing 
+and has not received any independent verification testing. This version
+includes updated support appplications, support for BPv6 and BPv7(including 
+BIBE, mTCPCL, and TCPCLv4), and fixes to improve the stability of the BPv6 
+code. Any unfinished or unused code from DTN2 has been fully removed at 
+this point. This code includes the Bundle Architectural Restaging Daemon (BARD)
+which is designed to offload bundles to an external storage mechanism
+to reduce the processing overhead caused by storing a large number of bundles
+on the main node. Due to the nature of this function it also provides a
+convenient method to inject and remove bundles from the DTN Network
+effectively allowing BARD to act as an air gap covergence layer.
 
 Compilation / Installation Instructions
 ---------------------------------------
 
 Dependencies
-libdb-dev g++ automake autotools-dev tk tk-dev tcl tcl-dev libssl-dev
+libdb-dev g++ automake autotools-dev tk tk-dev tcl tcl-dev
 
-<core> can be replaced with the number of cores you would like to use to in 
-conjunction with the make -j option to try to speed up the build process.
+Building
 
-First Time Building
-./init_dtnme.sh <cores>
+./step_1_make_gcc_dtnme.sh or step_1_make_clang_dtnme.sh - By default use gcc
+    
+    This script will use gcc or clang to compile dtnme according to the default configuration
+  
+./step_2_install_dtnme.sh
+    
+    This script copies all of the binaries and places them in a defined directory structure
+    
+./step_3_clean_dtnme.sh
 
-Subsequent Times Building
-./make_dtnme.sh <cores>
-
-Installing
-./install_dtnme.sh <Desired Installation Directory>
+    This script removes all build files and links so the source can be copied over to a different machine
 
 Note that by default, the configure script will also run configure
 inside the oasys/ subdirectory.
@@ -50,109 +62,24 @@ DTNME Directory Structure
 ------------------------
 
 applib/			application interface library and ipc layer
-apps/			example dtn applications
+apps/		        dtn support applications
 daemon/			dtn router daemon sources
+ehsrouter/              specialized external router used MSFC
 servlib/		dtn router internals
 |-- bundling		bundle management and forwarding logic
 |-- cmd			tcl based command interface
 |-- contacts
 |-- conv_layers		convergence layers
-|-- discovery
-|-- gcm
 |-- naming		endpoint identifier schemes
 |-- reg			local registrations
 |-- routing		bundle routing logic
-|-- security		bundle security protocol
-|-- session
-`-- storage		persistent storage management
-sim/			simulation framework
-test/			unit tests and other test files
-test-utils/		test scripts and utilities
+|-- storage		persistent storage management
+third_party/            holds all dependent libraries
 
 External Requirements
 ---------------------
-oasys-1.3.0+ (see Note - Oasys)
 gcc/g++
 
 Optional External Packages
 --------------------------
-bonjour
-
-Optional Internal Packages
---------------------------
-NORM convergence layer support
-Bundle Security Protocol support (see Note BSP)
-LTP convergence layer support via TCD's LTPlib
-Internet Draft Compliant IP Neighbor Discovery (see README.IPND)
-
-
-Note - Oasys
---------------------------
-Before compiling DTNME please compile Oasys-1.3.0+ (must be 
-installed or located in DTNME or ../). Support for the
-following DTNME options should be specified when configuring
-oasys
-
-specify location / support of:
-    
-    Python 
-    tcl                  
-    google perftools
-    expat
-    xerces-c
-    xsd tool
-    Berkeley DB                  
-    mysql 
-    postgres             
-
-compile with or without support for:
-
-    bluetooth 
-    zlib 
-    tclreadline
-    profiling
-    google profiling
-    assembly-based atomic functions
-
-enable or disable:
-
-    oasys debugging
-    oasys memory debugging
-    oasys lock debugging
-    oasys optimization
-
-
-Note - BSP
---------------------------
-The standard ciphersuites require, amongst other things, 
-an implementation of sha-256 message digest algorithm.
-
-The DTN reference code uses OpenSSL for cryptographic
-and related functions. Unfortunately, some versions of
-OpenSSL do not include sha-256.
-
-The "configure" process checks for the availability of
-sha-256 and provides an error if it is not found.
-
-If your system's OpenSSL does not have sha-256 then you 
-can either upgrade it or build and use a local  version 
-of OpenSSL. OpenSSL can be obtained from
-http://www.openssl.org
-
-OpenSSL 0.9.8 version include sha-256 by default. If your
-system uses version 0.9.7 and you do not wish to upgrade
-then you can enable sha-256 in later versions of 0.9.7,
-such as 0.9.7l and 0.9.7m. To enable sha-256, specify "fips"
-when running "Configure".
-
-If you wish to leave you system installation untouched and
-build against a local version, then configure dtn using
-./configure --with-bsp --with-openssl=/path/to/openssl
-
-Mac OS X note: for Mac OS X users ONLY. If you build dtn
-against a local OpenSSL using "--with-openssl=/path/to/openssl"
-you MUST also specify with it LDFLAGS="-Wl,-search_paths_first". 
-The configuration for OS X users would then be 
-./configure --with-bsp --with-openssl=/path/to/openssl LDFLAGS="-Wl,-search_paths_first"
-Note that the quotes are required for the LDFLAGS argument.
-
+WolfSSL

@@ -35,11 +35,11 @@
 #ifndef _CONTACT_MANAGER_H_
 #define _CONTACT_MANAGER_H_
 
-#include <oasys/debug/Log.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringUtils.h>
 #include "bundling/BundleEventHandler.h"
 
 namespace dtn {
@@ -122,36 +122,36 @@ public:
     /**
      * Helper routine to find a current link based on criteria:
      *
-     * @param cl 	 The convergence layer
-     * @param nexthop	 The next hop string
+     * @param cl      The convergence layer
+     * @param nexthop     The next hop string
      * @param remote_eid Remote endpoint id (NULL_EID for any)
-     * @param type	 Link type (LINK_INVALID for any)
-     * @param states	 Bit vector of legal link states, e.g. ~(OPEN | OPENING)
+     * @param type     Link type (LINK_INVALID for any)
+     * @param states     Bit vector of legal link states, e.g. ~(OPEN | OPENING)
      *
      * @return The link if it matches or NULL if there's no match
      */
     LinkRef find_link_to(ConvergenceLayer* cl,
                          const std::string& nexthop,
-                         const EndpointID& remote_eid = EndpointID::NULL_EID(),
+                         const SPtr_EID& sptr_remote_eid,
                          Link::link_type_t type = Link::LINK_INVALID,
                          u_int states = 0xffffffff);
     
     /**
      * Helper routine to find a link that existed in a prior run based on criteria:
      *
-     * @param cl 	 The convergence layer
-     * @param nexthop	 The next hop string
+     * @param cl      The convergence layer
+     * @param nexthop     The next hop string
      * @param remote_eid Remote endpoint id (NULL_EID for any)
-     * @param type	 Link type (LINK_INVALID for any)
-     * @param states	 Bit vector of legal link states, e.g. ~(OPEN | OPENING)
+     * @param type     Link type (LINK_INVALID for any)
+     * @param states     Bit vector of legal link states, e.g. ~(OPEN | OPENING)
      *
      * @return The link if it matches or NULL if there's no match
      */
     LinkRef find_previous_link_to(ConvergenceLayer* cl,
-								  const std::string& nexthop,
-								  const EndpointID& remote_eid = EndpointID::NULL_EID(),
-								  Link::link_type_t type = Link::LINK_INVALID,
-								  u_int states = 0xffffffff);
+                                  const std::string& nexthop,
+                                  const SPtr_EID& remote_eid,
+                                  Link::link_type_t type = Link::LINK_INVALID,
+                                  u_int states = 0xffffffff);
 
     /**
      * Routine to check if usage of a newly created link name is consistent
@@ -199,30 +199,30 @@ public:
     /**
      * Generic event handler.
      */
-    void handle_event(BundleEvent* event)
+    void handle_event(SPtr_BundleEvent& sptr_event) override
     {
-        dispatch_event(event);
+        dispatch_event(sptr_event);
     }
     
     /**
      * Event handler when a link has been created.
      */
-    void handle_link_created(LinkCreatedEvent* event);
+    void handle_link_created(SPtr_BundleEvent& sptr_event) override;
     
     /**
      * Event handler when a link becomes unavailable.
      */
-    void handle_link_available(LinkAvailableEvent* event);
+    void handle_link_available(SPtr_BundleEvent& sptr_event) override;
     
     /**
      * Event handler when a link becomes unavailable.
      */
-    void handle_link_unavailable(LinkUnavailableEvent* event);
+    void handle_link_unavailable(SPtr_BundleEvent& sptr_event) override;
 
     /**
      * Event handler when a link is opened successfully
      */
-    void handle_contact_up(ContactUpEvent* event);
+    void handle_contact_up(SPtr_BundleEvent& sptr_event) override;
 
     /**********************************************
      *
@@ -237,7 +237,7 @@ public:
      */
     LinkRef new_opportunistic_link(ConvergenceLayer* cl,
                                    const std::string& nexthop,
-                                   const EndpointID& remote_eid,
+                                   const SPtr_EID& remote_eid,
                                    const std::string* link_name = NULL);
     
 protected:
@@ -246,24 +246,24 @@ protected:
      * Helper routine to find a link based on criteria:
      *
      * @param link_set links_ or previous_links_
-     * @param cl 	 The convergence layer
-     * @param nexthop	 The next hop string
+     * @param cl      The convergence layer
+     * @param nexthop     The next hop string
      * @param remote_eid Remote endpoint id (NULL_EID for any)
-     * @param type	 Link type (LINK_INVALID for any)
-     * @param states	 Bit vector of legal link states, e.g. ~(OPEN | OPENING)
+     * @param type     Link type (LINK_INVALID for any)
+     * @param states     Bit vector of legal link states, e.g. ~(OPEN | OPENING)
      *
      * @return The link if it matches or NULL if there's no match
      */
     LinkRef find_any_link_to(LinkSet * link_set,
-							 ConvergenceLayer* cl,
-							 const std::string& nexthop,
-							 const EndpointID& remote_eid = EndpointID::NULL_EID(),
-							 Link::link_type_t type = Link::LINK_INVALID,
-							 u_int states = 0xffffffff);
+                             ConvergenceLayer* cl,
+                             const std::string& nexthop,
+                             const SPtr_EID& sptr_remote_eid,
+                             Link::link_type_t type = Link::LINK_INVALID,
+                             u_int states = 0xffffffff);
 
-    LinkSet* links_;			///< Set of all links
-    int opportunistic_cnt_;		///< Counter for opportunistic links
-    LinkSet* previous_links_;	///< Set of links used in prior runs of daemon
+    LinkSet* links_;            ///< Set of all links
+    int opportunistic_cnt_;        ///< Counter for opportunistic links
+    LinkSet* previous_links_;    ///< Set of links used in prior runs of daemon
 
     /**
      * Reopen a broken link.
@@ -273,22 +273,26 @@ protected:
     /**
      * Timer class used to re-enable broken ondemand links.
      */
-    class LinkAvailabilityTimer : public oasys::Timer {
+    class LinkAvailabilityTimer : public oasys::SharedTimer {
     public:
         LinkAvailabilityTimer(ContactManager* cm, const LinkRef& link)
             : cm_(cm), link_(link.object(), "LinkAvailabilityTimer") {}
+
+        virtual ~LinkAvailabilityTimer() {}
         
         virtual void timeout(const struct timeval& now);
 
-        ContactManager* cm_;	///< The contact manager object
-        LinkRef link_;		///< The link in question
+        ContactManager* cm_;    ///< The contact manager object
+        LinkRef link_;          ///< The link in question
     };
     friend class LinkAvailabilityTimer;
+
+    typedef std::shared_ptr<LinkAvailabilityTimer> SPtr_LinkAvailabilityTimer;
 
     /**
      * Table storing link -> availability timer class.
      */
-    typedef std::map<LinkRef, LinkAvailabilityTimer*> AvailabilityTimerMap;
+    typedef std::map<LinkRef, SPtr_LinkAvailabilityTimer> AvailabilityTimerMap;
     AvailabilityTimerMap availability_timers_;
 
     /**

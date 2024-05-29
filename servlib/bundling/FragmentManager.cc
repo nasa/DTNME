@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -47,7 +47,8 @@
 #include "FragmentState.h"
 #include "BlockInfo.h"
 #include "BundleProtocol.h"
-#include "PrimaryBlockProcessor.h"
+#include "BundleProtocolVersion7.h"
+#include "BP7_BlockProcessor.h"
 #include "bundling/SDNV.h"
 
 namespace dtn {
@@ -63,22 +64,41 @@ FragmentManager::FragmentManager()
 //----------------------------------------------------------------------
 Bundle* 
 FragmentManager::create_fragment(Bundle* bundle,
-                                 const BlockInfoVec &blocks,
-                                 const BlockInfoVec *xmit_blocks,
+                                 const BlockInfoVec* blocks,
+                                 const BlockInfoVec* xmit_blocks,
                                  size_t offset,
                                  size_t length,
                                  bool first,
                                  bool last)
 {
+    if (bundle->is_bpv6())
+        return create_fragment_bp6(bundle, blocks, xmit_blocks, offset, length, first, last);
+    else
+        return create_fragment_bp7(bundle, blocks, xmit_blocks, offset, length, first, last);
+
+}
+
+//----------------------------------------------------------------------
+Bundle* 
+FragmentManager::create_fragment_bp6(Bundle* bundle,
+                                 const BlockInfoVec* blocks,
+                                 const BlockInfoVec* xmit_blocks,
+                                 size_t offset,
+                                 size_t length,
+                                 bool first,
+                                 bool last)
+{
+
     (void) blocks;
 
-    Bundle* fragment = new Bundle();
+    Bundle* fragment = new Bundle(BundleProtocol::BP_VERSION_6);
 
 
     // copy the metadata into the new fragment (which can be further fragmented)
     bundle->copy_metadata(fragment);
     fragment->set_is_fragment(true);
     fragment->set_do_not_fragment(false);
+    fragment->set_frag_created_from_bundleid(bundle->bundleid());
     
 
     // copy all blocks that follow the payload, and all those before
@@ -86,33 +106,35 @@ FragmentManager::create_fragment(Bundle* bundle,
     // fragment" bit
     BlockInfoVec::const_iterator iter;
     bool found_payload = false;
-    size_t ext_block_len=0;
+    size_t ext_block_len = 0;
     for(iter = xmit_blocks->begin(); iter!=xmit_blocks->end();iter++) {
-        int type = iter->type();
-        BlockInfo *src_block = const_cast<BlockInfo*>(iter->source());
-        if ((type == BundleProtocol::PRIMARY_BLOCK)
-            || (type == BundleProtocol::PAYLOAD_BLOCK)
+        SPtr_BlockInfo blkptr = *iter;
+
+        int type = blkptr->type();
+        SPtr_BlockInfo src_block = blkptr->source();
+        if ((type == BundleProtocolVersion6::PRIMARY_BLOCK)
+            || (type == BundleProtocolVersion6::PAYLOAD_BLOCK)
             || (!found_payload && first)
             || (found_payload && last)
-            || (src_block == NULL)
-            || (iter->flags() & BundleProtocol::BLOCK_FLAG_REPLICATE)) {
+            || (src_block == nullptr)
+            || (blkptr->block_flags() & BundleProtocolVersion6::BLOCK_FLAG_REPLICATE)) {
+
             // the src_block should be in the recv_blocks list
-            if(src_block != NULL) {
-                fragment->mutable_recv_blocks()->push_back(*src_block);
+            if (src_block != nullptr) {
+                fragment->mutable_recv_blocks()->push_back(src_block);
             }
 
-            if (type == BundleProtocol::PAYLOAD_BLOCK) {
+            if (type == BundleProtocolVersion6::PAYLOAD_BLOCK) {
                 found_payload = true;
             } else {
-
-            ext_block_len += iter->contents().len();
-            length -= iter->contents().len();
+                ext_block_len += blkptr->contents().len();
+                length -= blkptr->contents().len();
             }
         }
     }
-    log_debug("FragmentManager::create_fragment setting payload lengthto %zu based on block lengths retrieved from xmit_blocks", length);
-    log_debug("FragmentManager::create_fragment extension blocks total %zu in length", ext_block_len);
-    log_debug("FragmentManager::create_fragment current payload length %zu", bundle->payload().length());
+    log_debug("FragmentManager::create_fragment_bp6 setting payload lengthto %zu based on block lengths retrieved from xmit_blocks", length);
+    log_debug("FragmentManager::create_fragment_bp6 extension blocks total %zu in length", ext_block_len);
+    log_debug("FragmentManager::create_fragment_bp6 current payload length %zu", bundle->payload().length());
     // initialize the fragment's orig_length and figure out the offset
     // into the payload
     if (! bundle->is_fragment()) {
@@ -128,9 +150,12 @@ FragmentManager::create_fragment(Bundle* bundle,
         fragment->set_frag_offset(bundle->frag_offset() + offset);
         length -= (SDNV::encoding_len(bundle->frag_offset() + offset) - SDNV::encoding_len(bundle->frag_offset()));
     }
+    // also allow for some slop to encode the payload block info
+    length -= 12;
+
 
     // check for overallocated length
-    // If these are equal, the assignemt will do nothing, but we still
+    // If these are equal, the assignment will do nothing, but we still
     // want to subtract one from the length if this is the first
     // fragment
     if ((offset + length) >= bundle->payload().length()) {
@@ -147,7 +172,7 @@ FragmentManager::create_fragment(Bundle* bundle,
            }
         } 
     }
-    log_debug("FragmentManager::create_fragment After check for overallocated length, length=%zu", length);
+    log_debug("FragmentManager::create_fragment_bp6 After check for overallocated length, length=%zu", length);
 
 
     // initialize payload
@@ -159,100 +184,141 @@ FragmentManager::create_fragment(Bundle* bundle,
 
     // if original bundle is in custody then take custody of this fragment
     if (bundle->local_custody()) {
-        fragment->mutable_custodian()->assign(EndpointID::NULL_EID());
+        fragment->mutable_custodian() = BD_MAKE_EID_NULL();
         BundleDaemon::instance()->accept_custody(fragment);
     }
 
-    log_crit("Created fragment: %s", fragment->gbofid_str().c_str()); //dz debug
+    log_debug("Created BP6 fragment: %s", fragment->gbofid_str().c_str()); //dz debug
 
     return fragment;
 }
 
 //----------------------------------------------------------------------
-//Bundle* 
-//FragmentManager::create_fragment(Bundle* bundle,
-//                                 const LinkRef& link,
-//                                 const BlockInfoPointerList& blocks_to_copy,
-//                                 size_t offset,
-//                                 size_t max_length)
-//{
-//    size_t block_length = 0;
-//    BlockInfoPointerList::const_iterator block_i;
-//    
-//    for (block_i = blocks_to_copy.begin();
-//         block_i != blocks_to_copy.end();
-//         ++block_i) {
-//        block_length += (*block_i)->contents().len();
-//    }
-//        
-//    if (block_length > max_length) {
-//        log_err("unable to create a fragment of length %zu; minimum length "
-//                "required is %zu", max_length, block_length);
-//        return NULL;
-//    }
-//    
-//    Bundle* fragment = new Bundle();
-//
-//    // copy the metadata into the new fragment (which can be further fragmented)
-//    bundle->copy_metadata(fragment);
-//    fragment->set_is_fragment(true);
-//    fragment->set_do_not_fragment(false);
-//    
-//    // initialize the fragment's orig_length and figure out the offset
-//    // into the payload
-//    if (! bundle->is_fragment()) {
-//        log_debug("Setting orig_len=%d and frag_offset=%d based on bundle payload length", bundle->payload().length(), offset);
-//        fragment->set_orig_length(bundle->payload().length());
-//        fragment->set_frag_offset(offset);
-//    } else {
-//        log_debug("Setting orig_len=%d and frag_offset=%d based on bundle orig_len and frag_offset", bundle->orig_length(), bundle->frag_offset() + offset);
-//        fragment->set_orig_length(bundle->orig_length());
-//        fragment->set_frag_offset(bundle->frag_offset() + offset);
-//    }
-//
-//    // initialize payload
-//    size_t to_copy = std::min(max_length - block_length,
-//                              bundle->payload().length() - offset);
-//    log_debug("max_length=%d, block_length=%d, bundle->payload().length()=%d, offset=%d", max_length, block_length, bundle->payload().length(), offset);
-//    fragment->mutable_payload()->set_length(to_copy);
-//    fragment->mutable_payload()->write_data(bundle->payload(), offset, to_copy, 0);
-//    BlockInfoVec* xmit_blocks = fragment->xmit_blocks()->create_blocks(link);
-//    Dictionary * src_dict = bundle->xmit_blocks()->find_blocks(link)->dict(); 
-//    // This dict may contain extra entries because it's all eid refs
-//    // from all blocks, and some of the blocks won't be copied in each
-//    // fragment.
-//    xmit_blocks->dict()->set_dict(src_dict->dict(), src_dict->length());
-//    
-//    for (block_i = blocks_to_copy.begin();
-//         block_i != blocks_to_copy.end();
-//         ++block_i) {
-//        xmit_blocks->push_back(BlockInfo(*(*block_i)));
-//        BlockInfo *bl =  &*(xmit_blocks->end()-1);
-//        if(bl->type() == BundleProtocol::PAYLOAD_BLOCK) {
-//            // We need to run this again to adjust the payload length.
-//            BlockProcessor *pbp = BundleProtocol::find_processor(BundleProtocol::PAYLOAD_BLOCK);
-//            bl->writable_contents()->set_len(0);
-//            pbp->generate(fragment, xmit_blocks, bl, link, (*block_i)->last_block());
-//        }
-//    }
-//    BlockInfo *bl =  &*(xmit_blocks->end()-1);
-//    bl->set_flag(bl->flags() |BundleProtocol::BLOCK_FLAG_LAST_BLOCK);
-//    PrimaryBlockProcessor *pbp = (PrimaryBlockProcessor*)BundleProtocol::find_processor(BundleProtocol::PRIMARY_BLOCK);
-//    pbp->generate_primary(fragment, xmit_blocks, &xmit_blocks->front());
-//
-//    
-//    log_debug("created %zu byte fragment bundle with %zu bytes of payload",
-//              to_copy + block_length, to_copy);
-//
-//    return fragment;
-//}
-//
+Bundle* 
+FragmentManager::create_fragment_bp7(Bundle* bundle,
+                                 const BlockInfoVec* blocks,
+                                 const BlockInfoVec* xmit_blocks,
+                                 size_t offset,
+                                 size_t length,
+                                 bool first,
+                                 bool last)
+{
+    (void) blocks;
+
+    Bundle* fragment = new Bundle();
+
+
+    // copy the metadata into the new fragment (which can be further fragmented)
+    bundle->copy_metadata(fragment);
+    fragment->set_is_fragment(true);
+    fragment->set_do_not_fragment(false);
+    fragment->set_frag_created_from_bundleid(bundle->bundleid());
+    
+
+    // copy all blocks that follow the payload, and all those before
+    // the payload that are marked with the "must be replicated in every
+    // fragment" bit
+    BlockInfoVec::const_iterator iter;
+    bool found_payload = false;
+    size_t ext_block_len=0;
+    for(iter = xmit_blocks->begin(); iter!=xmit_blocks->end();iter++) {
+        SPtr_BlockInfo blkptr = *iter;
+        int type = blkptr->type();
+        SPtr_BlockInfo src_block = blkptr->source();
+
+        if ((type == BundleProtocolVersion7::PRIMARY_BLOCK)
+            || (type == BundleProtocolVersion7::PAYLOAD_BLOCK)
+            || (!found_payload && first)
+            || (found_payload && last)
+            || (src_block == nullptr)
+            || (blkptr->block_flags() & BundleProtocolVersion7::BLOCK_FLAG_REPLICATE)) {
+
+            // the src_block should be in the recv_blocks list
+            if (src_block != nullptr) {
+                fragment->mutable_recv_blocks()->push_back(src_block);
+            }
+
+            if (type == BundleProtocolVersion7::PAYLOAD_BLOCK) {
+                found_payload = true;
+            } else {
+                ext_block_len += blkptr->contents().len();
+                length -= blkptr->contents().len();
+            }
+        }
+    }
+    // initialize the fragment's orig_length and figure out the offset
+    // into the payload
+    size_t extra_bytes = 0;
+    if (! bundle->is_fragment()) {
+        fragment->set_orig_length(bundle->payload().length());
+        fragment->set_frag_offset(offset);
+        // Need to correct for the fact the new primary block will
+        // contain the offset and orig length (which the original
+        // unfragmented bundle didn't)
+        extra_bytes = BP7_BlockProcessor::uint64_encoding_len(bundle->payload().length()) * 2;
+    } else {
+        fragment->set_orig_length(bundle->orig_length());
+        fragment->set_frag_offset(bundle->frag_offset() + offset);
+        // allow for a larger offset size - a little bit of wasted space 
+        // (also subtract length required to encode the payload length)
+        extra_bytes = BP7_BlockProcessor::uint64_encoding_len(bundle->orig_length());
+    }
+    length -= extra_bytes;
+    // also allow for some slop to encode the payload block info
+    length -= 12;
+
+    log_debug("FragmentManager::create_fragment_bp7 extension blocks total %zu in length", ext_block_len);
+    log_debug("FragmentManager::create_fragment_bp7 current payload length %zu", bundle->payload().length());
+    log_debug("FragmentManager::create_fragment_bp7 subtracting extra_bytes for fragment values in primary block: %zu", extra_bytes);
+    log_debug("FragmentManager::create_fragment_bp7 setting payload lengthto %zu based on block lengths retrieved from xmit_blocks", length);
+
+
+    // check for overallocated length
+    // If these are equal, the assignment will do nothing, but we still
+    // want to subtract one from the length if this is the first
+    // fragment
+    if ((offset + length) >= bundle->payload().length()) {
+        length = bundle->payload().length()- offset;
+        // This catches the case that the first fragment could contain
+        // the entire payload, but the trailing extension blocks won't
+        // fit.
+        if(first) {
+           //length -= 1;
+           if(length % 2 == 0) {
+               length = length/2;
+           } else {
+               length = length/2+1;
+           }
+        } 
+    }
+    log_debug("FragmentManager::create_fragment_bp7 After check for overallocated length, length=%zu", length);
+
+
+    // initialize payload
+    fragment->mutable_payload()->set_length(length);
+    fragment->mutable_payload()->write_data(bundle->payload(), offset, length, 0);
+
+    // set the frag length in the GbofId
+    fragment->set_frag_length(length);
+
+    // if original bundle is in custody then take custody of this fragment
+    if (bundle->local_custody()) {
+        fragment->mutable_custodian() = BD_MAKE_EID_NULL();
+        BundleDaemon::instance()->accept_custody(fragment);
+    }
+
+    log_debug("Created BP7 fragment: %s - orig length: %zu", 
+               fragment->gbofid_str().c_str(), fragment->orig_length());
+
+    return fragment;
+}
+
 //----------------------------------------------------------------------
 bool
 FragmentManager::try_to_convert_to_fragment(Bundle* bundle)
 {
-    const BlockInfo *payload_block
-        = bundle->recv_blocks().find_block(BundleProtocol::PAYLOAD_BLOCK);
+    SPtr_BlockInfo payload_block
+        = bundle->recv_blocks()->find_block(BundleProtocolVersion6::PAYLOAD_BLOCK);
     if (!payload_block) {
         return false; // can't do anything
     }
@@ -277,17 +343,19 @@ FragmentManager::try_to_convert_to_fragment(Bundle* bundle)
     if (payload_rcvd >= payload_len) {
         ASSERT(payload_block->complete() || payload_len == 0);
 
-        if (payload_block->last_block()) {
+        // Payload block is always last block in BPv7
+        if (bundle->is_bpv7() || payload_block->last_block()) {
             return false; // nothing to do - whole bundle present
         }
 
         // If the payload block is not the last block, there are extension
         // blocks following it. See if they all appear to be present.
         BlockInfoVec::const_iterator last_block =
-            bundle->recv_blocks().end() - 1;
+            bundle->recv_blocks()->end() - 1;
+
+        SPtr_BlockInfo blkptr = *last_block;
         
-        if (last_block->data_offset() != 0 && last_block->complete()
-            && last_block->last_block()) {
+        if ((blkptr->data_offset() != 0) && blkptr->complete() && blkptr->last_block()) {
             return false; // nothing to do - whole bundle present
         }
 
@@ -319,12 +387,12 @@ FragmentManager::get_hash_key(const Bundle* bundle, std::string* key)
 {
     char buf[128];
     snprintf(buf, 128, "%" PRIu64 ".%" PRIu64,
-             bundle->creation_ts().seconds_,
+             bundle->creation_ts().secs_or_millisecs_,
              bundle->creation_ts().seqno_);
     
     key->append(buf);
-    key->append(bundle->source().c_str());
-    key->append(bundle->dest().c_str());
+    key->append(bundle->source()->c_str());
+    key->append(bundle->dest()->c_str());
 }
 
 //----------------------------------------------------------------------
@@ -333,11 +401,26 @@ FragmentManager::proactively_fragment(Bundle* bundle,
                                       const LinkRef& link,
                                       size_t max_length)
 {
+    if (bundle->is_bpv6())
+        return proactively_fragment_bp6(bundle, link, max_length);
+    else if (bundle->is_bpv7())
+        return proactively_fragment_bp7(bundle, link, max_length);
+    else
+        return nullptr;
+
+}
+
+//----------------------------------------------------------------------
+FragmentState*
+FragmentManager::proactively_fragment_bp6(Bundle* bundle, 
+                                      const LinkRef& link,
+                                      size_t max_length)
+{
     size_t payload_len = bundle->payload().length();
     
     Bundle* fragment;
-    FragmentState* state = NULL; 
-    if(!bundle->is_fragment()) {
+    FragmentState* state = nullptr; 
+    if (!bundle->is_fragment()) {
         state = new FragmentState(bundle);
     } else {
         state = get_fragment_state(bundle);
@@ -345,9 +428,9 @@ FragmentManager::proactively_fragment(Bundle* bundle,
     //FragmentState* state = new FragmentState();
     
     size_t todo = payload_len;
-    if(todo <= 1) {
-        log_debug("FragmentManager::proactively_fragment: we can't fragment a payload of size <= 1");
-        return NULL;
+    if (todo <= 1) {
+        log_debug("FragmentManager::proactively_fragment_bp6: we can't fragment a payload of size <= 1");
+        return nullptr;
     }
     size_t offset = 0;
     size_t count = 0;
@@ -356,35 +439,41 @@ FragmentManager::proactively_fragment(Bundle* bundle,
     bool found_payload = false;
     size_t first_len=0;
     size_t last_len=0;
-    for (iter = bundle->xmit_blocks()->find_blocks(link)->begin(); iter != bundle->xmit_blocks()->find_blocks(link)->end(); iter++) {
-        int type = iter->type();
-        const BlockInfo *src_block = iter->source();
-        if(type == BundleProtocol::PRIMARY_BLOCK) {
-            first_len += iter->contents().len();
-            last_len += iter->contents().len();
-        } else if(type == BundleProtocol::PAYLOAD_BLOCK) {
+    for (iter = bundle->xmit_blocks()->find_blocks(link)->begin(); 
+         iter != bundle->xmit_blocks()->find_blocks(link)->end(); 
+         iter++) {
+        SPtr_BlockInfo blkptr = *iter;
+
+        int type = blkptr->type();
+        SPtr_BlockInfo src_block = blkptr->source();
+        if (type == BundleProtocolVersion6::PRIMARY_BLOCK) {
+            first_len += blkptr->contents().len();
+            last_len += blkptr->contents().len();
+        } else if (type == BundleProtocolVersion6::PAYLOAD_BLOCK) {
             found_payload = true;
-        } else if(iter->flags() & BundleProtocol::BLOCK_FLAG_REPLICATE || src_block == NULL) {
-            first_len+= iter->contents().len();
-            last_len += iter->contents().len();
-        } else if(found_payload) {
-            last_len += iter->contents().len();
+        } else if (blkptr->block_flags() & BundleProtocolVersion6::BLOCK_FLAG_REPLICATE || src_block == nullptr) {
+            first_len+= blkptr->contents().len();
+            last_len += blkptr->contents().len();
+        } else if (found_payload) {
+            last_len += blkptr->contents().len();
         } else {
-            first_len += iter->contents().len();
+            first_len += blkptr->contents().len();
         }
     }
-    if(bundle->is_fragment()) {
-        first_len += SDNV::encoding_len(bundle->orig_length());
-        last_len += SDNV::encoding_len(bundle->orig_length());
+    if (bundle->is_fragment()) {
+        // and some slop to allow for the bytes to encode the payload block header
+        first_len += SDNV::encoding_len(bundle->orig_length()) + 12;
+        last_len += SDNV::encoding_len(bundle->orig_length()) + 12;
     } else {
-        first_len += SDNV::encoding_len(bundle->payload().length()*2);
-        last_len += SDNV::encoding_len(bundle->payload().length()*2);
+        // and some slop to allow for the bytes to encode the payload block header
+        first_len += SDNV::encoding_len(bundle->payload().length()*2) + 12;
+        last_len += SDNV::encoding_len(bundle->payload().length()*2) + 12;
     }
     
 
-    if(first_len >= max_length || last_len >= max_length) {
-        log_debug("FragmentManager::proactively_fragment can't fragment because the extension blocks are too large");
-        return NULL;
+    if (first_len >= max_length || last_len >= max_length) {
+        log_debug("FragmentManager::proactively_fragment_bp6 can't fragment because the extension blocks are too large");
+        return nullptr;
     }
 
     //dz debug - adjust max_length because a calc is off somewhere -- frags are bigger than the mtu also
@@ -392,22 +481,18 @@ FragmentManager::proactively_fragment(Bundle* bundle,
 
    
     bool first = true; 
-    bool last=false;
+    bool last = false;
+    SPtr_BlockInfoVec xmit_blocks = bundle->xmit_blocks()->find_blocks(link);
     do {
-        if( !first && ((todo+last_len) <= max_length)) {
+        if ( !first && ((todo+last_len) <= max_length)) {
             last = true;
         }
-        // what rule do we want here?
-        //if( first && ((todo + first_len) <= max_length)) {
-        //    fragment = create_fragment(bundle, bundle->recv_blocks(), bundle->xmit_blocks()->find_blocks(link), offset, first_len+todo/2+1, first, last);
 
-        //} else {
-            fragment = create_fragment(bundle, bundle->recv_blocks(), bundle->xmit_blocks()->find_blocks(link), offset, max_length, first, last);
-        //}
-        first=false;
-        log_debug("FragmentManager::proactively_fragment: just created %zuth fragment",count+1);
-        log_debug("FragmentManager::proactively_fragment: fragment has payload length %zu",fragment->payload().length());
+        fragment = create_fragment(bundle, bundle->recv_blocks().get(), xmit_blocks.get(), offset, max_length, first, last);
         ASSERT(fragment);
+
+        first = false;
+        log_debug("FragmentManager::proactively_fragment_bp6: just created fragment #%zu with payload len %zu",count+1, fragment->payload().length());
         
         state->add_fragment(fragment);
         offset += fragment->payload().length();
@@ -416,7 +501,7 @@ FragmentManager::proactively_fragment(Bundle* bundle,
         
     } while (todo > 0);
     
-    log_info("proactively fragmenting "
+    log_info("proactively BP6 fragmenting "
             "%zu byte payload into %zu <=%zu byte fragments",
             payload_len, count, max_length);
     
@@ -427,6 +512,113 @@ FragmentManager::proactively_fragment(Bundle* bundle,
     return state;
 }
 
+//----------------------------------------------------------------------
+FragmentState*
+FragmentManager::proactively_fragment_bp7(Bundle* bundle, 
+                                      const LinkRef& link,
+                                      size_t max_length)
+{
+    size_t payload_len = bundle->payload().length();
+    
+    Bundle* fragment;
+    FragmentState* state = nullptr; 
+    if (!bundle->is_fragment()) {
+        state = new FragmentState(bundle);
+    } else {
+        state = get_fragment_state(bundle);
+    }
+    //FragmentState* state = new FragmentState();
+    
+    size_t todo = payload_len;
+    if (todo <= 1) {
+        log_debug("FragmentManager::proactively_fragment_bp7: we can't fragment a payload of size <= 1");
+        return nullptr;
+    }
+    size_t offset = 0;
+    size_t count = 0;
+
+    BlockInfoVec::const_iterator iter;
+    bool found_payload = false;
+    size_t first_len = 2; // allow for 2 byte CBOR overhead per bundle
+    size_t last_len = 2;
+    for (iter = bundle->xmit_blocks()->find_blocks(link)->begin(); 
+         iter != bundle->xmit_blocks()->find_blocks(link)->end(); 
+         iter++) {
+        SPtr_BlockInfo blkptr = *iter;
+
+        int type = blkptr->type();
+        const SPtr_BlockInfo src_block = blkptr->source();
+        if (type == BundleProtocolVersion7::PRIMARY_BLOCK) {
+            first_len += blkptr->contents().len();
+            last_len += blkptr->contents().len();
+        } else if (type == BundleProtocolVersion7::PAYLOAD_BLOCK) {
+            found_payload = true;
+        } else if ((blkptr->block_flags() & BundleProtocolVersion7::BLOCK_FLAG_REPLICATE) || src_block == nullptr) {
+            first_len += blkptr->contents().len();
+            last_len += blkptr->contents().len();
+        } else if (found_payload) {
+            last_len += blkptr->contents().len();
+        } else {
+            first_len += blkptr->contents().len();
+        }
+    }
+
+
+    if (bundle->is_fragment()) {
+        // allow for increase in the fragment offset value 
+        // and some slop to allow for the bytes to encode the payload block header
+        int64_t extra_bytes = BP7_BlockProcessor::uint64_encoding_len(bundle->orig_length()) + 12;
+        first_len += extra_bytes;
+        last_len += extra_bytes;
+    } else {
+        // allow for the two new fragment related fields in the Primary Block
+        // and some slop to allow for the bytes to encode the payload block header
+        int64_t extra_bytes = BP7_BlockProcessor::uint64_encoding_len(bundle->payload().length()) * 2 + 12;
+        first_len += extra_bytes;
+        last_len += extra_bytes;
+    }
+    
+
+    if (first_len >= max_length || last_len >= max_length) {
+        log_debug("FragmentManager::proactively_fragment_bp7 can't fragment because the extension blocks are too large");
+        return nullptr;
+    }
+
+   
+    bool first = true; 
+    bool last = false;
+    SPtr_BlockInfoVec xmit_blocks = bundle->xmit_blocks()->find_blocks(link);
+    do {
+        if( !first && ((todo+last_len) <= max_length)) {
+            last = true;
+        }
+        fragment = create_fragment(bundle, bundle->recv_blocks().get(), xmit_blocks.get(), offset, max_length, first, last);
+        ASSERT(fragment);
+
+        first = false;
+        //dzdebug
+        log_always("FragmentManager::proactively_fragment_bp7: just created fragment #%zu with %zu blocks and payload len %zu",
+                  count+1, fragment->recv_blocks()->size(), fragment->payload().length());
+        
+        state->add_fragment(fragment);
+        offset += fragment->payload().length();
+        todo -= fragment->payload().length();
+        ++count;
+        
+    } while (todo > 0);
+    
+    log_info("proactively BP7 fragmenting "
+            "%zu byte payload into %zu <=%zu byte fragments",
+            payload_len, count, max_length);
+    
+    std::string hash_key;
+    get_hash_key(fragment, &hash_key);
+    fragment_table_[hash_key] = state;
+
+    return state;
+}
+
+//----------------------------------------------------------------------
 FragmentState*
 FragmentManager::get_fragment_state(Bundle* bundle)
 {
@@ -435,7 +627,7 @@ FragmentManager::get_fragment_state(Bundle* bundle)
     FragmentTable::iterator iter = fragment_table_.find(hash_key);
 
     if (iter == fragment_table_.end()) {
-        return NULL;
+        return nullptr;
     } else {
         return iter->second;
     }
@@ -453,15 +645,15 @@ FragmentManager::erase_fragment_state(FragmentState* state)
 //----------------------------------------------------------------------
 bool
 FragmentManager::try_to_reactively_fragment(Bundle* bundle,
-                                            BlockInfoVec *blocks,
+                                            BlockInfoVec* blocks,
                                             size_t  bytes_sent)
 {
     if (bundle->do_not_fragment()) {
         return false; // can't do anything
     }
 
-    size_t payload_offset = BundleProtocol::payload_offset(blocks);
-    size_t total_length = BundleProtocol::total_length(blocks);
+    size_t payload_offset = BundleProtocolVersion6::payload_offset(blocks);
+    size_t total_length = BundleProtocol::total_length(bundle, blocks);
 
     if (bytes_sent <= payload_offset) {
         return false; // can't do anything
@@ -471,8 +663,8 @@ FragmentManager::try_to_reactively_fragment(Bundle* bundle,
         return false; // nothing to do
     }
     
-    const BlockInfo *payload_block
-        = blocks->find_block(BundleProtocol::PAYLOAD_BLOCK);
+    const SPtr_BlockInfo payload_block
+        = blocks->find_block(BundleProtocolVersion6::PAYLOAD_BLOCK);
 
     size_t payload_len  = bundle->payload().length();
     size_t payload_sent = std::min(payload_len, bytes_sent - payload_offset);
@@ -501,11 +693,14 @@ FragmentManager::try_to_reactively_fragment(Bundle* bundle,
     log_debug("creating reactive fragment (offset %zu len %zu/%zu)",
               frag_off, frag_len, payload_len);
     
-    Bundle* tail = create_fragment(bundle, *blocks, blocks, frag_off, frag_len, false, true);
+    Bundle* tail = create_fragment(bundle, blocks, blocks, frag_off, frag_len, false, true);
 
     // treat the new fragment as if it just arrived
-    BundleDaemon::post_at_head(
-        new BundleReceivedEvent(tail, EVENTSRC_FRAGMENTATION));
+    SPtr_EID sptr_dummy_prevhop = BD_MAKE_EID_NULL();
+    BundleReceivedEvent* event_to_post;
+    event_to_post = new BundleReceivedEvent(tail, EVENTSRC_FRAGMENTATION, sptr_dummy_prevhop);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post_at_head(sptr_event_to_post);
 
     return true;
 }
@@ -564,32 +759,39 @@ FragmentManager::process_for_reassembly(Bundle* fragment)
     // XXX/jmmikkel this ensures that we have a set of blocks in the
     // reassembled bundle, but eventually reassembly will have to do much more
     if (fragment->frag_offset() == 0)
-        //state->bundle()->recv_blocks().empty())
     {
-        BlockInfoVec::iterator dest_iter= state->bundle()->mutable_recv_blocks()->begin();
+        BlockInfoVec::iterator dest_iter = state->bundle()->mutable_recv_blocks()->begin();
         BlockInfoVec::const_iterator block_i;
-        for (block_i =  fragment->recv_blocks().begin();
-             block_i != fragment->recv_blocks().end(); ++block_i)
+        for (block_i =  fragment->recv_blocks()->begin();
+             block_i != fragment->recv_blocks()->end(); ++block_i)
         {
+            SPtr_BlockInfo blkptr_i = *block_i;
+            SPtr_BlockInfo blkptr_dest = std::make_shared<BlockInfo>(blkptr_i);
+
             dest_iter = state->bundle()->mutable_recv_blocks()->
-                insert(dest_iter, BlockInfo(*block_i)) +1;
-            if(block_i->type() == BundleProtocol::PAYLOAD_BLOCK) {
+                insert(dest_iter, blkptr_dest) +1;
+
+
+            if(blkptr_i->type() == BundleProtocolVersion6::PAYLOAD_BLOCK) {
                 break;
             }
         }
     }
-    if(fragment->frag_offset()+fraglen == fragment->orig_length()) {
+
+    if(fragment->frag_offset() + fraglen == fragment->orig_length()) {
         BlockInfoVec::const_iterator block_i;
-        bool seen_payload=false;
-        for (block_i =  fragment->recv_blocks().begin();
-             block_i != fragment->recv_blocks().end(); ++block_i)
+        bool seen_payload = false;
+        for (block_i =  fragment->recv_blocks()->begin();
+             block_i != fragment->recv_blocks()->end(); ++block_i)
         {
-            if(seen_payload) {
-            state->bundle()->mutable_recv_blocks()->
-                push_back(BlockInfo(*block_i));
+            SPtr_BlockInfo blkptr_i = *block_i;
+
+            if (seen_payload) {
+                SPtr_BlockInfo blkptr_dest = std::make_shared<BlockInfo>(blkptr_i);
+                state->bundle()->mutable_recv_blocks()->push_back(blkptr_dest);
             }
-            if(block_i->type()==BundleProtocol::PAYLOAD_BLOCK) {
-                seen_payload=true;
+            if (blkptr_i->type() == BundleProtocolVersion6::PAYLOAD_BLOCK) {
+                seen_payload = true;
             }
         }
     }
@@ -600,9 +802,12 @@ FragmentManager::process_for_reassembly(Bundle* fragment)
         return;
     }
 
-    BundleDaemon::post_at_head
-        (new ReassemblyCompletedEvent(state->bundle().object(),
-                                      &state->fragment_list()));
+    ReassemblyCompletedEvent* event_to_post;
+    event_to_post = new ReassemblyCompletedEvent(state->bundle().object(),
+                                                 &state->fragment_list());
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post_at_head(sptr_event_to_post);
+
     ASSERT(state->fragment_list().size() == 0); // moved into the event
     fragment_table_.erase(hash_key);
     delete state;
@@ -638,8 +843,11 @@ FragmentManager::delete_obsoleted_fragments(Bundle* bundle)
     oasys::ScopeLock l(state->fragment_list().lock(),
                        "FragmentManager::delete_obsoleted_fragments");
     while (! state->fragment_list().empty()) {
-        BundleDaemon::post(new BundleDeleteRequest(state->fragment_list().pop_back(),
-                                                   BundleProtocol::REASON_NO_ADDTL_INFO));
+        BundleDeleteRequest* event_to_post;
+        event_to_post = new BundleDeleteRequest(state->fragment_list().pop_back(),
+                                                BundleProtocol::REASON_NO_ADDTL_INFO);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
     }
 
     ASSERT(state->fragment_list().size() == 0); // moved into events

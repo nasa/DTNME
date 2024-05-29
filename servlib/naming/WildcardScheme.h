@@ -17,7 +17,7 @@
 #ifndef _WILDCARD_SCHEME_H_
 #define _WILDCARD_SCHEME_H_
 
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 #include "Scheme.h"
 
@@ -25,26 +25,14 @@ namespace dtn {
 
 class WildcardScheme : public Scheme, public oasys::Singleton<WildcardScheme> {
 public:
-    /**
-     * Validate that the SSP in the given URI is legitimate for
-     * this scheme. If the 'is_pattern' paraemeter is true, then
-     * the ssp is being validated as an EndpointIDPattern.
-     *
-     * @return true if valid
-     */
-    virtual bool validate(const URI& uri, bool is_pattern = false);
-    
-    /**
-     * Match the pattern to the endpoint id in a scheme-specific
-     * manner.
-     */
+    /// @{ virtual from Scheme
+    virtual bool validate(const URI& uri, bool is_pattern, 
+                          bool& node_wildcard, bool& service_wildcard) override;
     virtual bool match(const EndpointIDPattern& pattern,
-                       const EndpointID& eid);
-    
-    /**
-     * Check if the given URI is a singleton endpoint id.
-     */
-    virtual singleton_info_t is_singleton(const URI& uri);
+                       const SPtr_EID& sptr_eid) override;
+    virtual eid_dest_type_t eid_dest_type(const URI& uri) override;
+    virtual bool is_singleton(const URI& uri) override;
+    /// @}
 
 private:
     friend class oasys::Singleton<WildcardScheme>;

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,9 +37,10 @@
 #endif
 
 #include "APIRegistration.h"
+#include "Registration.h"
 #include "RegistrationTable.h"
 #include "bundling/BundleEvent.h"
-#include "bundling/BundleDaemonStorage.h"
+#include "bundling/BundleDaemon.h"
 
 namespace dtn {
 
@@ -52,22 +53,28 @@ RegistrationTable::RegistrationTable()
 //----------------------------------------------------------------------
 RegistrationTable::~RegistrationTable()
 {
-    while (! reglist_.empty()) {
-        delete reglist_.front();
-        reglist_.pop_front();
-    }
+    oasys::ScopeLock l(&lock_, __func__); 
+//dzdebug    while (! reglist_.empty()) {
+//dzdebug        delete reglist_.front();
+//dzdebug        reglist_.pop_front();
+//dzdebug    }
+
+
+    reglist_.clear();
 }
 
 //----------------------------------------------------------------------
 bool
 RegistrationTable::find(u_int32_t regid, RegistrationList::iterator* iter)
 {
-    Registration* reg;
+    oasys::ScopeLock l(&lock_, __func__); 
+
+    SPtr_Registration sptr_reg;
 
     for (*iter = reglist_.begin(); *iter != reglist_.end(); ++(*iter)) {
-        reg = *(*iter);
+        sptr_reg = *(*iter);
 
-        if (reg->regid() == regid) {
+        if (sptr_reg->regid() == regid) {
             return true;
         }
     }
@@ -76,90 +83,95 @@ RegistrationTable::find(u_int32_t regid, RegistrationList::iterator* iter)
 }
 
 //----------------------------------------------------------------------
-Registration*
+SPtr_Registration
 RegistrationTable::get(u_int32_t regid) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    SPtr_Registration sptr_reg = nullptr;
+
+    oasys::ScopeLock l(&lock_, __func__); 
 
     RegistrationList::iterator iter;
 
     // the const_cast lets us use the same find method for get as we
     // use for add/del
     if (const_cast<RegistrationTable*>(this)->find(regid, &iter)) {
-        return *iter;
+        sptr_reg = *iter;
     }
-    return NULL;
+    return sptr_reg;
 }
 
 //----------------------------------------------------------------------
-Registration*
-RegistrationTable::get(const EndpointIDPattern& eid) const
+SPtr_Registration
+RegistrationTable::get(const SPtr_EIDPattern& sptr_eid) const
 {
-    Registration* reg;
+    SPtr_Registration sptr_reg;
     RegistrationList::const_iterator iter;
     
+    oasys::ScopeLock l(&lock_, __func__); 
+
     for (iter = reglist_.begin(); iter != reglist_.end(); ++iter) {
-        reg = *iter;
-        if (reg->endpoint().equals(eid)) {
-            return reg;
+        if (sptr_eid->match((*iter)->endpoint())) {
+            sptr_reg = *iter;
+            break;
         }
     }
-    
-    return NULL;
+   
+    return sptr_reg;
 }
 
 //----------------------------------------------------------------------
-Registration*
-RegistrationTable::get(const EndpointIDPattern& eid, u_int64_t reg_token) const
+SPtr_Registration
+RegistrationTable::get(const SPtr_EIDPattern& sptr_eid, u_int64_t reg_token) const
 {
-    Registration* reg;
+    SPtr_Registration sptr_reg;
     RegistrationList::const_iterator iter;
     
+    oasys::ScopeLock l(&lock_, __func__); 
 
     for (iter = reglist_.begin(); iter != reglist_.end(); ++iter) {
-        reg = *iter;
-        if (reg->endpoint().equals(eid)) {
-            APIRegistration* api_reg = dynamic_cast<APIRegistration*>(reg);
+        if (sptr_eid->match((*iter)->endpoint())) {
+            APIRegistration* api_reg = dynamic_cast<APIRegistration*>((*iter).get());
             if (api_reg == NULL) {
                 continue;
             }
             if ( api_reg->reg_token()==reg_token ) {
-                return reg;
+                sptr_reg = *iter;
+                break;
             }
         }
     }
     
-    return NULL;
+    return sptr_reg;
 }
 
 //----------------------------------------------------------------------
 bool
-RegistrationTable::add(Registration* reg, bool add_to_store)
+RegistrationTable::add(SPtr_Registration& sptr_reg, bool add_to_store)
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     // put it in the list
-    reglist_.push_back(reg);
+    reglist_.push_back(sptr_reg);
 
     // don't store (or log) default registrations 
-    if (!add_to_store || reg->regid() <= Registration::MAX_RESERVED_REGID) {
+    if (!add_to_store || sptr_reg->regid() <= Registration::MAX_RESERVED_REGID) {
         return true;
     }
 
     // now, all we should get are API registrations
-    APIRegistration* api_reg = dynamic_cast<APIRegistration*>(reg);
+    APIRegistration* api_reg = dynamic_cast<APIRegistration*>(sptr_reg.get());
     if (api_reg == NULL) {
         log_err("non-api registration %d passed to registration store",
-                reg->regid());
+                sptr_reg->regid());
         return false;
     }
 
-    api_reg->set_add_to_datastore(true);
+    //dzdebug api_reg->set_add_to_datastore(true);
 
-    log_info("adding registration %d/%s", reg->regid(),
-             reg->endpoint().c_str());
+    log_info("adding registration %d/%s", sptr_reg->regid(),
+             sptr_reg->endpoint()->c_str());
 
-    BundleDaemonStorage::instance()->registration_add_update(api_reg);
+    //dzdebug BundleDaemon::instance()->registration_add_update_in_storage(sptr_reg);
     
     return true;
 }
@@ -167,17 +179,17 @@ RegistrationTable::add(Registration* reg, bool add_to_store)
 //----------------------------------------------------------------------
 bool
 //RegistrationTable::del(u_int32_t regid)
-RegistrationTable::del(Registration* reg)
+RegistrationTable::del(SPtr_Registration& sptr_reg)
 {
-    u_int32_t regid = reg->durable_key();
+    u_int32_t regid = sptr_reg->durable_key();
     log_info("removing registration %d", regid);
 
   
-    reg->stop_initial_load_thread();
+    sptr_reg->stop_initial_load_thread();
 
     RegistrationList::iterator iter;
 
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
     
     if (! find(regid, &iter)) {
         log_err("error removing registration %d: no matching registration",
@@ -199,47 +211,53 @@ RegistrationTable::del(Registration* reg)
 bool
 RegistrationTable::update(Registration* reg) const
 {
-    log_debug("updating registration %d/%s",
-             reg->regid(), reg->endpoint().c_str());
+    (void) reg;
+    //XXX/dz strip out registration saving to database for DTNME???
+    return true;
 
-    APIRegistration* api_reg = dynamic_cast<APIRegistration*>(reg);
+#if 0
+    log_debug("updating registration %d/%s",
+             sptr_reg->regid(), sptr_reg->endpoint()->c_str());
+
+    APIRegistration* api_reg = dynamic_cast<APIRegistration*>(sptr_reg.get());
     if (api_reg == NULL) {
         log_err("non-api registration %d passed to registration store",
-                reg->regid());
+                sptr_reg->regid());
         return false;
     }
     
-    BundleDaemonStorage::instance()->registration_add_update(api_reg);
+    BundleDaemon::instance()->registration_add_update_in_storage(api_reg);
 
     return true;
+#endif
 }
 
 //----------------------------------------------------------------------
 int
-RegistrationTable::get_matching(const EndpointID& demux,
+RegistrationTable::get_matching(const SPtr_EID& sptr_eid,
                                 RegistrationList* reg_list) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     int count = 0;
     
     RegistrationList::const_iterator iter;
-    Registration* reg;
+    SPtr_Registration sptr_reg;
 
-    log_debug("get_matching %s", demux.c_str());
+    log_debug("get_matching %s", sptr_eid->c_str());
 
     for (iter = reglist_.begin(); iter != reglist_.end(); ++iter) {
-        reg = *iter;
+        sptr_reg = *iter;
 
-        if (reg->endpoint().match(demux)) {
+        if (sptr_reg->endpoint()->match(sptr_eid)) {
             log_debug("matched registration %d %s",
-                      reg->regid(), reg->endpoint().c_str());
+                      sptr_reg->regid(), sptr_reg->endpoint()->c_str());
             count++;
-            reg_list->push_back(reg);
+            reg_list->push_back(sptr_reg);
         }
     }
 
-    log_debug("get_matching %s: returned %d matches", demux.c_str(), count);
+    log_debug("get_matching %s: returned %d matches", sptr_eid->c_str(), count);
     return count;
 }
 
@@ -247,12 +265,12 @@ RegistrationTable::get_matching(const EndpointID& demux,
 void
 RegistrationTable::dump(oasys::StringBuffer* buf) const
 {
-    oasys::ScopeLock l(&lock_, "RegistrationTable");
+    oasys::ScopeLock l(&lock_, __func__); 
 
     RegistrationList::const_iterator i;
     for (i = reglist_.begin(); i != reglist_.end(); ++i)
     {
-        buf->appendf("*%p\n", *i);
+        buf->appendf("*%p\n", (*i).get());
     }
 }
 

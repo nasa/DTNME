@@ -35,12 +35,13 @@
  * Constants.
  * (Note that we use #defines to get the comments as well)
  */
-#define DTN_MAX_ENDPOINT_ID 256 /* max endpoint_id size (bytes) */
+#define DTN_MAX_ENDPOINT_ID 64 /* max endpoint_id size (bytes) - was 256 */
 #define DTN_MAX_PATH_LEN PATH_MAX /* max path length */
-#define DTN_MAX_EXEC_LEN ARG_MAX /* length of string passed to exec() */
+//#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+#define DTN_MAX_EXEC_LEN 1050000 /* length of string passed to exec() */
 #define DTN_MAX_AUTHDATA 1024 /* length of auth/security data*/
 #define DTN_MAX_REGION_LEN 64 /* 64 chars "should" be long enough */
-#define DTN_MAX_BUNDLE_MEM 50000 /* biggest in-memory bundle is ~50K*/
+#define DTN_MAX_BUNDLE_MEM 100000000 /* biggest in-memory bundle is 100MB */
 #define DTN_MAX_BLOCK_LEN 1024 /* length of block data (currently 1K) */
 #define DTN_MAX_BLOCKS 256 /* number of blocks in bundle */
 
@@ -111,13 +112,16 @@ xdr_dtn_timeval_t (XDR *xdrs, dtn_timeval_t *objp)
  #define u_hyper u_quad_t
  #define xdr_u_hyper_t xdr_u_quad_t
 #endif
+/**
+ * BPv6 uses seconds and BPv7 uses milliseconds
+ */
 
 bool_t
 xdr_dtn_timestamp_t (XDR *xdrs, dtn_timestamp_t *objp)
 {
 	register int32_t *buf;
 
-	 if (!xdr_u_hyper (xdrs, &objp->secs))
+	 if (!xdr_u_hyper (xdrs, &objp->secs_or_millisecs))
 		 return FALSE;
 	 if (!xdr_u_hyper (xdrs, &objp->seqno))
 		 return FALSE;
@@ -502,7 +506,7 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 			 return FALSE;
 		 if (!xdr_dtn_sequence_id_t (xdrs, &objp->obsoletes_id))
 			 return FALSE;
-		buf = XDR_INLINE (xdrs, 4 * BYTES_PER_XDR_UNIT);
+		buf = XDR_INLINE (xdrs, 5 * BYTES_PER_XDR_UNIT);
 		if (buf == NULL) {
 			 if (!xdr_bool (xdrs, &objp->ecos_enabled))
 				 return FALSE;
@@ -512,12 +516,15 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 				 return FALSE;
 			 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
 				 return FALSE;
+			 if (!xdr_u_int (xdrs, &objp->bp_version))
+				 return FALSE;
 
 		} else {
 		IXDR_PUT_BOOL(buf, objp->ecos_enabled);
 		IXDR_PUT_U_LONG(buf, objp->ecos_flags);
 		IXDR_PUT_U_LONG(buf, objp->ecos_ordinal);
 		IXDR_PUT_U_LONG(buf, objp->ecos_flow_label);
+		IXDR_PUT_U_LONG(buf, objp->bp_version);
 		}
 		 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 			sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))
@@ -547,7 +554,7 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 			 return FALSE;
 		 if (!xdr_dtn_sequence_id_t (xdrs, &objp->obsoletes_id))
 			 return FALSE;
-		buf = XDR_INLINE (xdrs, 4 * BYTES_PER_XDR_UNIT);
+		buf = XDR_INLINE (xdrs, 5 * BYTES_PER_XDR_UNIT);
 		if (buf == NULL) {
 			 if (!xdr_bool (xdrs, &objp->ecos_enabled))
 				 return FALSE;
@@ -557,12 +564,15 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 				 return FALSE;
 			 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
 				 return FALSE;
+			 if (!xdr_u_int (xdrs, &objp->bp_version))
+				 return FALSE;
 
 		} else {
 		objp->ecos_enabled = IXDR_GET_BOOL(buf);
 		objp->ecos_flags = IXDR_GET_U_LONG(buf);
 		objp->ecos_ordinal = IXDR_GET_U_LONG(buf);
 		objp->ecos_flow_label = IXDR_GET_U_LONG(buf);
+		objp->bp_version = IXDR_GET_U_LONG(buf);
 		}
 		 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 			sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))
@@ -600,6 +610,8 @@ xdr_dtn_bundle_spec_t (XDR *xdrs, dtn_bundle_spec_t *objp)
 	 if (!xdr_u_int (xdrs, &objp->ecos_ordinal))
 		 return FALSE;
 	 if (!xdr_u_int (xdrs, &objp->ecos_flow_label))
+		 return FALSE;
+	 if (!xdr_u_int (xdrs, &objp->bp_version))
 		 return FALSE;
 	 if (!xdr_array (xdrs, (char **)&objp->blocks.blocks_val, (u_int *) &objp->blocks.blocks_len, DTN_MAX_BLOCKS,
 		sizeof (dtn_extension_block_t), (xdrproc_t) xdr_dtn_extension_block_t))
@@ -706,9 +718,13 @@ xdr_dtn_bundle_status_report_t (XDR *xdrs, dtn_bundle_status_report_t *objp)
  * dtn_bundle_status_report_t structure which contains the parsed fields
  * of the status report.
  *
- *     DTN_PAYLOAD_MEM         - payload contents in memory
- *     DTN_PAYLOAD_FILE        - payload contents in file
- *     DTN_PAYLOAD_TEMP_FILE   - in file, assume ownership (send only)
+ *     DTN_PAYLOAD_MEM                       - payload contents in memory
+ *     DTN_PAYLOAD_FILE                      - payload contents in file
+ *     DTN_PAYLOAD_TEMP_FILE                 - in file, assume ownership (send only)
+ *     DTN_PAYLOAD_VARIABLE                  - payload contents in memory if up to the max allowed else in file
+ *     DTN_PAYLOAD_RELEASED_DB_FILE          - payload contents as original database file released to the app
+ *     DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE - payload contents in memory if up to the max allowed else as
+ *                                             original database file released to the app
  */
 
 bool_t
@@ -733,6 +749,8 @@ xdr_dtn_bundle_payload_t (XDR *xdrs, dtn_bundle_payload_t *objp)
 	 if (!xdr_bytes (xdrs, (char **)&objp->buf.buf_val, (u_int *) &objp->buf.buf_len, DTN_MAX_BUNDLE_MEM))
 		 return FALSE;
 	 if (!xdr_pointer (xdrs, (char **)&objp->status_report, sizeof (dtn_bundle_status_report_t), (xdrproc_t) xdr_dtn_bundle_status_report_t))
+		 return FALSE;
+	 if (!xdr_uint64_t (xdrs, &objp->size_of_payload))
 		 return FALSE;
 	return TRUE;
 }

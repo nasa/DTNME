@@ -26,8 +26,8 @@
 #endif
 #include <inttypes.h>
 
-#include "oasys/util/OptParser.h"
-#include "oasys/util/StringBuffer.h"
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "DtpcDaemon.h"
 #include "DtpcTopicStore.h"
@@ -35,7 +35,7 @@
 
 namespace dtn {
 
-DtpcTopicTable* DtpcTopicTable::instance_ = NULL;
+DtpcTopicTable* DtpcTopicTable::instance_ = nullptr;
 
 //----------------------------------------------------------------------
 DtpcTopicTable::DtpcTopicTable()
@@ -93,7 +93,7 @@ DtpcTopicTable::add(oasys::StringBuffer *errmsg, const u_int32_t topic_id,
     oasys::ScopeLock l(&lock_, "add");
 
     if (find(topic_id, &iter)) {
-        log_err("attempt to add Topic ID %"PRIu32" which already exists", topic_id);
+        log_err("attempt to add Topic ID %" PRIu32 " which already exists", topic_id);
         if (errmsg) {
             errmsg->appendf("already exists");
         }
@@ -101,9 +101,9 @@ DtpcTopicTable::add(oasys::StringBuffer *errmsg, const u_int32_t topic_id,
     }
 
     if (!user_defined && DtpcDaemon::params_.require_predefined_topics_) {
-        log_err("Not configured to allow on the fly Topic ID %"PRIu32" - %s", topic_id, description);
+        log_err("Not configured to allow on the fly Topic ID %" PRIu32 " - %s", topic_id, description);
         if (errmsg) {
-            errmsg->appendf("Not configured to allow on the fly Topic ID %"PRIu32" - %s", topic_id, description);
+            errmsg->appendf("Not configured to allow on the fly Topic ID %" PRIu32 " - %s", topic_id, description);
         }
         return false;
     }
@@ -112,13 +112,13 @@ DtpcTopicTable::add(oasys::StringBuffer *errmsg, const u_int32_t topic_id,
     topic->set_user_defined(user_defined);
     topic->set_description(description);
 
-    log_info("adding Topic ID %"PRIu32" user defined: %s desc: %s", 
+    log_info("adding Topic ID %" PRIu32 " user defined: %s desc: %s", 
              topic_id, (user_defined?"true":"false"), description);
 
     topic_list_.insert(DtpcTopicPair(topic_id, topic));
 
     if (storage_initialized_) {
-        log_info("adding topic %"PRIu32" to TopicTable", topic_id);
+        log_info("adding topic %" PRIu32 " to TopicTable", topic_id);
         topic->set_queued_for_datastore(true);
         DtpcTopicStore::instance()->add(topic);
         topic->set_in_datastore(true);
@@ -141,7 +141,7 @@ DtpcTopicTable::add_reloaded_topic(DtpcTopic* topic)
         DtpcTopic* found_topic = iter->second;
         if (*found_topic != *topic) {
             oasys::StringBuffer buf;
-            buf.appendf("Reloaded topic (%"PRIu32") does not match definition in configuration file (using config):\n", 
+            buf.appendf("Reloaded topic (%" PRIu32 ") does not match definition in configuration file (using config):\n", 
                      topic->topic_id());
             buf.appendf("TopicID UserDef Description\n");
             buf.appendf("------- ------- -----------------------------\n");
@@ -151,7 +151,7 @@ DtpcTopicTable::add_reloaded_topic(DtpcTopic* topic)
             found_topic->format_for_list(&buf);
             log_multiline(oasys::LOG_WARN, buf.c_str());
         } else {
-            log_debug("Reloaded topic (%"PRIu32") matches definition in configuration file", 
+            log_debug("Reloaded topic (%" PRIu32 ") matches definition in configuration file", 
                      topic->topic_id());
         }
 
@@ -166,12 +166,14 @@ DtpcTopicTable::add_reloaded_topic(DtpcTopic* topic)
         return false;
     }
     
-    log_info("adding reloaded topic %"PRIu32, topic_id);
+    log_info("adding reloaded topic %" PRIu32, topic_id);
 
     topic_list_.insert(DtpcTopicPair(topic_id, topic));
 
     // queue an event to purge any expired ADIs
-    DtpcDaemon::post_at_head(new DtpcTopicExpirationCheckEvent(topic_id));
+    DtpcTopicExpirationCheckEvent* event = new DtpcTopicExpirationCheckEvent(topic_id);
+    SPtr_BundleEvent sptr_event(event);
+    DtpcDaemon::post_at_head(sptr_event);
 
     return true;
 }
@@ -185,7 +187,7 @@ DtpcTopicTable::get(const u_int32_t topic_id)
     oasys::ScopeLock l(&lock_, "Dget");
 
     if (! find(topic_id, &iter)) {
-        return NULL;
+        return nullptr;
     } else {
         return iter->second;
     }
@@ -198,12 +200,12 @@ DtpcTopicTable::del(const u_int32_t topic_id)
     DtpcTopicIterator iter;
     DtpcTopic* topic;
     
-    log_info("removing topic %"PRIu32, topic_id);
+    log_info("removing topic %" PRIu32, topic_id);
 
     oasys::ScopeLock l(&lock_, "del");
 
     if (! find(topic_id, &iter)) {
-        log_err("error removing topic %"PRIu32": not in DtpcTopicTable",
+        log_err("error removing topic %" PRIu32 ": not in DtpcTopicTable",
                 topic_id);
         return false;
     }
@@ -261,7 +263,7 @@ DtpcTopicTable::storage_initialized()
     for (iter = topic_list_.begin(); iter != topic_list_.end(); ++(iter)) {
         topic = iter->second;
         if (!topic->queued_for_datastore()) {
-            log_info("adding topic %"PRIu32" to TopicTable", topic->topic_id());
+            log_info("adding topic %" PRIu32 " to TopicTable", topic->topic_id());
             topic->set_queued_for_datastore(true);
             DtpcTopicStore::instance()->add(topic);
             topic->set_in_datastore(true);
@@ -280,7 +282,7 @@ DtpcTopicTable::close_registrations()
 
     for (iter = topic_list_.begin(); iter != topic_list_.end(); ++(iter)) {
         topic = iter->second;
-        topic->set_registration(NULL);
+        topic->set_registration(nullptr);
     }
 }
 

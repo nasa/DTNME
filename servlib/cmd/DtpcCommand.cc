@@ -27,7 +27,7 @@
 #include "dtpc/DtpcDaemon.h"
 #include "dtpc/DtpcProfileTable.h"
 #include "dtpc/DtpcTopicTable.h"
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 namespace dtn {
 
@@ -42,11 +42,11 @@ DtpcCommand::DtpcCommand()
 	"	       <profile id>\n"
 	"			The Profile ID number\n"
 	"	       <args>:\n"
-	"			retran=<number>          - retransmission limit (default=0)\n"
+	"			retran=<number>          - retransmission limit (default=0 == no transport service)\n"
 	"			agg_size=<number>        - aggregation size limit in bytes (default=1000)\n"
 	"			agg_time=<number>        - aggregation time limit in seconds (default=60)\n"
 	"			custody=[true|false]     - request custody transfer (default=false)\n"
-	"			lifetime=<number>        - lifetime seconds for bundles (default=864000)\n"
+	"			lifetime=<number>        - lifetime seconds for bundles (default=3600)\n"
 	"			replyto=<EndpointID>     - ReplyTo EID for bundles (default=dtn:none)\n"
 	"			priority=[b|n|e|r]       - priority for bundles [bulk,normal,expedited or reserved] (default=bulk)\n"
 	"			ecos=<number>            - extended class of service value (default=0)\n"
@@ -147,7 +147,7 @@ DtpcCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
 	// return error string from here
 	if (! DtpcProfileTable::instance()->add(&errmsg, profile_id, argc - 3, argv + 3)) {
-	    resultf("\nerror adding transmission profile %"PRIu32" - %s\n", profile_id, errmsg.c_str());
+	    resultf("\nerror adding transmission profile %" PRIu32 " - %s\n", profile_id, errmsg.c_str());
 	    return TCL_ERROR;
 	}
 	return TCL_OK;
@@ -173,7 +173,7 @@ DtpcCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
 	if (! DtpcProfileTable::instance()->del(profile_id)) {
-	    resultf("error removing transmission profile %"PRIu32, profile_id);
+	    resultf("error removing transmission profile %" PRIu32, profile_id);
 	    return TCL_ERROR;
 	}
 
@@ -221,7 +221,7 @@ DtpcCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
 	// return error string from here
 	if (! DtpcTopicTable::instance()->add(&errmsg, topic_id, true, description)) {
-	    resultf("\nerror adding DTPC topic %"PRIu32" - %s\n", topic_id, errmsg.c_str());
+	    resultf("\nerror adding DTPC topic %" PRIu32 " - %s\n", topic_id, errmsg.c_str());
 	    return TCL_ERROR;
 	}
 	return TCL_OK;
@@ -247,7 +247,7 @@ DtpcCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
 	if (! DtpcTopicTable::instance()->del(topic_id)) {
-	    resultf("error removing DTPC topic %"PRIu32, topic_id);
+	    resultf("error removing DTPC topic %" PRIu32, topic_id);
 	    return TCL_ERROR;
 	}
 
@@ -257,17 +257,17 @@ DtpcCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
     else if (strcmp(argv[1], "local_eid") == 0) {
         if (argc == 2) {
             // dtpc local_eid
-            set_result(DtpcDaemon::instance()->local_eid().c_str());
+            set_result(DtpcDaemon::instance()->local_eid()->c_str());
             return TCL_OK;
             
         } else if (argc == 3) {
             // dtpc local_eid <eid?>
             DtpcDaemon::instance()->set_local_eid(argv[2]);
-            if (! DtpcDaemon::instance()->local_eid().valid()) {
+            if (! DtpcDaemon::instance()->local_eid()->valid()) {
                 resultf("invalid eid '%s'", argv[2]);
                 return TCL_ERROR;
             }
-            if (! DtpcDaemon::instance()->local_eid().known_scheme()) {
+            if (! DtpcDaemon::instance()->local_eid()->known_scheme()) {
                 resultf("local eid '%s' has unknown scheme", argv[2]);
                 return TCL_ERROR;
             }

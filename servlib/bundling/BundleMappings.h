@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,7 +35,7 @@
 #ifndef _BUNDLE_MAPPING_H_
 #define _BUNDLE_MAPPING_H_
 
-#include <tr1/memory>
+#include <memory>
 #include <vector>
 
 #include "BundleListBase.h"
@@ -45,8 +45,8 @@ namespace dtn {
 class BundleMapping;
 
 // Shorthand for the shared pointers
-typedef std::tr1::shared_ptr<void> SPV;
-typedef std::tr1::shared_ptr<BundleMapping> SPBMapping;
+typedef std::shared_ptr<void> SPV;
+typedef std::shared_ptr<BundleMapping> SPBMapping;
 
 
 

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,13 +35,10 @@
 #ifndef _TABLE_BASED_ROUTER_H_
 #define _TABLE_BASED_ROUTER_H_
 
-#include <oasys/util/StringUtils.h>
-
 #include "BundleRouter.h"
+#include "IMCRouter.h"
 #include "RouterInfo.h"
-#include "bundling/BundleInfoCache.h"
-#include "reg/Registration.h"
-#include "session/SessionTable.h"
+#include "RouteTable.h"
 
 namespace dtn {
 
@@ -53,7 +50,8 @@ class RouteTable;
  * This is an abstract class that is intended to be used for all
  * routing algorithms that store routing state in a table.
  */
-class TableBasedRouter : public BundleRouter {
+class TableBasedRouter : public BundleRouter
+{
 protected:
     /**
      * Constructor -- protected since this class is never instantiated
@@ -65,47 +63,33 @@ protected:
      * Destructor.
      */
     virtual ~TableBasedRouter();
-    virtual void shutdown();
+    virtual void shutdown() override;
+
 
     /**
      * Event handler overridden from BundleRouter / BundleEventHandler
      * that dispatches to the type specific handlers where
      * appropriate.
      */
-    virtual void handle_event(BundleEvent* event);
+    virtual void handle_event(SPtr_BundleEvent& sptr_event) override;
     
     /// @{ Event handlers
-    virtual void handle_bundle_received(BundleReceivedEvent* event);
-    virtual void handle_bundle_transmitted(BundleTransmittedEvent* event);
-    virtual void handle_bundle_cancelled(BundleSendCancelledEvent* event);
-    virtual void handle_route_add(RouteAddEvent* event);
-    virtual void handle_route_del(RouteDelEvent* event);
-    virtual void handle_contact_up(ContactUpEvent* event);
-    virtual void handle_contact_down(ContactDownEvent* event);
-    virtual void handle_link_available(LinkAvailableEvent* event);
-    virtual void handle_link_created(LinkCreatedEvent* event);
-    virtual void handle_link_deleted(LinkDeletedEvent* event);
-    virtual void handle_link_check_deferred(LinkCheckDeferredEvent* event);
-    virtual void handle_custody_timeout(CustodyTimeoutEvent* event);
-    virtual void handle_registration_added(RegistrationAddedEvent* event);
-    virtual void handle_registration_removed(RegistrationRemovedEvent* event);
-    virtual void handle_registration_expired(RegistrationExpiredEvent* event);
+    virtual void handle_bundle_received(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_bundle_transmitted(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_bundle_cancelled(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_route_add(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_route_del(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_contact_up(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_contact_down(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_link_available(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_link_created(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_link_deleted(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_custody_timeout(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_registration_added(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_registration_removed(SPtr_BundleEvent& sptr_event) override;
+    virtual void handle_registration_expired(SPtr_BundleEvent& sptr_event) override;
     /// @}
 
-
-    /// @{ Session management helper functions
-    Session* get_session_for_bundle(Bundle* bundle);
-    bool add_bundle_to_session(Bundle* bundle, Session* session);
-    bool subscribe_to_session(int action, Session* session);
-    
-    bool find_session_upstream(Session* session);
-    void reroute_all_sessions();
-
-    bool handle_session_bundle(BundleReceivedEvent* event);
-    void add_subscriber(Session*          session,
-                        const EndpointID& peer,
-                        const SequenceID& known_seqid);
-    /// @}
 
     /**
      * Dump the routing state.
@@ -125,19 +109,14 @@ protected:
     void add_route(RouteEntry *entry, bool skip_changed_routes=true);
 
     /**
-     * Remove matrhing route entry(s) from the routing table. 
+     * Remove matching route entry(s) from the routing table. 
      */
-    void del_route(const EndpointIDPattern& id);
+    void del_route(const SPtr_EIDPattern& sptr_id);
 
     /**
      * Update forwarding state due to changed routes.
      */
     void handle_changed_routes();
-
-    /**
-     * Try to forward a bundle to a next hop route.
-     */
-    virtual bool fwd_to_nexthop(Bundle* bundle, RouteEntry* route);
 
     /**
      * Check if the bundle should be forwarded to the given next hop.
@@ -146,7 +125,6 @@ protected:
      * that the route indicates ForwardingInfo::FORWARD_ACTION and it
      * is already in flight on another route.
      */
-    using BundleRouter::should_fwd;
     virtual bool should_fwd(const Bundle* bundle, RouteEntry* route);
     
     /**
@@ -209,36 +187,27 @@ protected:
      */
     void delete_bundle(const BundleRef& bundle);
 
-    /**
-     * Remove matching deferred transmission entries.
-     */
-    void remove_from_deferred(const BundleRef& bundle, int actions);
-    
-    /// Cache to check for duplicates and to implement a simple RPF check
-    BundleInfoCache reception_cache_;
-
     /// The routing table
-    RouteTable* route_table_;
-
-    /// Session state management table
-    SessionTable sessions_;
-
-    /// Vector of session custodian registrations
-    RegistrationList session_custodians_;
+    SPtr_RouteTable sptr_route_table_;
 
     /// Timer class used to cancel transmission on down links after
     /// waiting for them to potentially reopen
-    class RerouteTimer : public oasys::Timer {
+    class RerouteTimer;
+    typedef std::shared_ptr<RerouteTimer> SPtr_RerouteTimer;
+
+    class RerouteTimer : public oasys::SharedTimer {
     public:
-        RerouteTimer(TableBasedRouter* router, const LinkRef& link)
-            : router_(router), link_(link) {}
-        virtual ~RerouteTimer() {}
-        
-        void timeout(const struct timeval& now);
+        RerouteTimer(TableBasedRouter* router, const LinkRef& link);
+
+        virtual ~RerouteTimer();
+
+        virtual void timeout(const struct timeval& now) override;
 
     protected:
         TableBasedRouter* router_;
         LinkRef link_;
+        oasys::SPtr_Timer sptr_;
+        uint32_t seconds_ = 30;
     };
 
     friend class RerouteTimer;
@@ -247,55 +216,11 @@ protected:
     void reroute_bundles(const LinkRef& link);
     
     /// Table of reroute timers, indexed by the link name
-    typedef oasys::StringMap<RerouteTimer*> RerouteTimerMap;
+    typedef oasys::StringMap<SPtr_RerouteTimer> RerouteTimerMap;
     RerouteTimerMap reroute_timers_;
 
-    /// Per-link class used to store deferred transmission bundles
-    /// that helps cache route computations
-    class DeferredList : public RouterInfo, public oasys::Logger {
-    public:
-        DeferredList(const char* logpath, const LinkRef& link);
-
-        /// Accessor for the bundle list
-        BundleList* list() { return &list_; }
-
-        /// Accessor for the forwarding info associated with the
-        /// bundle, which must be on the list
-        const ForwardingInfo& info(const BundleRef& bundle);
-
-        /// Check if the bundle is on the list. If so, return its
-        /// forwarding info.
-        bool find(const BundleRef& bundle, ForwardingInfo* info);
-
-        /// Add a new bundle/info pair to the deferred list
-        bool add(const BundleRef& bundle, const ForwardingInfo& info);
-
-        /// Remove the bundle and its associated forwarding info from
-        /// the list
-        bool del(const BundleRef& bundle);
-
-        /// Print out the stats, called from Link::dump_stats
-        void dump_stats(oasys::StringBuffer* buf);
-        
-    protected:
-        typedef std::map<bundleid_t, ForwardingInfo> InfoMap;
-        BundleList list_;
-        InfoMap    info_;
-        size_t     count_;
-    };
-
-    /// Helper accessor to return the deferred queue for a link
-    DeferredList* deferred_list(const LinkRef& link);
-
-    /// Timer class used to periodically refresh subscriptions
-    class ResubscribeTimer : public oasys::Timer {
-    public:
-        ResubscribeTimer(TableBasedRouter* router, Session* session);
-        virtual void timeout(const struct timeval& now);
-
-        TableBasedRouter* router_;
-        Session*          session_;
-    };
+    /// Pointer to the instantiation of the IMC Router
+    SPtr_IMCRouter sptr_imc_router_;
 };
 
 } // namespace dtn

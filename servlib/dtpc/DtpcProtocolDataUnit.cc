@@ -42,7 +42,7 @@
 namespace dtn {
 
 //----------------------------------------------------------------------
-DtpcProtocolDataUnit::DtpcProtocolDataUnit(const EndpointID& remote_eid, 
+DtpcProtocolDataUnit::DtpcProtocolDataUnit(const SPtr_EID& sptr_remote_eid, 
                                            u_int32_t profile_id,
                                            u_int64_t seq_ctr)
     : Logger("DtpcProtocolDataUnit", "/dtpc/pdu"),
@@ -63,11 +63,11 @@ DtpcProtocolDataUnit::DtpcProtocolDataUnit(const EndpointID& remote_eid,
       in_datastore_(false),
       queued_for_datastore_(false)
 {
-    set_remote_eid(remote_eid);
-    set_local_eid(EndpointID::NULL_EID());
+    set_remote_eid(sptr_remote_eid);
+    sptr_local_eid_ = BD_MAKE_EID_NULL();
 
     log_debug("Created ProtocolDataUnit for Remote EID: %s Profile: %d",
-              remote_eid_.c_str(), profile_id_);
+              sptr_remote_eid_->c_str(), profile_id_);
 }
 
 
@@ -91,8 +91,8 @@ DtpcProtocolDataUnit::DtpcProtocolDataUnit(const oasys::Builder&)
       in_datastore_(false),
       queued_for_datastore_(false)
 {
-    set_remote_eid(EndpointID::NULL_EID());
-    set_local_eid(EndpointID::NULL_EID());
+    sptr_remote_eid_ = BD_MAKE_EID_NULL();
+    sptr_local_eid_ = BD_MAKE_EID_NULL();
 }
 
 //----------------------------------------------------------------------
@@ -109,14 +109,17 @@ DtpcProtocolDataUnit::serialize(oasys::SerializeAction* a)
     // make sure key is initialized
     key();
 
+    std::string tmp_remote_eid = sptr_remote_eid_->str();
+    std::string tmp_local_eid = sptr_local_eid_->str();
+
     a->process("key", &key_);
     a->process("collector_key", &collector_key_);
     a->process("ion_alt_key", &ion_alt_key_);
     a->process("has_ion_alt_key", &has_ion_alt_key_);
     a->process("key_is_set", &key_is_set_);
     a->process("profile_id", &profile_id_);
-    a->process("remote_eid", &remote_eid_);
-    a->process("local_eid", &remote_eid_);
+    a->process("remote_eid", &tmp_remote_eid);
+    a->process("local_eid", &tmp_local_eid);
     a->process("seq_ctr", &seq_ctr_);
     a->process("retransmit_count", &retransmit_count_);
     a->process("retransmit_ts", &retransmit_ts_);
@@ -138,6 +141,11 @@ DtpcProtocolDataUnit::serialize(oasys::SerializeAction* a)
 
     buf_ptr = buf()->buf();
     a->process("buf", (u_char*)buf_ptr, buf_size);
+
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_remote_eid_ = BD_MAKE_EID(tmp_remote_eid);
+        sptr_local_eid_ = BD_MAKE_EID(tmp_local_eid);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -152,19 +160,19 @@ DtpcProtocolDataUnit::set_profile_id(u_int32_t t)
 
 //----------------------------------------------------------------------
 void
-DtpcProtocolDataUnit::set_remote_eid(const EndpointID& eid)
+DtpcProtocolDataUnit::set_remote_eid(const SPtr_EID& sptr_eid)
 {
     oasys::ScopeLock l(&lock_, "set_remote_eid");
 
     key_is_set_ = false; 
-    remote_eid_.assign(eid);
+    sptr_remote_eid_ = sptr_eid;
 }
 
 //----------------------------------------------------------------------
 void
-DtpcProtocolDataUnit::set_local_eid(const EndpointID& eid)
+DtpcProtocolDataUnit::set_local_eid(const SPtr_EID& sptr_eid)
 {
-    local_eid_.assign(eid);
+    sptr_local_eid_ = sptr_eid;
 }
 
 //----------------------------------------------------------------------
@@ -183,39 +191,32 @@ DtpcProtocolDataUnit::set_key()
 {
     if (!key_is_set_) {
         char tmp[80];
-        snprintf(tmp, sizeof(tmp), "~%"PRIi32"~%"PRIu64, profile_id_, seq_ctr_);
+        snprintf(tmp, sizeof(tmp), "~%" PRIi32 "~%" PRIu64, profile_id_, seq_ctr_);
 
         key_.clear();
-        key_.append(remote_eid_.c_str());
+        key_.append(sptr_remote_eid_->c_str());
         key_.append(tmp);
 
         // create an alternate key for ION compatibility -
         // we send to ipn:x.129 and expect ACK back from that address
         // but ION sends it with a source ipn:x.128 so we compensate
         // with the ion_alt_key_
-        if (remote_eid_.scheme() == IPNScheme::instance()) {
-            u_int64_t node = 0;
-            u_int64_t service = 0;
-            if (! IPNScheme::parse(remote_eid_, &node, &service)) {
-                ion_alt_key_ = key_;
-                has_ion_alt_key_ = false;
-            } else {
-                EndpointID tmp_eid;
-                service = DtpcDaemon::params_.ipn_receive_service_number;
-                IPNScheme::format(&tmp_eid, node, service);
-                ion_alt_key_.clear();
-                ion_alt_key_.append(tmp_eid.c_str());
-                ion_alt_key_.append(tmp);
-                has_ion_alt_key_ = true;
-            }
+        if (sptr_remote_eid_->is_ipn_scheme()) {
+            u_int64_t node = sptr_remote_eid_->node_num();
+            u_int64_t service = DtpcDaemon::params_.ipn_receive_service_number;
+            SPtr_EID sptr_eid = BD_MAKE_EID_IPN(node, service);
+            ion_alt_key_.clear();
+            ion_alt_key_.append(sptr_eid->c_str());
+            ion_alt_key_.append(tmp);
+            has_ion_alt_key_ = true;
         } else {
             ion_alt_key_ = key_;
             has_ion_alt_key_ = false;
         }
 
-        snprintf(tmp, sizeof(tmp), "~%"PRIi32, profile_id_);
+        snprintf(tmp, sizeof(tmp), "~%" PRIi32, profile_id_);
         collector_key_.clear();
-        collector_key_.append(remote_eid_.c_str());
+        collector_key_.append(sptr_remote_eid_->c_str());
         collector_key_.append(tmp);
 
         key_is_set_ = true;

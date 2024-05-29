@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,31 +37,33 @@
 #endif
 
 #include <climits>
-#include <oasys/serialize/TclListSerialize.h>
-#include <oasys/util/ScratchBuffer.h>
+#include <third_party/oasys/serialize/TclListSerialize.h>
+#include <third_party/oasys/util/ScratchBuffer.h>
 
 #include "TclRegistration.h"
+#include "RegistrationTable.h"
 #include "bundling/BundleEvent.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleList.h"
 #include "bundling/BundleStatusReport.h"
+#include "bundling/BP6_BundleStatusReport.h"
 #include "bundling/CustodySignal.h"
 #include "storage/GlobalStore.h"
 
 namespace dtn {
 
-TclRegistration::TclRegistration(const EndpointIDPattern& endpoint,
+TclRegistration::TclRegistration(const SPtr_EIDPattern& sptr_endpoint,
                                  Tcl_Interp* interp)
     
     : Registration(GlobalStore::instance()->next_regid(),
-                   endpoint, Registration::DEFER, 0, 0) // XXX/demmer expiration??
+                   sptr_endpoint, Registration::DEFER, Registration::NEW, 0, 0) // XXX/demmer expiration??
 {
     (void)interp;
     
     logpathf("/dtn/registration/tcl/%d", regid_);
     set_active(true);
 
-    log_info("new tcl registration on endpoint %s", endpoint.c_str());
+    log_info("new tcl registration on endpoint %s", sptr_endpoint->c_str());
 
     bundle_list_ = new BlockingBundleList(logpath_);
     int fd = bundle_list_->notifier()->read_fd();
@@ -69,12 +71,18 @@ TclRegistration::TclRegistration(const EndpointIDPattern& endpoint,
     notifier_channel_ = oasys::TclCommandInterp::instance()->
                         register_file_channel((ClientData)fd_as_ptr_size, TCL_READABLE);
     log_debug("notifier_channel_ is %p", notifier_channel_);
+
+    reg_list_type_str_ = "TCL_Reg";
 }
 
-void
-TclRegistration::deliver_bundle(Bundle* bundle)
+int
+TclRegistration::deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg)
 {
+    (void) sptr_reg;
+
     bundle_list_->push_back(bundle);
+
+    return REG_DELIVER_BUNDLE_QUEUED;
 }
 
 int
@@ -131,9 +139,18 @@ TclRegistration::get_bundle_data(Tcl_Interp* interp)
         return ok;
     }
     
-    BundleDaemon::post(new BundleDeliveredEvent(b.object(), this));
+    b->fwdlog()->update(this, ForwardingInfo::DELIVERED);
+
+    const RegistrationTable* reg_table = BundleDaemon::instance()->reg_table();
+    SPtr_Registration sptr_reg = reg_table->get(regid_);
+    if (sptr_reg) {
+        BundleDeliveredEvent* event_to_post;
+        event_to_post = new BundleDeliveredEvent(b.object(), sptr_reg);
+        SPtr_BundleEvent sptr_event_to_post(event_to_post);
+        BundleDaemon::post(sptr_event_to_post);
+    }
+
     return TCL_OK;
-    
 }
 
 /**
@@ -219,7 +236,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
     // and a pretty formatted creation timestamp
     addElement(Tcl_NewStringObj("creation_ts", -1));
-    sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64, b->creation_ts().seconds_, b->creation_ts().seqno_);
+    sprintf(tmp_buf, "%zu.%zu", b->creation_ts().secs_or_millisecs_, b->creation_ts().seqno_);
     addElement(Tcl_NewStringObj(tmp_buf, -1));
 
     // If we're not an admin bundle, we're done
@@ -229,20 +246,20 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
     // Admin Type:
     addElement(Tcl_NewStringObj("admin_type", -1));
-    BundleProtocol::admin_record_type_t admin_type;
-    if (!BundleProtocol::get_admin_type(b.object(), &admin_type)) {
+    BundleProtocolVersion6::admin_record_type_t admin_type;
+    if (!BundleProtocolVersion6::get_admin_type(b.object(), &admin_type)) {
         goto done;
     }
 
     // Now for each type of admin bundle, first append the string to
     // define that type, then all the relevant fields of the type
     switch (admin_type) {
-    case BundleProtocol::ADMIN_STATUS_REPORT:
+    case BundleProtocolVersion6::ADMIN_STATUS_REPORT:
     {
         addElement(Tcl_NewStringObj("Status Report", -1));
 
-        BundleStatusReport::data_t sr;
-        if (!BundleStatusReport::parse_status_report(&sr, payload_data,
+        BP6_BundleStatusReport::data_t sr;
+        if (!BP6_BundleStatusReport::parse_status_report(&sr, payload_data,
                                                      payload_len)) {
             *result =
                 Tcl_NewStringObj("Admin Bundle Status Report parsing failed", -1);
@@ -250,7 +267,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         }
 
         // Fragment fields
-        if (sr.admin_flags_ & BundleProtocol::ADMIN_IS_FRAGMENT) {
+        if (sr.admin_flags_ & BundleProtocolVersion6::ADMIN_IS_FRAGMENT) {
             addElement(Tcl_NewStringObj("orig_frag_offset", -1));
             addElement(Tcl_NewLongObj(sr.orig_frag_offset_));
             addElement(Tcl_NewStringObj("orig_frag_length", -1));
@@ -259,10 +276,10 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
         // Status fields with timestamps:
 #define APPEND_TIMESTAMP(_flag, _what, _field)                          \
-        if (sr.status_flags_ & BundleStatusReport::_flag) {             \
+        if (sr.status_flags_ & BP6_BundleStatusReport::_flag) {             \
             addElement(Tcl_NewStringObj(_what, -1));                    \
-            sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64,                               \
-                    sr._field.seconds_, sr._field.seqno_);              \
+            sprintf(tmp_buf, "%zu.%zu",                               \
+                    sr._field.secs_or_millisecs_, sr._field.seqno_);              \
             addElement(Tcl_NewStringObj(tmp_buf, -1));                  \
         }
 
@@ -282,25 +299,25 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         
         // Reason Code:
         addElement(Tcl_NewStringObj("sr_reason", -1));
-        addElement(Tcl_NewStringObj(BundleStatusReport::reason_to_str(sr.reason_code_), -1));
+        addElement(Tcl_NewStringObj(BP6_BundleStatusReport::reason_to_str(sr.reason_code_), -1));
         
         // Bundle creation timestamp
         addElement(Tcl_NewStringObj("orig_creation_ts", -1));
-        sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64,
-                sr.orig_creation_tv_.seconds_,
+        sprintf(tmp_buf, "%zu.%zu",
+                sr.orig_creation_tv_.secs_or_millisecs_,
                 sr.orig_creation_tv_.seqno_);
         addElement(Tcl_NewStringObj(tmp_buf, -1));
 
         // Status Report's Source EID:
         addElement(Tcl_NewStringObj("orig_source", -1));
-        addElement(Tcl_NewStringObj(sr.orig_source_eid_.data(),
-                                    sr.orig_source_eid_.length()));
+        addElement(Tcl_NewStringObj(sr.sptr_orig_source_eid_->data(),
+                                    sr.sptr_orig_source_eid_->length()));
         break;
     }
 
     //-------------------------------------------
 
-    case BundleProtocol::ADMIN_CUSTODY_SIGNAL:
+    case BundleProtocolVersion6::ADMIN_CUSTODY_SIGNAL:
     {
         addElement(Tcl_NewStringObj("Custody Signal", -1));
 
@@ -313,7 +330,7 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
         }
 
         // Fragment fields
-        if (cs.admin_flags_ & BundleProtocol::ADMIN_IS_FRAGMENT) {
+        if (cs.admin_flags_ & BundleProtocolVersion6::ADMIN_IS_FRAGMENT) {
             addElement(Tcl_NewStringObj("orig_frag_offset", -1));
             addElement(Tcl_NewLongObj(cs.orig_frag_offset_));
             addElement(Tcl_NewStringObj("orig_frag_length", -1));
@@ -362,22 +379,22 @@ TclRegistration::parse_bundle_data(Tcl_Interp* interp,
 
         // Custody signal timestamp
         addElement(Tcl_NewStringObj("custody_signal_time", -1));
-        sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64,
-                cs.custody_signal_tv_.seconds_,
+        sprintf(tmp_buf, "%zu.%zu",
+                cs.custody_signal_tv_.secs_or_millisecs_,
                 cs.custody_signal_tv_.seqno_);
         addElement(Tcl_NewStringObj(tmp_buf, -1));
         
         // Bundle creation timestamp
         addElement(Tcl_NewStringObj("orig_creation_ts", -1));
-        sprintf(tmp_buf, "%" PRIu64 ".%" PRIu64,
-                cs.orig_creation_tv_.seconds_,
+        sprintf(tmp_buf, "%zu.%zu",
+                cs.orig_creation_tv_.secs_or_millisecs_,
                 cs.orig_creation_tv_.seqno_);
         addElement(Tcl_NewStringObj(tmp_buf, -1));
 
         // Original source eid
         addElement(Tcl_NewStringObj("orig_source", -1));
-        addElement(Tcl_NewStringObj(cs.orig_source_eid_.data(),
-                                    cs.orig_source_eid_.length()));
+        addElement(Tcl_NewStringObj(cs.sptr_orig_source_eid_->data(),
+                                    cs.sptr_orig_source_eid_->length()));
         break;
     }
 

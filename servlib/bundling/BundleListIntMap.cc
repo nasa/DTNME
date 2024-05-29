@@ -21,7 +21,7 @@
 
 #include <algorithm>
 #include <stdlib.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "Bundle.h"
 #include "BundleListIntMap.h"
@@ -48,7 +48,16 @@ BundleListIntMap::set_name(const std::string& name)
 //----------------------------------------------------------------------
 BundleListIntMap::~BundleListIntMap()
 {
-    clear();
+    oasys::ScopeLock l(lock_, "BundleListIntMap::clear");
+  
+    // basically do a clear() without using a new BundleRef which will fault while exiting
+
+    Bundle* bundle;
+
+    while (!list_.empty()) {
+        bundle = del_bundle(list_.begin(), false);
+        bundle->del_ref(ltype_.c_str(), name_.c_str());
+    }
 }
 
 //----------------------------------------------------------------------
@@ -93,7 +102,9 @@ BundleListIntMap::add_bundle(Bundle* bundle, const bundleid_t key)
     ASSERT(bundle->lock()->is_locked_by_me());
     
     if (bundle->is_freed()) {
-    	log_info("add_bundle called with pre-freed bundle; ignoring");
+        //dzdebug
+    	//log_info("add_bundle called with pre-freed bundle; ignoring");
+    	log_crit("add_bundle called with pre-freed bundle; ignoring");
     	return;
     }
 
@@ -114,6 +125,10 @@ BundleListIntMap::add_bundle(Bundle* bundle, const bundleid_t key)
         SPBMapping bmap ( new BundleMapping(this, blpos) );
         bundle->mappings()->push_back(bmap);
         bundle->add_ref(ltype_.c_str(), name_.c_str());
+
+        if (list_.size() > max_size_) {
+            max_size_ = list_.size();
+        }
     } else {
         log_crit("Error in add_bundle in list %p", this);
         ASSERTF(false, "Error in add_bundle in list %p", this);
@@ -369,9 +384,9 @@ BundleListIntMap::contains(bundleid_t key) const
 BundleRef
 BundleListIntMap::find(bundleid_t key) const
 {
-    BundleRef ret("BundleListIntMap::find() temporary (by key)");
+    BundleRef ret(__func__);
 
-    oasys::ScopeLock l(lock_, "BundleListIntMap::find");
+    oasys::ScopeLock l(lock_, __func__);
 
     const_iterator itr = list_.find(key);
     if ( itr != list_.end() )
@@ -386,14 +401,36 @@ BundleListIntMap::find(bundleid_t key) const
 BundleRef
 BundleListIntMap::find_next(bundleid_t key) const
 {
-    BundleRef ret("BundleListIntMap::find() temporary (by key)");
+    BundleRef ret(__func__);
 
-    oasys::ScopeLock l(lock_, "BundleListIntMap::find");
+    oasys::ScopeLock l(lock_, __func__);
 
     const_iterator itr = list_.upper_bound(key);
     if ( itr != list_.end() )
     {
         ret = itr->second;
+    }
+
+    return ret;
+}
+
+//----------------------------------------------------------------------
+BundleRef
+BundleListIntMap::find_prev(bundleid_t key) const
+{
+    BundleRef ret(__func__);
+
+    oasys::ScopeLock l(lock_, __func__);
+
+    const_iterator itr = list_.lower_bound(key);
+
+    if (itr != list_.begin())
+    {
+        --itr;
+        if (itr != list_.begin())
+        {
+            ret = itr->second;
+        }
     }
 
     return ret;

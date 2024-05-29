@@ -21,9 +21,9 @@
 #include <string>
 #include <vector>
 
-#include "oasys/debug/DebugUtils.h"
-#include "oasys/debug/Log.h"
-#include "oasys/serialize/Serialize.h"
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 namespace dtn {
 

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,9 +35,9 @@
 #ifndef _BUNDLEINFOCACHE_H_
 #define _BUNDLEINFOCACHE_H_
 
-#include <oasys/debug/Logger.h>
-#include <oasys/util/Cache.h>
-#include <oasys/util/CacheCapacityHelper.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/util/Cache.h>
+#include <third_party/oasys/util/CacheCapacityHelper.h>
 #include "Bundle.h"
 #include "GbofId.h"
 
@@ -60,18 +60,18 @@ public:
      * Try to add the bundle to the cache. If it already exists in the
      * cache, adding it again fails, and the method returns false.
      */
-    bool add_entry(const Bundle* bundle, const EndpointID& prevhop);
+    bool add_entry(Bundle* bundle, bundleid_t id);
 
     /**
      * Remove an entry from the cache.
      */
-    void remove_entry(const Bundle* bundle);
+    void remove_entry(Bundle* bundle);
 
     /**
      * Check if the given bundle is in the cache, returning the EID of
      * the node from which it arrived (if known).
      */
-    bool lookup(const Bundle* bundle, EndpointID* prevhop);
+//    bool lookup(Bundle* bundle, SPtr_EID& sptr_prevhop);
 
     /**
      * Flush the cache.
@@ -79,8 +79,8 @@ public:
     void evict_all();
 
 protected:
-    typedef oasys::CacheCapacityHelper<std::string, EndpointID> CacheCapacityHelper;
-    typedef oasys::Cache<std::string, EndpointID, CacheCapacityHelper> Cache;
+    typedef oasys::CacheCapacityHelper<std::string, bundleid_t> CacheCapacityHelper;
+    typedef oasys::Cache<std::string, bundleid_t, CacheCapacityHelper> Cache;
     Cache cache_;
 };
 

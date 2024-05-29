@@ -19,10 +19,6 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include "EhsLink.h"
 #include "EhsBundleTree.h"
 
@@ -861,17 +857,39 @@ EhsBundleMapWithStats::bundle_stats(oasys::StringBuffer* buf,
 
 //----------------------------------------------------------------------
 void
-EhsBundleMapWithStats::get_bundle_stats(uint64_t* received, uint64_t* transmitted, uint64_t* transmit_failed,
-                                        uint64_t* delivered, uint64_t* rejected,
-                                        uint64_t* pending, uint64_t* custody)
+EhsBundleMapWithStats::get_bundle_stats(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                        uint64_t& delivered, uint64_t& rejected,
+                                        uint64_t& pending, uint64_t& custody)
 {
-    *received = total_received_;
-    *transmitted = total_transmitted_;
-    *transmit_failed = total_transmit_failed_;
-    *delivered = total_delivered_;
-    *rejected = total_rejected_;
-    *pending = list_.size();
-    *custody = total_custody_;
+    received = total_received_;
+    transmitted = total_transmitted_;
+    transmit_failed = total_transmit_failed_;
+    delivered = total_delivered_;
+    rejected = total_rejected_;
+    pending = list_.size();
+    custody = total_custody_;
+}
+
+//----------------------------------------------------------------------
+void
+EhsBundleMapWithStats::get_bundle_stats2(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                         uint64_t& delivered, uint64_t& rejected,
+                                         uint64_t& pending, uint64_t& custody, uint64_t& expired)
+{
+    received = total_received_;
+    transmitted = total_transmitted_;
+    transmit_failed = total_transmit_failed_;
+    delivered = total_delivered_;
+    rejected = total_rejected_;
+    pending = list_.size();
+    custody = total_custody_;
+    expired = total_expired_;
+}
+
+uint64_t 
+EhsBundleMapWithStats::get_bundles_pending()
+{
+    return list_.size();
 }
 
 //----------------------------------------------------------------------
@@ -905,7 +923,12 @@ EhsBundleMapWithStats::bundle_stats_by_src_dst(int* count, EhsBundleStats** stat
 
     oasys::ScopeLock l(&lock_, __FUNCTION__);
 
-    *stats = (EhsBundleStats*) realloc(*stats, (*count + stats_map_.size()) * sizeof(EhsBundleStats));
+    // EHSRouter only supports controlling a single DTNNode so using a simple malloc
+    //*stats = (EhsBundleStats*) realloc(*stats, (*count + stats_map_.size()) * sizeof(EhsBundleStats));
+    ASSERT(*count == 0);
+    ASSERT(*stats == nullptr);
+    *stats = (EhsBundleStats*) malloc(stats_map_.size() * sizeof(EhsBundleStats));
+
 
     StatsIterator siter = stats_map_.begin();
     while (siter != stats_map_.end()) {
@@ -981,6 +1004,60 @@ EhsBundleMapWithStats::fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStat
 }
 
 
+//----------------------------------------------------------------------
+void
+EhsBundleMapWithStats::prepare_for_resync()
+{
+    EhsBundleRef bref(__func__);
+
+    oasys::ScopeLock l(&lock_, __func__);
+
+    Iterator iter = list_.begin();
+
+    while (iter != list_.end()) {
+        bref = iter->second;
+
+        bref->prepare_for_resync();
+
+        ++iter;
+    }
+}
+
+size_t
+EhsBundleMapWithStats::finalize_resync(EhsBundleMap& undelivered_bmap, EhsBundleMap& custody_bmap)
+{
+    size_t num_deleted = 0;
+
+    EhsBundleRef bref(__func__);
+
+    oasys::ScopeLock l(&lock_, __func__);
+
+    bool do_delete = false;
+    Iterator iter = list_.begin();
+
+    while (iter != list_.end()) {
+        bref = iter->second;
+
+        do_delete = false;
+        if (bref->not_in_resync_report()) {
+            do_delete = true;
+
+            bref->set_deleted();
+
+            undelivered_bmap.erase(bref->bundleid());
+            custody_bmap.erase(bref->bundleid());
+        }
+
+        ++iter;
+
+        if (do_delete) {
+            bundle_rejected(bref);
+            ++num_deleted;
+        }
+    }
+
+    return num_deleted;
+}
 
 
 /***********************************************************************
@@ -1673,6 +1750,7 @@ EhsBundlePriorityTree::insert_queue(EhsBundlePriorityQueue* queue)
             delete blist;
             src_dst_iter->second = queue;
             blist = queue;
+            inc_stats(blist);
         } else {
             pkey = build_key(blist);
 
@@ -2065,7 +2143,4 @@ EhsBundleList::dump(oasys::StringBuffer* buf)
 
 } // namespace dtn
 
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#endif // EHSROUTER_ENABLED
 

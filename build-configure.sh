@@ -33,11 +33,8 @@ cat aclocal/*.ac > aclocal.m4
 if [ -d "$1" ] ; then
     oasys_dir=$1
 
-elif [ -d ../oasys ] ; then
-    oasys_dir=../oasys
-
-elif [ -d /usr/share/oasys ] ; then
-    oasys_dir=/usr/share/oasys
+elif [ -d ./third_party/oasys ] ; then
+    oasys_dir=./third_party/oasys
 
 else
     echo "build-configure: ERROR -- can't find oasys for autoconf macros"
@@ -63,7 +60,7 @@ cat >> dtn-config.h.in <<EOF
 #include <inttypes.h>
 
 /* Include oasys configuration state */
-#include <oasys/oasys-config.h>
+#include <third_party/oasys/oasys-config.h>
 EOF
 
 echo "build-configure: running autoconf to build configure..."

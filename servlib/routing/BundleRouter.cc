@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -45,7 +45,6 @@
 #include "storage/BundleStore.h"
 
 #include "StaticBundleRouter.h"
-#include "FloodBundleRouter.h"
 #include "ExternalRouter.h"
 
 namespace dtn {
@@ -59,7 +58,8 @@ BundleRouter::Config::Config()
       max_route_to_chain_(10),
       storage_quota_(0),
       subscription_timeout_(600),
-      static_router_prefer_always_on_(true)
+      static_router_prefer_always_on_(true),
+      auto_deliver_bundles_(true)
 {}
 
 BundleRouter::Config BundleRouter::config_;
@@ -71,14 +71,9 @@ BundleRouter::create_router(const char* type)
     if (strcmp(type, "static") == 0) {
         return new StaticBundleRouter();
     }
-    else if (strcmp(type, "flood") == 0) {
-        return new FloodBundleRouter();
-    }
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
     else if (strcmp(type, "external") == 0) {
         return new ExternalRouter();
     }    
-#endif
     else {
         PANIC("unknown type %s for router", type);
     }
@@ -87,17 +82,29 @@ BundleRouter::create_router(const char* type)
 //----------------------------------------------------------------------
 BundleRouter::BundleRouter(const char* classname, const std::string& name)
     : BundleEventHandler(classname, "/dtn/route"),
+      Thread("BundleRouter"),
       name_(name)
 {
     logpathf("/dtn/route/%s", name.c_str());
     
     actions_ = BundleDaemon::instance()->actions();
-    
-    // XXX/demmer maybe change this?
+
+    // local pointers to the needed bundle lists
     pending_bundles_ = BundleDaemon::instance()->pending_bundles();
     custody_bundles_ = BundleDaemon::instance()->custody_bundles();
 }
 
+//----------------------------------------------------------------------
+void
+BundleRouter::post(SPtr_BundleEvent& sptr_event)
+{
+    if (thread_mode_) {
+        me_eventq_.push_back(sptr_event);
+    } else {
+        handle_event(sptr_event);
+    }
+}
+ 
 //----------------------------------------------------------------------
 bool
 BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
@@ -155,7 +162,7 @@ BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
 
     // check if we've already sent or are in the process of sending
     // the bundle to the node via some other link
-    if (link->remote_eid() != EndpointID::NULL_EID())
+    if (link->remote_eid() != BD_NULL_EID())
     {
         size_t count = bundle->fwdlog()->get_count(
             link->remote_eid(),
@@ -166,7 +173,7 @@ BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
             log_debug("should_fwd bundle %" PRIbid ": "
                       "skip %s since already sent or queued %zu times for remote eid %s",
                       bundle->bundleid(), link->name(),
-                      count, link->remote_eid().c_str());
+                      count, link->remote_eid()->c_str());
             return false;
         }
 
@@ -182,7 +189,7 @@ BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
             log_debug("should_fwd bundle %" PRIbid ": "
                       "skip %s since transmission suppressed to remote eid %s",
                       bundle->bundleid(), link->name(),
-                      link->remote_eid().c_str());
+                      link->remote_eid()->c_str());
             return false;
         }
     }
@@ -203,9 +210,9 @@ BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
                       bundle->bundleid(), link->name(), count);
             return false;
         } else {
-//            log_debug("should_fwd bundle %" PRIbid ": "
-//                      "link %s ok since transmission count=%zu",
-//                      bundle->bundleid(), link->name(), count);
+            log_debug("should_fwd bundle %" PRIbid ": "
+                      "link %s ok since transmission count=%zu",
+                      bundle->bundleid(), link->name(), count);
         }
     }
 
@@ -217,6 +224,113 @@ BundleRouter::should_fwd(const Bundle* bundle, const LinkRef& link,
 
     return true;
 }
+
+//----------------------------------------------------------------------
+bool
+BundleRouter::should_fwd_imc(const Bundle* bundle, const LinkRef& link,
+                             ForwardingInfo::action_t action, bool& is_queued)
+{
+    (void) action;
+
+    is_queued = false;
+
+    ForwardingInfo info;
+    bool found = bundle->fwdlog()->get_latest_entry(link, &info);
+
+    if (found) {
+        ASSERT(info.state() != ForwardingInfo::NONE);
+    } else {
+        ASSERT(info.state() == ForwardingInfo::NONE);
+    }
+
+    // check if we've already sent or are in the process of sending
+    // the bundle on this link
+    if (info.state() == ForwardingInfo::TRANSMITTED)
+    {
+        log_debug("should_fwd_imc bundle %" PRIbid ": "
+                  "skip %s due to forwarding log entry %s",
+                  bundle->bundleid(), link->name(),
+                  ForwardingInfo::state_to_str(info.state()));
+        return false;
+    }
+
+    if (info.state() == ForwardingInfo::QUEUED)
+    {
+        // verify that the bundle is actually queued - we might be reloading from storage at startup
+        if (const_cast<Bundle*>(bundle)->is_queued_on(link->queue())) {
+            log_debug("should_fwd_imc bundle %" PRIbid ": "
+                      "skip %s due to confirmed (in queue) forwarding log entry %s",
+                      bundle->bundleid(), link->name(),
+                      ForwardingInfo::state_to_str(info.state()));
+            is_queued = true;
+            return false;
+        } else if (const_cast<Bundle*>(bundle)->is_queued_on(link->inflight())) {
+            log_debug("should_fwd_imc bundle %" PRIbid ": "
+                      "skip %s due to confirmed (inflight) forwarding log entry %s",
+                      bundle->bundleid(), link->name(),
+                      ForwardingInfo::state_to_str(info.state()));
+            is_queued = true;
+            return false;
+        } else {
+            // add entry indicating previous transmit attempt failed and continue processing 
+            const_cast<Bundle*>(bundle)->fwdlog()->update(link, ForwardingInfo::TRANSMIT_FAILED);
+            if (const_cast<Bundle*>(bundle)->xmit_blocks()->find_blocks(link) != NULL) {
+                BundleProtocol::delete_blocks(const_cast<Bundle*>(bundle), link);
+            }
+            bundle->fwdlog()->get_latest_entry(link, &info);
+
+            log_debug("should_fwd_imc bundle %" PRIbid ": "
+                      "not queued as fwdlog indicates - updated to re-route on %s state now: %s",
+                      bundle->bundleid(), link->name(),
+                      ForwardingInfo::state_to_str(info.state()));
+        }
+    }
+
+    // check if we've already sent or are in the process of sending
+    // the bundle to the node via some other link
+    if (link->remote_eid() != BD_NULL_EID())
+    {
+        size_t count = bundle->fwdlog()->get_count(
+            link->remote_eid(),
+            ForwardingInfo::TRANSMITTED | ForwardingInfo::QUEUED);
+        
+        if (count > 0)
+        {
+            log_debug("should_fwd_imc bundle %" PRIbid ": "
+                      "skip %s since already sent or queued %zu times for remote eid %s",
+                      bundle->bundleid(), link->name(),
+                      count, link->remote_eid()->c_str());
+            return false;
+        }
+
+        // check whether transmission was suppressed. this could be
+        // coupled with the previous one but it's better to have a
+        // separate log message
+        count = bundle->fwdlog()->get_count(
+            link->remote_eid(),
+            ForwardingInfo::SUPPRESSED);
+        
+        if (count > 0)
+        {
+            log_debug("should_fwd_imc bundle %" PRIbid ": "
+                      "skip %s since transmission suppressed to remote eid %s",
+                      bundle->bundleid(), link->name(),
+                      link->remote_eid()->c_str());
+            return false;
+        }
+    }
+    
+    // otherwise log the reason why we should send it
+//    log_debug("should_fwd_imc bundle %" PRIbid ": "
+//              "match %s: forwarding log entry %s",
+//              bundle->bundleid(), link->name(),
+//              ForwardingInfo::state_to_str(info.state()));
+
+    return true;
+}
+
+
+
 
 //----------------------------------------------------------------------
 void
@@ -301,6 +415,52 @@ BundleRouter::recompute_routes()
 void
 BundleRouter::shutdown()
 {
+    log_always("BundleRouter.shutdown - thread mode: %s  is_stopped: %s",
+               thread_mode_?"true":"false", is_stopped()?"true":"false");
+
+    if (thread_mode_) {
+        set_should_stop();
+
+        while (!is_stopped()) {
+            usleep(100);
+        }
+    }
+}
+
+//----------------------------------------------------------------------
+void
+BundleRouter::run()
+{
+    thread_mode_ = true;
+
+    char threadname[16];
+    snprintf(threadname, 16, "%-15.15s", thread_name_.c_str());
+    pthread_setname_np(pthread_self(), threadname);
+
+    log_always("BundleRouter starting");
+
+    SPtr_BundleEvent sptr_event;
+
+    while (1) {
+        if (should_stop()) {
+            break;
+        }
+
+        if (me_eventq_.size() > 0) {
+            bool ok = me_eventq_.try_pop(&sptr_event);
+            ASSERT(ok);
+
+            // handle the event
+            handle_event(sptr_event);
+
+            sptr_event.reset();
+        } else {
+            me_eventq_.wait_for_millisecs(100); // millisecs to wait
+        }
+    }
+
+    thread_mode_ = false;
+    log_always("BundleRouter exiting");
 }
 
 } // namespace dtn

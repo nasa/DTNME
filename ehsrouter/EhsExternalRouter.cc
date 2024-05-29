@@ -19,14 +19,10 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <string.h>
 
-#include <oasys/debug/Log.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "EhsExternalRouter.h"
 #include "EhsExternalRouterImpl.h"
@@ -95,16 +91,16 @@ EhsExternalRouter::configure_use_tcp_interface(std::string& val)
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouter::configure_mc_address(std::string& val)
+EhsExternalRouter::configure_remote_address(std::string& val)
 {
-    return ehs_ext_router_->configure_mc_address(val);
+    return ehs_ext_router_->configure_remote_address(val);
 }
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouter::configure_mc_port(std::string& val)
+EhsExternalRouter::configure_remote_port(std::string& val)
 {
-    return ehs_ext_router_->configure_mc_port(val);
+    return ehs_ext_router_->configure_remote_port(val);
 }
 
 //----------------------------------------------------------------------
@@ -195,6 +191,22 @@ EhsExternalRouter::update_statistics()
 
 
 //----------------------------------------------------------------------
+const char* 
+EhsExternalRouter::update_statistics2()
+{
+    return ehs_ext_router_->update_statistics2();
+}
+
+
+//----------------------------------------------------------------------
+const char* 
+EhsExternalRouter::update_statistics3()
+{
+    return ehs_ext_router_->update_statistics3();
+}
+
+
+//----------------------------------------------------------------------
 int
 EhsExternalRouter::num_dtn_nodes()
 {
@@ -275,6 +287,54 @@ EhsExternalRouter::bundle_stats(std::string& buf)
     ehs_ext_router_->bundle_stats(&obuf);
     buf = obuf.c_str();
 }
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::request_bard_usage_stats()
+{
+    ehs_ext_router_->request_bard_usage_stats();
+}
+
+//----------------------------------------------------------------------
+bool
+EhsExternalRouter::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, EhsRestageCLStatsVector& cl_stats)
+{
+    return ehs_ext_router_->bard_usage_stats(usage_stats, cl_stats);
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    ehs_ext_router_->bard_add_quota(quota);
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    ehs_ext_router_->bard_del_quota(quota);
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
+                                   std::string& cl_name,  LinkParametersVector& params)
+{
+    ehs_ext_router_->send_link_add_msg(link_id, next_hop, link_mode, cl_name, params);
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouter::send_link_del_msg(std::string& link_id)
+{
+    ehs_ext_router_->send_link_del_msg(link_id);
+}
+
+
+
 
 //----------------------------------------------------------------------
 uint64_t
@@ -367,8 +427,48 @@ EhsExternalRouter::set_log_level(int level)
     ehs_ext_router_->set_log_level(level);
 }
 
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::quota_type_to_str(uint64_t quota_type)
+{
+    switch (quota_type) {
+        case EHSEXTRTR_BARD_QUOTA_TYPE_SRC: return "src";
+        case EHSEXTRTR_BARD_QUOTA_TYPE_DST: return "dst";
+        default:
+            return "unk";
+    }
+}
+
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::scheme_type_to_str(uint64_t scheme)
+{
+    switch (scheme) {
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_IPN: return "ipn";
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_DTN: return "dtn";
+        case EHSEXTRTR_BARD_QUOTA_SCHEME_IMC: return "imc";
+        default:
+            return "unk";
+    }
+}
+
+//----------------------------------------------------------------------
+const char*
+EhsExternalRouter::cl_state_to_str(uint64_t cl_state)
+{
+    switch (cl_state) {
+        case EHSEXTRTR_RESTAGE_CL_STATE_ONLINE: return "ONLINE";
+        case EHSEXTRTR_RESTAGE_CL_STATE_LOW: return "LOW_QUOTA";
+        case EHSEXTRTR_RESTAGE_CL_STATE_HIGH: return "HIGH_QUOTA";
+        case EHSEXTRTR_RESTAGE_CL_STATE_FULL_QUOTA: return "FULL_QUOTA";
+        case EHSEXTRTR_RESTAGE_CL_STATE_FULL_DISK: return "FULL_DISK";
+        case EHSEXTRTR_RESTAGE_CL_STATE_ERROR: return "ERROR";
+        case EHSEXTRTR_RESTAGE_CL_STATE_SHUTDOWN: return "SHUTDOWN";
+        default:
+            return "unknown";
+    }
+}
+
+
 } // namespace dtn
 
-#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
-
-#endif // EHSROUTER_ENABLED

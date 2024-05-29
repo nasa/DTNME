@@ -39,9 +39,11 @@ OndemandLink::OndemandLink(std::string name,
 void
 OndemandLink::set_initial_state()
 {
-    BundleDaemon::post(
-        new LinkAvailableEvent(LinkRef(this, "OndemandLink"),
-                               ContactEvent::NO_INFO));
+    LinkAvailableEvent* event_to_post;
+    event_to_post = new LinkAvailableEvent(LinkRef(this, "OndemandLink"),
+                                           ContactEvent::NO_INFO);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
 
 

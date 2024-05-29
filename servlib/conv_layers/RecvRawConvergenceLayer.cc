@@ -27,9 +27,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 
-#include <oasys/io/IO.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/URI.h>
+#include <third_party/oasys/io/IO.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/URI.h>
 
 #include "RecvRawConvergenceLayer.h"
 #include "bundling/Bundle.h"

@@ -17,7 +17,7 @@
 #ifndef __FRAGMENT_STATE_H__
 #define __FRAGMENT_STATE_H__
 
-#include <oasys/debug/Log.h>
+#include <third_party/oasys/debug/Log.h>
 
 #include "BundleRef.h"
 #include "BundleList.h"
@@ -31,7 +31,7 @@ class FragmentState : public oasys::Logger {
 public:
     FragmentState() : 
         Logger("FragmentState", "/dtn/bundle/fragmentation"),
-        bundle_(new Bundle(), "fragment_state"), 
+        bundle_(new Bundle(BundleProtocol::BP_VERSION_UNKNOWN), "fragment_state"), 
         fragments_("fragment_state") {}
     
     FragmentState(Bundle* bundle) :

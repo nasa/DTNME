@@ -22,24 +22,19 @@
 #error "MUST INCLUDE dtn-config.h before including this file"
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <map>
 #include <string.h>
-#include <xercesc/framework/MemBufFormatTarget.hpp>
 
-#include <oasys/thread/MsgQueue.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/serialize/XercesXMLSerialize.h>
+#include <third_party/oasys/thread/MsgQueue.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "EhsBundleRef.h"
 #include "EhsBundleTree.h"
 #include "EhsEventHandler.h"
 #include "EhsLink.h"
 #include "EhsSrcDstWildBoolMap.h"
-#include "router-custom.h"
+
+#include "routing/ExternalRouterClientIF.h"
 
 namespace dtn {
 
@@ -50,8 +45,8 @@ class EhsRouter;
 
 
 // map of DTN Nodes
-typedef std::map<std::string, EhsDtnNode*> EhsDtnNodeMap;
-typedef std::pair<std::string, EhsDtnNode*> EhsDtnNodePair;
+typedef std::shared_ptr<EhsDtnNode> SPtr_EhsDtnNode;
+typedef std::map<std::string, SPtr_EhsDtnNode> EhsDtnNodeMap;
 typedef EhsDtnNodeMap::iterator EhsDtnNodeIterator;
 
 // map of source-dest node IDs for accepting bundles
@@ -70,7 +65,8 @@ typedef DeliveredBundleIDList::iterator DeliveredBundleIDIterator;
 
 
 class EhsDtnNode: public EhsEventHandler,
-                  public oasys::Thread
+                  public oasys::Thread,
+                  public ExternalRouterClientIF
 {
 public:
     /**
@@ -84,6 +80,11 @@ public:
     virtual ~EhsDtnNode();
 
     /**
+     * Stop the thread's processing
+     */
+    virtual void do_shutdown();
+
+    /**
      * Post events to be processed
      */
     virtual void post_event(EhsEvent* event, bool at_back=true);
@@ -91,14 +92,14 @@ public:
     /**
      * Main event handling functions
      */
-    virtual void handle_event(EhsEvent* event);
+    virtual void handle_event(EhsEvent* event) override;
     virtual void event_handlers_completed(EhsEvent* event);
 
-    /**
-     * Pass through a message to the EhsExernalRouter to be sent to the DTNME node
-     */
-    virtual void send_msg(rtrmessage::bpa& msg);
-
+    /** 
+     ** override pure virtual from ExternalRouterClientIF
+     **/
+    virtual void send_msg(std::string* msg) override;
+ 
     /**
      * Issue shutdown request to the DTNME server
      */
@@ -116,6 +117,7 @@ public:
      * Delete all bundles in the DTN database
      */
     virtual int bundle_delete_all();
+    virtual int bundle_delete_all_orig();
 
     /**
      * EhsLink initiatedcheck for missed bundles
@@ -125,16 +127,37 @@ public:
     /**
      * Report/Status methods
      */
-    virtual void update_statistics(uint64_t* received, uint64_t* transmitted, uint64_t* transmit_failed,
-                                   uint64_t* delivered, uint64_t* rejected,
-                                   uint64_t* pending, uint64_t* custody, 
-                                   bool* fwdlnk_aos, bool* fwdlnk_enabled);
+    virtual void update_statistics(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                   uint64_t& delivered, uint64_t& rejected,
+                                   uint64_t& pending, uint64_t& custody, 
+                                   bool& fwdlnk_aos, bool& fwdlnk_enabled);
+    virtual void update_statistics2(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                   uint64_t& delivered, uint64_t& rejected,
+                                   uint64_t& pending, uint64_t& custody, uint64_t& expired,
+                                   bool& fwdlnk_aos, bool& fwdlnk_enabled);
+    virtual void update_statistics3(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                   uint64_t& delivered, uint64_t& rejected,
+                                   uint64_t& pending, uint64_t& custody, uint64_t& expired,
+                                   bool& fwdlnk_aos, bool& fwdlnk_enabled, 
+                                   uint64_t& links_open, uint64_t& num_links);
     virtual void bundle_stats(oasys::StringBuffer* buf);
     virtual void bundle_list(oasys::StringBuffer* buf);
     virtual void link_dump(oasys::StringBuffer* buf);
     virtual void fwdlink_transmit_dump(oasys::StringBuffer* buf);
     virtual void bundle_stats_by_src_dst(int* count, EhsBundleStats** stats);
     virtual void fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats);
+
+    virtual void request_bard_usage_stats();
+    virtual bool bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, 
+                                 EhsRestageCLStatsVector& cl_stats);
+
+    virtual void bard_add_quota(EhsBARDUsageStats& quota);
+    virtual void bard_del_quota(EhsBARDUsageStats& quota);
+
+    virtual void send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
+                                   std::string& cl_name,  LinkParametersVector& params);
+    virtual void send_link_del_msg(std::string& link_id);
+
     virtual void unrouted_bundle_stats_by_src_dst(oasys::StringBuffer* buf);
     virtual void set_link_statistics(bool enabled);
 
@@ -145,6 +168,7 @@ public:
     virtual const std::string* eid_ping()     { return &eid_ping_; }
     virtual const std::string* eid_ipn()      { return &eid_ipn_; }
     virtual const std::string* eid_ipn_ping() { return &eid_ipn_ping_; }
+    virtual const std::string* eid_ipn_dtpc() { return &eid_ipn_dtpc_; }
     virtual bool prime_mode()                 { return prime_mode_; }
 
     virtual bool is_local_node(uint64_t check_node);
@@ -192,7 +216,7 @@ protected:
     /**
      * Main thread function that dispatches events.
      */
-    void run();
+    void run() override;
 
     /**
      * Updates to the BUNDLES_BY_DEST_MAP
@@ -208,23 +232,27 @@ protected:
     /**
      * Event handler methods
      */
-    virtual void handle_bpa_received(EhsBpaReceivedEvent* event);
-    virtual void handle_free_bundle_req(EhsFreeBundleReq* event);
-//    virtual void handle_delete_bundle_req(EhsDeleteBundleReq* event);
+    virtual void handle_cbor_received(EhsCborReceivedEvent* event) override;
+    virtual void handle_free_bundle_req(EhsFreeBundleReq* event) override;
+//    virtual void handle_delete_bundle_req(EhsDeleteBundleReq* event) override;
 
     /**
      * Message processing methods
      */
-    virtual void process_bundle_report(rtrmessage::bpa* msg);
-    virtual void process_bundle_received_event(rtrmessage::bpa* msg);
-    virtual void process_bundle_custody_accepted_event(rtrmessage::bpa* msg);
-    virtual void process_bundle_expired_event(rtrmessage::bpa* msg);
-    virtual void process_data_transmitted_event(rtrmessage::bpa* msg);
-    virtual void process_bundle_send_cancelled_event(rtrmessage::bpa* msg);
-    virtual void process_bundle_delivered_event(rtrmessage::bpa* msg);
-    virtual void process_custody_signal_event(rtrmessage::bpa* msg);
-    virtual void process_aggregate_custody_signal_event(rtrmessage::bpa* msg);
-    virtual void process_custody_timeout_event(rtrmessage::bpa* msg);
+    virtual void process_hello_msg(CborValue& cvElement, uint64_t msg_version);
+    virtual void process_alert_msg_v0(CborValue& cvElement);
+    virtual void process_bundle_report_v0(CborValue& cvElement);
+    virtual void process_bundle_received_v0(CborValue& cvElement);
+    virtual void process_bundle_transmitted_v0(CborValue& cvElement);
+    virtual void process_bundle_delivered_v0(CborValue& cvElement);
+    virtual void process_bundle_expired_v0(CborValue& cvElement);
+    virtual void process_bundle_cancelled_v0(CborValue& cvElement);
+    virtual void process_custody_timeout_v0(CborValue& cvElement);
+    virtual void process_custody_accepted_v0(CborValue& cvElement);
+    virtual void process_custody_signal_v0(CborValue& cvElement);
+    virtual void process_agg_custody_signal_v0(CborValue& cvElement);
+    virtual void process_bard_usage_rpt_v0(CborValue& cvElement);
+
 
     virtual void finalize_bundle_delivered_event(uint64_t id);
 
@@ -236,8 +264,7 @@ protected:
 
     virtual bool accept_custody_before_routing(EhsBundleRef& bref);
 
-    virtual void inc_bundle_stats_by_src_dst(EhsBundle* eb);
-    virtual void dec_bundle_stats_by_src_dst(EhsBundle* eb);
+    virtual void do_resync_processing();
 
 protected:
     /// Lock for sequential access
@@ -257,6 +284,9 @@ protected:
 
     /// ping (service number 2047 for ISS) EID (IPN scheme) of the DTN Node
     std::string eid_ipn_ping_;
+
+    /// ping (service number 129 for ISS) EID (IPN scheme) of the DTN Node
+    std::string eid_ipn_dtpc_;
 
     /// IPN scheme node ID of the DTN Node
     uint64_t node_id_;
@@ -320,38 +350,20 @@ protected:
     /// Sequence Counter for sending messages
     uint64_t send_seq_ctr_;
 
+    /// values provided in the last received hello message
+    uint64_t last_hello_bundles_received_ = 0;
+    uint64_t last_hello_bundles_pending_ = 0;
 
-    /**
-     * Type to keep statistics by Source-Dest combo
-     */
-    typedef std::map<EhsSrcDstKey*, EhsSrcDstKey*, EhsSrcDstKey::mapcompare> SrcDstStatsList;
-    typedef std::pair<EhsSrcDstKey*, EhsSrcDstKey*> SrcDstStatsPair;
-    typedef SrcDstStatsList::iterator SrcDstStatsIterator;
 
-    SrcDstStatsList src_dst_stats_list_;
-
+    /// variables to keep track of asynchonous BARD Quota Stats Report
+    bool have_bard_usage_reprt_  = false;
+    bool bard_usage_report_requested_ = false;
+    EhsBARDUsageStatsVector bard_usage_rpt_usage_stats_;
+    EhsRestageCLStatsVector bard_usage_rpt_cl_stats_;
     
-    /// Statistics structure definition
-    struct Stats {
-        uint64_t preexisting_bundles_;
-        uint64_t received_bundles_;
-        uint64_t transmitted_bundles_;
-        uint64_t delivered_bundles_;
-        uint64_t expired_bundles_;
-        uint64_t deleted_bundles_;
-        uint64_t injected_bundles_;
-        uint64_t rejected_bundles_;
-    };
-
-    /// Stats instance
-    Stats stats_;
-
+    bool resync_bundles_in_process_ = false;
 };
 
 } // namespace dtn
-
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_DTN_NODE_H_ */

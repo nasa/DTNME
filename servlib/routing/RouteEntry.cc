@@ -18,8 +18,8 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/util/OptParser.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 #include "BundleRouter.h"
 #include "RouteEntry.h"
 #include "naming/EndpointIDOpt.h"
@@ -27,20 +27,21 @@
 namespace dtn {
 
 //----------------------------------------------------------------------
-RouteEntry::RouteEntry(const EndpointIDPattern& dest_pattern,
+RouteEntry::RouteEntry(const SPtr_EIDPattern& sptr_dest_pattern,
                        const LinkRef& link)
-    : dest_pattern_(dest_pattern),
-      source_pattern_(EndpointIDPattern::WILDCARD_EID()),
+    : sptr_dest_pattern_(sptr_dest_pattern),
       bundle_cos_((1 << Bundle::COS_BULK) |
                   (1 << Bundle::COS_NORMAL) |
                   (1 << Bundle::COS_EXPEDITED)),
       priority_(BundleRouter::config_.default_priority_),
       link_(link.object(), "RouteEntry"),
-      route_to_(),
       action_(ForwardingInfo::FORWARD_ACTION),
       custody_spec_(),
       info_(NULL)
 {
+    sptr_source_pattern_ = BD_MAKE_PATTERN_WILD();
+    sptr_route_to_ = BD_MAKE_PATTERN_NULL();
+
     // give precedence to ALWAYSON over OPPORTUNISTIC links
     if (link_->type() == Link::ALWAYSON) {
         priority_ = 1;
@@ -48,20 +49,20 @@ RouteEntry::RouteEntry(const EndpointIDPattern& dest_pattern,
 }
 
 //----------------------------------------------------------------------
-RouteEntry::RouteEntry(const EndpointIDPattern& dest_pattern,
-                       const EndpointIDPattern& route_to)
-    : dest_pattern_(dest_pattern),
-      source_pattern_(EndpointIDPattern::WILDCARD_EID()),
+RouteEntry::RouteEntry(const SPtr_EIDPattern& sptr_dest_pattern,
+                       const SPtr_EIDPattern& sptr_route_to)
+    : sptr_dest_pattern_(sptr_dest_pattern),
       bundle_cos_((1 << Bundle::COS_BULK) |
                   (1 << Bundle::COS_NORMAL) |
                   (1 << Bundle::COS_EXPEDITED)),
       priority_(BundleRouter::config_.default_priority_),
       link_("RouteEntry"),
-      route_to_(route_to),
+      sptr_route_to_(sptr_route_to),
       action_(ForwardingInfo::FORWARD_ACTION),
       custody_spec_(),
       info_(NULL)
 {
+    sptr_source_pattern_ = BD_MAKE_PATTERN_WILD();
 }
 
 //----------------------------------------------------------------------
@@ -84,7 +85,7 @@ RouteEntry::parse_options(int argc, const char** argv, const char** invalidp)
     
     oasys::OptParser p;
 
-    p.addopt(new EndpointIDOpt("source_eid", &source_pattern_));
+    p.addopt(new EIDPatternOpt("source_eid", &sptr_source_pattern_));
     p.addopt(new oasys::UIntOpt("route_priority", &priority_));
     p.addopt(new oasys::UIntOpt("cos_flags", &bundle_cos_));
     oasys::EnumOpt::Case fwdopts[] = {
@@ -122,7 +123,7 @@ RouteEntry::format(char* bp, size_t sz) const
     // XXX/demmer when the route table is serialized, add an integer
     // id for the route entry and include it here.
     return snprintf(bp, sz, "%s -> %s (%s)",
-                    dest_pattern().c_str(),
+                    dest_pattern()->c_str(),
                     next_hop_str().c_str(),
                     ForwardingInfo::action_to_str(action()));
 }
@@ -206,8 +207,8 @@ RouteEntry::dump(oasys::StringBuffer* buf,
                  int source_eid_width,
                  int next_hop_width) const
 {
-    append_long_string(buf, long_strings, dest_eid_width, dest_pattern().str());
-    append_long_string(buf, long_strings, source_eid_width, source_pattern().str());
+    append_long_string(buf, long_strings, dest_eid_width, dest_pattern()->str());
+    append_long_string(buf, long_strings, source_eid_width, source_pattern()->str());
 
     buf->appendf("%c%c%c -> ",
                  (bundle_cos_ & (1 << Bundle::COS_BULK))      ? '1' : '0',
@@ -228,16 +229,26 @@ RouteEntry::dump(oasys::StringBuffer* buf,
 void
 RouteEntry::serialize(oasys::SerializeAction *a)
 {
-    a->process("dest_pattern", &dest_pattern_);
-    a->process("source_pattern", &source_pattern_);
+    std::string tmp_dest = sptr_dest_pattern_->str();
+    std::string tmp_src = sptr_source_pattern_->str();
+    std::string tmp_route_to = sptr_route_to_->str();
+
+    a->process("dest_pattern", &tmp_dest);
+    a->process("source_pattern", &tmp_src);
     a->process("bundle_cos", &bundle_cos_);
     a->process("priority", &priority_);
     a->process("link", const_cast<std::string *>(&link_->name_str()));
-    a->process("route_to", &route_to_);
+    a->process("route_to", &tmp_route_to);
     a->process("action", &action_);
     a->process("custody_spec", &custody_spec_);
 
     // XXX/demmer handle serialization of info
+
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_dest_pattern_ = BD_MAKE_PATTERN(tmp_dest);
+        sptr_source_pattern_ = BD_MAKE_PATTERN(tmp_src);
+        sptr_route_to_ = BD_MAKE_PATTERN(tmp_route_to);
+    }
 }
 
 } // namespace dtn

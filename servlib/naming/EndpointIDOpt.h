@@ -17,11 +17,17 @@
 #ifndef _ENDPOINTIDOPT_H_
 #define _ENDPOINTIDOPT_H_
 
-#include <oasys/util/Options.h>
+#include <memory>
+
+#include <third_party/oasys/util/Options.h>
 
 namespace dtn {
 
 class EndpointID;
+typedef std::shared_ptr<EndpointID> SPtr_EID;
+
+class EndpointIDPattern;
+typedef std::shared_ptr<EndpointIDPattern> SPtr_EIDPattern;
 
 /**
  * Extension class to the oasys Opt hierarchy that validates that the
@@ -39,7 +45,7 @@ public:
      * @param setp    optional pointer to indicate whether or not
                       the option was set
      */
-    EndpointIDOpt(const char* opt, EndpointID* valp,
+    EndpointIDOpt(const char* opt, SPtr_EID* valp,
                   const char* valdesc = "", const char* desc = "",
                   bool* setp = NULL);
 
@@ -55,7 +61,48 @@ public:
      * @param setp      optional pointer to indicate whether or not
                         the option was set
      */
-    EndpointIDOpt(char shortopt, const char* longopt, EndpointID* valp,
+    EndpointIDOpt(char shortopt, const char* longopt, SPtr_EID* valp,
+                  const char* valdesc = "", const char* desc = "",
+                  bool* setp = NULL);
+    
+protected:
+    int set(const char* val, size_t len);
+    void get(oasys::StringBuffer* buf);
+};
+
+/**
+ * Extension class to the oasys Opt hierarchy that validates that the
+ * option is a DTN endpoint identifier.
+ */
+class EIDPatternOpt : public oasys::Opt {
+public:
+    /**
+     * Basic constructor.
+     *
+     * @param opt     the option string
+     * @param valp    pointer to the value
+     * @param valdesc short description for the value 
+     * @param desc    descriptive string
+     * @param setp    optional pointer to indicate whether or not
+                      the option was set
+     */
+    EIDPatternOpt(const char* opt, SPtr_EIDPattern* valp,
+                  const char* valdesc = "", const char* desc = "",
+                  bool* setp = NULL);
+
+    /**
+     * Alternative constructor with both short and long options,
+     * suitable for getopt calls.
+     *
+     * @param shortopt  short option character
+     * @param longopt   long option string
+     * @param valp      pointer to the value
+     * @param valdesc 	short description for the value 
+     * @param desc      descriptive string
+     * @param setp      optional pointer to indicate whether or not
+                        the option was set
+     */
+    EIDPatternOpt(char shortopt, const char* longopt, SPtr_EIDPattern* valp,
                   const char* valdesc = "", const char* desc = "",
                   bool* setp = NULL);
     

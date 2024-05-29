@@ -17,8 +17,8 @@
 #ifndef _LOGGING_REGISTRATION_H_
 #define _LOGGING_REGISTRATION_H_
 
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Thread.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Thread.h>
 
 #include "Registration.h"
 
@@ -37,8 +37,8 @@ namespace dtn {
  */
 class LoggingRegistration : public Registration {
 public:
-    LoggingRegistration(const EndpointIDPattern& endpoint);
-    void deliver_bundle(Bundle* bundle);
+    LoggingRegistration(const SPtr_EIDPattern& sptr_endpoint);
+    int deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg) override;
 };
 
 } // namespace dtn

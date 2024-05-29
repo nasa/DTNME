@@ -23,7 +23,7 @@
 
 #include <algorithm>
 #include <stdlib.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DtpcTopicCollector.h"
 #include "DtpcTopicCollectorList.h"

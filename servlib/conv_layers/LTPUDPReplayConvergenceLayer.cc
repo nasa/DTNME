@@ -19,20 +19,16 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef LTPUDP_ENABLED
-
-
 #include <time.h>
-#include <oasys/io/NetUtils.h>
-#include <oasys/thread/Timer.h>
-#include <oasys/util/OptParser.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/thread/Timer.h>
+#include <third_party/oasys/util/OptParser.h>
+#include <third_party/oasys/util/StringBuffer.h>
 #include <naming/EndpointID.h>
 #include <naming/IPNScheme.h>
-#include <oasys/util/HexDumpBuffer.h>
+#include <third_party/oasys/util/HexDumpBuffer.h>
 
 #include "LTPUDPReplayConvergenceLayer.h"
-#include "LTPUDPCommon.h"
 #include "bundling/Bundle.h"
 #include "bundling/BundleTimestamp.h"
 #include "bundling/SDNV.h"
@@ -50,12 +46,13 @@ void
 LTPUDPReplayConvergenceLayer::Params::serialize(oasys::SerializeAction *a)
 {
     int temp = 0;
+    std::string tmp_pattern = sptr_dest_pattern_->str();
 
     a->process("local_addr", oasys::InAddrPtr(&local_addr_));
     a->process("remote_addr", oasys::InAddrPtr(&remote_addr_));
     a->process("local_port", &local_port_);
     a->process("ttl", &ttl_);
-    a->process("dest", &dest_pattern_);
+    a->process("dest", &tmp_pattern);
     a->process("remote_port", &remote_port_);
     a->process("bucket_type", &temp);
     a->process("rate", &rate_);
@@ -66,6 +63,9 @@ LTPUDPReplayConvergenceLayer::Params::serialize(oasys::SerializeAction *a)
     a->process("icipher_keyid", &inbound_cipher_key_id_);
     a->process("icipher_engine",  &inbound_cipher_engine_);
 
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_dest_pattern_ = BD_MAKE_PATTERN(tmp_pattern);
+    }
 }
 //----------------------------------------------------------------------
 LTPUDPReplayConvergenceLayer::LTPUDPReplayConvergenceLayer()
@@ -81,7 +81,7 @@ LTPUDPReplayConvergenceLayer::LTPUDPReplayConvergenceLayer()
     defaults_.wait_till_sent_           = false;
     defaults_.ttl_                      = 259200;
     defaults_.inactivity_intvl_         = 3600;
-    defaults_.dest_pattern_             = EndpointID();
+    defaults_.sptr_dest_pattern_        = BD_MAKE_PATTERN_NULL();
     defaults_.no_filter_                = true;
     defaults_.retran_intvl_             = 60;
     defaults_.retran_retries_           = 0;
@@ -154,7 +154,7 @@ LTPUDPReplayConvergenceLayer::parse_params(Params* params,
     if(dest_filter_str.length() > 0)
     {
         params->no_filter_ = false;
-        params->dest_pattern_.assign(dest_filter_str);
+        params->sptr_dest_pattern_ = BD_MAKE_PATTERN(dest_filter_str);
     }
 
     params->bucket_type_ = (oasys::RateLimitedSocket::BUCKET_TYPE) temp;
@@ -208,12 +208,6 @@ LTPUDPReplayConvergenceLayer::interface_up(Interface* iface,
    
     receiver_ = receiver;
 
-    if (timer_processor_) {
-        delete timer_processor_;
-        timer_processor_ = NULL;
-    } 
-    timer_processor_                    = new TimerProcessor();
-
 
     // store the new listener object in the cl specific portion of the
     // interface
@@ -229,6 +223,13 @@ LTPUDPReplayConvergenceLayer::interface_activate(Interface* iface)
     // start listening and then start the thread to loop calling accept()
     Receiver* receiver = (Receiver*)iface->cl_info();
     receiver->start();
+
+    if (timer_processor_) {
+        delete timer_processor_;
+        timer_processor_ = nullptr;
+    } 
+    timer_processor_ = new TimerProcessor();
+
 }
 
 //----------------------------------------------------------------------
@@ -239,6 +240,12 @@ LTPUDPReplayConvergenceLayer::interface_down(Interface* iface)
     // then close the socket out from under it, which should cause the
     // thread to break out of the blocking call to accept() and
     // terminate itself
+    if (timer_processor_) {
+        delete timer_processor_;
+        timer_processor_ = nullptr;
+    } 
+
+
     Receiver* receiver = (Receiver*)iface->cl_info();
     receiver->set_should_stop();
     receiver->interrupt_from_io();
@@ -260,11 +267,10 @@ LTPUDPReplayConvergenceLayer::dump_interface(Interface* iface,
     //Params* params = &((Receiver*)iface->cl_info())->params_;
     Params* params = &rcvr->params_;
     
-    buf->appendf("\tlocal_addr: %s local_port: %d\n",
+    buf->appendf("\tlocal_addr: %s local_port: %d",
                  intoa(params->local_addr_), params->local_port_);
-    buf->appendf("\tttl: %ld\n", params->ttl_);
-    buf->appendf("\tinactivity_intvl: %d\n", params->inactivity_intvl_);
-    buf->appendf("\tdest: %s\n", params->dest_pattern_.c_str());
+    buf->appendf("\tdest: %s\n", params->sptr_dest_pattern_->c_str());
+    buf->appendf("\tttl override: %ld\n", params->ttl_);
     
     if (params->remote_addr_ != INADDR_NONE) {
         buf->appendf("\tbound to remote_addr: %s remote_port: %d\n",
@@ -344,7 +350,7 @@ LTPUDPReplayConvergenceLayer::bundle_queued(const LinkRef& link, const BundleRef
 {
     (void) link;
 
-    log_crit("bundle_queue called -  Bundle ref %s\n", bundle->dest().c_str());   
+    log_crit("bundle_queue called -  Bundle ref %s\n", bundle->dest()->c_str());   
 }
 //----------------------------------------------------------------------
 u_int32_t
@@ -360,7 +366,7 @@ LTPUDPReplayConvergenceLayer::Cleanup_Replay_Session_Receiver(string session_key
 }
 //----------------------------------------------------------------------
 void
-LTPUDPReplayConvergenceLayer::Post_Timer_To_Process(oasys::Timer* event)
+LTPUDPReplayConvergenceLayer::Post_Timer_To_Process(SPtr_InactivityTimer event)
 {
     timer_processor_->post(event);
 }
@@ -441,19 +447,6 @@ LTPUDPReplayConvergenceLayer::Receiver::process_data(u_char* bp, size_t len)
        return;
     }
 
-#ifdef LTPUDP_AUTH_ENABLED
-    if(new_segment->IsSecurityEnabled()) {
-        if(!new_segment->IsAuthenticated(params_.inbound_cipher_suite_, 
-                                         params_.inbound_cipher_key_id_,
-                                         params_.inbound_cipher_engine_)) { 
-            log_warn("process_data: invalid segment doesn't authenticate.... type:%s length:%d",
-                 LTPUDPSegment::Get_Segment_Type(new_segment->Segment_Type()),(int) len);
-            delete new_segment;
-            return;
-        }
-    }
-#endif
-
     oasys::ScopeLock l(&rcvr_lock_,"RCVRprocess_data");  // lock here since we reuse something set in track session!!!
 
     track_session(new_segment->Engine_ID(),new_segment->Session_ID());  // this guy sets the ltpudpreplay_session_iterator...
@@ -517,6 +510,7 @@ LTPUDPReplayConvergenceLayer::Receiver::process_data(u_char* bp, size_t len)
 void
 LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len, bool multi_bundle)
 {
+    BundleDaemon* bdaemon = BundleDaemon::instance();
     u_int32_t check_client_service = 0;
     // the payload should contain a full bundle
     int all_data = (int) len;
@@ -530,7 +524,7 @@ LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len
 
     while(all_data > 0)
     {
-        Bundle* bundle = new Bundle();
+        Bundle* bundle = new Bundle(BundleProtocol::BP_VERSION_UNKNOWN);
 
 
         if (multi_bundle) {
@@ -547,7 +541,7 @@ LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len
         }
  
         bool complete = false;
-        int cc = BundleProtocol::consume(bundle, current_bp, len, &complete);
+        ssize_t cc = BundleProtocol::consume(bundle, current_bp, len, &complete);
 
         if (cc < 0) {
             log_err("process_all_data: bundle protocol error");
@@ -565,13 +559,23 @@ LTPUDPReplayConvergenceLayer::Receiver::process_all_data(u_char * bp, size_t len
         all_data   -= cc;
         current_bp += cc;
 
-        if(params_.no_filter_ || params_.dest_pattern_.match(bundle->dest())) {
+        if(params_.no_filter_ || params_.sptr_dest_pattern_->match(bundle->dest())) {
 
-            int now =  BundleTimestamp::get_current_time();
-            bundle->set_expiration((now-bundle->creation_ts().seconds_)+params_.ttl_); // update expiration time
+            size_t now =  BundleTimestamp::get_current_time_secs();
+            // update expiration time
+            bundle->set_expiration_secs((now - bundle->creation_time_secs()) + params_.ttl_);
 
-            BundleDaemon::post(
-                new BundleReceivedEvent(bundle, EVENTSRC_PEER, len, EndpointID::NULL_EID()));
+            // allow the Bundle Restaging Daemon to redirect the bundle to external storage if needed
+            // - too late to reject the bundle so not checking the result
+            bool space_reserved = false; // an output not an input
+            uint64_t dummy_prev_reserved_space = 0;
+            bdaemon->query_accept_bundle_based_on_quotas(bundle, space_reserved, dummy_prev_reserved_space);
+
+            SPtr_EID sptr_dummy_prevhop = BD_MAKE_EID_NULL();
+            BundleReceivedEvent* event_to_post;
+            event_to_post = new BundleReceivedEvent(bundle, EVENTSRC_PEER, len, sptr_dummy_prevhop);
+            SPtr_BundleEvent sptr_event_to_post(event_to_post);
+            BundleDaemon::post(sptr_event_to_post);
         }
 
         else
@@ -622,26 +626,32 @@ LTPUDPReplayConvergenceLayer::TimerProcessor::TimerProcessor()
       Logger("LTPUDPReplayConvergenceLayer::TimerProcessor",
              "/dtn/cl/ltpudp/timerproc/%p", this)
 {
-    // we always delete the thread object when we exit
-    Thread::set_flag(Thread::DELETE_ON_EXIT);
-
-    eventq_ = new oasys::MsgQueue< oasys::Timer* >(logpath_);
+    eventq_ = new oasys::MsgQueue< SPtr_InactivityTimer >(logpath_);
     start();
 }
 //----------------------------------------------------------------------
 LTPUDPReplayConvergenceLayer::TimerProcessor::~TimerProcessor()
 {
+    set_should_stop();
+
+    int ctr = 0;
+    while (!is_stopped() && (++ctr < 20)) {
+        usleep(100000);
+    }
+
     // free all pending events
-    oasys::Timer* event;
-    while (eventq_->try_pop(&event))
-        delete event;
+    SPtr_InactivityTimer event;
+
+    while (eventq_->try_pop(&event)) {
+        event->cancel(); // clears internal reference so it will be deleted
+    }
 
     delete eventq_;
 }
 /// Post a Timer to trigger
 //----------------------------------------------------------------------
 void
-LTPUDPReplayConvergenceLayer::TimerProcessor::post(oasys::Timer* event)
+LTPUDPReplayConvergenceLayer::TimerProcessor::post(SPtr_InactivityTimer event)
 {
     eventq_->push_back(event);
 }
@@ -653,6 +663,7 @@ LTPUDPReplayConvergenceLayer::TimerProcessor::run()
     char threadname[16] = "LtpReplayTimerP";
     pthread_setname_np(pthread_self(), threadname);
    
+    SPtr_InactivityTimer event;
 
     struct timeval dummy_time;
     ::gettimeofday(&dummy_time, 0);
@@ -667,7 +678,7 @@ LTPUDPReplayConvergenceLayer::TimerProcessor::run()
 
     while (!should_stop()) {
         // block waiting...
-        int ret = oasys::IO::poll_multiple(pollfds, 1, 10);
+        int ret = oasys::IO::poll_multiple(pollfds, 1, 100);
 
         if (ret == oasys::IOINTR) {
             set_should_stop();
@@ -675,13 +686,13 @@ LTPUDPReplayConvergenceLayer::TimerProcessor::run()
         }
 
         // check for an event
-        if (event_poll->revents & POLLIN) {
-            oasys::Timer* event;
+        if (!should_stop() && (event_poll->revents & POLLIN)) {
             if (eventq_->try_pop(&event)) {
-                ASSERT(event != NULL)
+                ASSERT(event != nullptr)
 
                 event->timeout(dummy_time);
-                // NOTE: these timers delete themselves
+
+                event = nullptr;
             }
         }
     }
@@ -689,4 +700,3 @@ LTPUDPReplayConvergenceLayer::TimerProcessor::run()
 
 } // namespace dtn
 
-#endif // LTPUDP_ENABLED

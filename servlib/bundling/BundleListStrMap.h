@@ -20,9 +20,9 @@
 
 #include <map>
 #include <string>
-#include <oasys/compat/inttypes.h>
-#include <oasys/thread/Notifier.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/compat/inttypes.h>
+#include <third_party/oasys/thread/Notifier.h>
+#include <third_party/oasys/serialize/Serialize.h>
 
 #include "BundleListBase.h"
 #include "BundleRef.h"

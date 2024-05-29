@@ -35,7 +35,7 @@ namespace dtn {
 DtpcReceiver::DtpcReceiver()
     : Thread("DtpcReceiver", DELETE_ON_EXIT),
       Logger("DtpcReceiver", "/dtpc/receiver"),
-      bindings_(NULL),
+      bindings_(nullptr),
       notifier_("/dtpc/receiver/notifier")
 {
     memset(&stats_, 0, sizeof(stats_));
@@ -44,11 +44,10 @@ DtpcReceiver::DtpcReceiver()
 //----------------------------------------------------------------------
 DtpcReceiver::~DtpcReceiver()
 {
-    APIRegistration* reg; 
+    SPtr_Registration sptr_reg; 
     while (! bindings_->empty()) {
-        reg = bindings_->front();
+        sptr_reg = bindings_->front();
         bindings_->pop_front();
-        delete reg;
     }    
 
     delete bindings_;
@@ -58,7 +57,7 @@ DtpcReceiver::~DtpcReceiver()
 void
 DtpcReceiver::do_init()
 {
-    bindings_ = new APIRegistrationList();
+    bindings_ = new RegistrationList();
 }
 
 //----------------------------------------------------------------------
@@ -79,17 +78,26 @@ DtpcReceiver::reset_stats()
 void
 DtpcReceiver::run()
 {
+    char threadname[16] = "DtpcReceiver";
+    pthread_setname_np(pthread_self(), threadname);
+   
     // XXX/dz check for prior existence of a registration? (on reload) 
     // Move to a bind method for on the fly [un]binds?
     u_int32_t regid = GlobalStore::instance()->next_regid(); 
-    APIRegistration* reg = new APIRegistration(regid, DtpcDaemon::instance()->local_eid(), 
+    SPtr_EIDPattern sptr_pattern = BD_MAKE_PATTERN(DtpcDaemon::instance()->local_eid()->str());
+    APIRegistration* api_reg = new APIRegistration(regid, sptr_pattern,
                                                Registration::DEFER, Registration::NEW, 
                                                0, 0, false, 0, "");
-    bindings_->push_back(reg);
-    reg->set_active(true);
+    api_reg->set_reg_list_type_str("DtpcReceiverReg");
 
-    BundleDaemon::instance()->post_and_wait(new RegistrationAddedEvent(reg, EVENTSRC_APP),
-                                            &notifier_);
+    SPtr_Registration sptr_reg(api_reg);
+    bindings_->push_back(sptr_reg);
+    api_reg->set_active(true);
+
+    RegistrationAddedEvent* event_to_post;
+    event_to_post = new RegistrationAddedEvent(sptr_reg, EVENTSRC_APP);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post_and_wait(sptr_event_to_post, &notifier_);
 
     u_int32_t  timeout = 1000;
 
@@ -99,14 +107,14 @@ DtpcReceiver::run()
             break;
         }
 
-        int err = wait_for_notify("run-recv", timeout, &reg);
+        int err = wait_for_notify("run-recv", timeout, sptr_reg);
         if (0 != err) {
             continue;
         }
 
         // must have a registration with a bundle ready
-        ASSERT(reg != NULL);
-        receive_bundle(reg);
+        ASSERT(sptr_reg != nullptr);
+        receive_bundle(sptr_reg);
     }
 }
 
@@ -114,11 +122,9 @@ DtpcReceiver::run()
 int
 DtpcReceiver::wait_for_notify(const char*       operation,
                               u_int32_t         dtn_timeout,
-                              APIRegistration** recv_ready_reg)
+                              SPtr_Registration& sptr_recv_ready_reg)
 {
-    APIRegistration* reg;
-
-    if (recv_ready_reg)    *recv_ready_reg    = NULL;
+    APIRegistration* api_reg;
 
     if (bindings_->empty()) {
         log_err("wait_for_notify(%s): no bound registrations", operation);
@@ -142,7 +148,7 @@ DtpcReceiver::wait_for_notify(const char*       operation,
     struct pollfd* pollfds;
     oasys::ScopeMalloc pollfd_malloc;
     size_t npollfds = 0;
-    if (recv_ready_reg)    npollfds += bindings_->size();
+    npollfds += bindings_->size();
     
     if (npollfds <= 64) {
         pollfds = &static_pollfds[0];
@@ -154,29 +160,33 @@ DtpcReceiver::wait_for_notify(const char*       operation,
     // loop through all the registrations -- if one has bundles on its
     // list, we don't need to poll, just return it immediately.
     // otherwise we'll need to poll it
-    APIRegistrationList::iterator iter;
+    RegistrationList::iterator iter;
     unsigned int i = 0;
-    if (recv_ready_reg) {
-        //log_debug("wait_for_notify(%s): checking %zu bindings",
-        //          operation, bindings_->size());
-        
-        for (iter = bindings_->begin(); iter != bindings_->end(); ++iter) {
-            reg = *iter;
-            
-            if (! reg->bundle_list()->empty()) {
-                //log_debug("wait_for_notify(%s): "
-                //          "immediately returning bundle for reg %d",
-                //          operation, reg->regid());
-                *recv_ready_reg = reg;
-                return 0;
-            }
-        
-            pollfds[i].fd = reg->bundle_list()->notifier()->read_fd();
-            pollfds[i].events = POLLIN;
-            pollfds[i].revents = 0;
-            ++i;
-            ASSERT(i <= npollfds);
+
+    SPtr_Registration tmp_sptr_reg;
+
+    for (iter = bindings_->begin(); iter != bindings_->end(); ++iter) {
+        tmp_sptr_reg = *iter;
+        api_reg = dynamic_cast<APIRegistration*>(tmp_sptr_reg.get());
+        if (api_reg == nullptr) {
+            log_err("Error casting registration as an APIRegistration");
+            return -2;
         }
+
+        
+        if (api_reg && !api_reg->bundle_list()->empty()) {
+            //log_debug("wait_for_notify(%s): "
+            //          "immediately returning bundle for reg %d",
+            //          operation, api_reg->regid());
+            sptr_recv_ready_reg = tmp_sptr_reg;
+            return 0;
+        }
+    
+        pollfds[i].fd = api_reg->bundle_list()->notifier()->read_fd();
+        pollfds[i].events = POLLIN;
+        pollfds[i].revents = 0;
+        ++i;
+        ASSERT(i <= npollfds);
     }
 
     if (timeout == 0) {
@@ -190,7 +200,7 @@ DtpcReceiver::wait_for_notify(const char*       operation,
     //          "blocking to get events from %zu sources (timeout %d)",
     //          operation, npollfds, timeout);
     int nready = oasys::IO::poll_multiple(&pollfds[0], npollfds, timeout,
-                                          NULL, logpath_);
+                                          nullptr, logpath_);
 
     if (nready == oasys::IOTIMEOUT) {
         //log_debug("wait_for_notify(%s): timeout waiting for events",
@@ -207,18 +217,18 @@ DtpcReceiver::wait_for_notify(const char*       operation,
     // scan the list to find the first one.
     //log_debug("wait_for_notify: looking for data on bundle lists: recv_ready_reg(%p)\n",
     //          recv_ready_reg);
-    if (recv_ready_reg) {
-        for (iter = bindings_->begin(); iter != bindings_->end(); ++iter) {
-            reg = *iter;
-            if (! reg->bundle_list()->empty()) {
-                //log_debug("wait_for_notify: found one %p", reg);
-                *recv_ready_reg = reg;
-                break;
-            }
+    for (iter = bindings_->begin(); iter != bindings_->end(); ++iter) {
+        tmp_sptr_reg = *iter;
+        api_reg = dynamic_cast<APIRegistration*>(tmp_sptr_reg.get());
+
+        if (api_reg && !api_reg->bundle_list()->empty()) {
+            //log_debug("wait_for_notify: found one %p", api_reg);
+            sptr_recv_ready_reg = tmp_sptr_reg;
+            break;
         }
     }
 
-    if (recv_ready_reg    && *recv_ready_reg    == NULL)
+    if (!sptr_recv_ready_reg)
     {
         log_err("wait_for_notify(%s): error -- no events",
                 operation);
@@ -230,16 +240,22 @@ DtpcReceiver::wait_for_notify(const char*       operation,
 
 //----------------------------------------------------------------------
 void
-DtpcReceiver::receive_bundle(APIRegistration* reg)
+DtpcReceiver::receive_bundle(SPtr_Registration& sptr_reg)
 {
     BundleRef bref("receive_bundle");
 
-    bref = reg->deliver_front();
+    APIRegistration* api_reg = dynamic_cast<APIRegistration*>(sptr_reg.get());
+    if (api_reg == nullptr) {
+        log_err("Error casting registration as an APIRegistration");
+        return;
+    }
+
+    bref = api_reg->deliver_front();
     Bundle* bundle = bref.object();
-    ASSERT(bundle != NULL);
+    ASSERT(bundle != nullptr);
 
     bool is_valid = false;
-    DtpcProtocolDataUnit* pdu = NULL;
+    DtpcProtocolDataUnit* pdu = nullptr;
     size_t payload_len = bundle->payload().length();
 
     do {
@@ -314,14 +330,16 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
                 break;
             }
 
-            log_debug("posting DtpcAckReceivedEvent - EID: %s, Profile: %"PRIu32" SeqCtr: %"PRIu64,
+            log_debug("posting DtpcAckReceivedEvent - EID: %s, Profile: %" PRIu32 " SeqCtr: %" PRIu64,
                       bundle->source().c_str(), profile_id, seq_ctr);
 
             // post a DTPC ACK received event and clean up
             is_valid = true;
             pdu->set_profile_id(profile_id);
             pdu->set_seq_ctr(seq_ctr);
-            DtpcDaemon::instance()->post(new DtpcAckReceivedEvent(pdu));
+            DtpcAckReceivedEvent* event = new DtpcAckReceivedEvent(pdu);
+            SPtr_BundleEvent sptr_event(event);
+            DtpcDaemon::post_at_head(sptr_event);
             break;
         } 
 
@@ -390,20 +408,20 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
         }
 
         if (is_valid) {
-            log_debug("DPDU received - post DtpcDataReceivedEvent");
-
             // pass on the valid DPDU structure for further processing
             pdu->set_profile_id(profile_id);
             pdu->set_seq_ctr(seq_ctr);
             pdu->set_local_eid(bundle->dest());
             pdu->set_app_ack(seq_ctr > 0); // CCSDS 734.2-R3 uses seq ctr instead of App Ack flag
-            pdu->set_creation_ts(bundle->creation_ts().seconds_);
-            u_int64_t exp = BundleTimestamp::TIMEVAL_CONVERSION + 
-                            bundle->creation_ts().seconds_ + 
-                            bundle->expiration();
+            pdu->set_creation_ts(bundle->creation_time_secs());
+            u_int64_t exp = BundleTimestamp::TIMEVAL_CONVERSION_SECS + 
+                            bundle->creation_time_secs() + 
+                            bundle->expiration_secs();
             pdu->set_expiration_ts(exp);  // actual expiration time
 
-            DtpcDaemon::instance()->post(new DtpcDataReceivedEvent(pdu, bref));
+            DtpcDataReceivedEvent* event = new DtpcDataReceivedEvent(pdu, bref);
+            SPtr_BundleEvent sptr_event(event);
+            DtpcDaemon::post(sptr_event);
         }
     } while (false);
 
@@ -412,7 +430,10 @@ DtpcReceiver::receive_bundle(APIRegistration* reg)
         delete pdu;
     }
 
-    BundleDaemon::instance()->post(new BundleDeliveredEvent(bundle, reg));
+    BundleDeliveredEvent* event_to_post;
+    event_to_post = new BundleDeliveredEvent(bundle, sptr_reg);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
 
 } // namespace dtn

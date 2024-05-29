@@ -19,7 +19,7 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef DTPC_ENABLED 
+#ifdef DTPC_ENABLED
 
 #include "bundling/BundleEvent.h"
 
@@ -34,19 +34,65 @@ DtpcTopicExpirationTimer::DtpcTopicExpirationTimer(u_int32_t topic_id)
 }
 
 void
+DtpcTopicExpirationTimer::set_sptr(SPtr_DtpcTopicExpirationTimer sptr)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    sptr_ = sptr;
+}
+
+void
+DtpcTopicExpirationTimer::start(int seconds)
+{
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        schedule_in(seconds, sptr_);
+    } else {
+        log_err_p("dtpc/topic/expiration", 
+                  "Attempt to start DtpcTopicExpirationTimer(%" PRIu32 ") without a SPtr_Timer defined", 
+                  topic_id_);
+    }
+}
+
+bool
+DtpcTopicExpirationTimer::cancel()
+{
+    bool result = false;
+
+    oasys::ScopeLock scoplok(&lock_, __func__);
+
+    if (sptr_ != nullptr) {
+        result = oasys::SharedTimer::cancel_timer(sptr_);
+
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
+
+    return result;
+}
+
+void
 DtpcTopicExpirationTimer::timeout(const struct timeval& now)
 {
     (void)now;
     
-    // post the expiration event
-    log_debug_p("dtpc/topic/expiration", "TopicExpiration timer expired: %"PRIu32, 
-               topic_id_); 
-    DtpcDaemon::post_at_head(new DtpcTopicExpirationCheckEvent(topic_id_));
+    if (cancelled() || sptr_ == nullptr) {
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    } else {
+        // post the expiration event
+        log_debug_p("dtpc/topic/expiration", "TopicExpiration timer expired: %" PRIu32, 
+                   topic_id_); 
+        DtpcTopicExpirationCheckEvent* event = new DtpcTopicExpirationCheckEvent(topic_id_);
+        SPtr_BundleEvent sptr_event(event);
+        DtpcDaemon::post_at_head(sptr_event);
 
-    // clean ourselves up
-    delete this;
+        // clear the internal reference so this obejct will be deleted
+        sptr_ = nullptr;
+    }
 }
 
 } // namespace dtn
 
-#endif // DTPC_ENABLED 
+#endif // DTPC_ENABLED

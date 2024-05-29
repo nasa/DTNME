@@ -17,12 +17,15 @@
 #ifndef _CONTACT_H_
 #define _CONTACT_H_
 
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/debug/Formatter.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/Ref.h>
-#include <oasys/util/RefCountedObject.h>
-#include <oasys/util/Time.h>
+#include <memory>
+
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/Ref.h>
+#include <third_party/oasys/util/RefCountedObject.h>
+#include <third_party/oasys/util/Time.h>
 
 namespace dtn {
 
@@ -30,6 +33,10 @@ class Bundle;
 class ConvergenceLayer;
 class CLInfo;
 class Link;
+
+// re-defined from ConvergenceLayer.h
+typedef std::shared_ptr<CLInfo> SPtr_CLInfo;
+
 
 // re-defined from Link.h
 typedef oasys::Ref<Link> LinkRef;
@@ -83,7 +90,40 @@ public:
      * Accessor to the convergence layer info.
      */
     CLInfo* cl_info() { return cl_info_; }
+
+
+    /**
+     * Store the convergence layer state associated with the contact as a shared pointer.
+     */
+    void set_sptr_cl_info(SPtr_CLInfo sptr_cl_info)
+    {
+        ASSERT((sptr_cl_info_ == NULL && sptr_cl_info != NULL) ||
+               (sptr_cl_info_ != NULL && sptr_cl_info == NULL));
+        
+        sptr_cl_info_ = sptr_cl_info;
+    }
     
+    /**
+     * Clear the shared pointer to the convergence layer state associated with the contact.
+     */
+    void release_sptr_cl_info()
+    {
+        sptr_cl_info_.reset();
+    }
+    
+    /**
+     * Accessor to the convergence layer info shared pointer variant
+     */
+    SPtr_CLInfo sptr_cl_info() { return sptr_cl_info_; }
+
+
+
+
+    /**
+     * retrieve the incoming list size from the cla via CLInfo
+     */
+    void get_cla_stats(oasys::StringBuffer& buf);
+
     /**
      * Accessor to the link
      */
@@ -101,6 +141,8 @@ public:
 
 
     /// @{ Accessors
+    oasys::SpinLock*   lock()             { return &lock_; }
+
     const oasys::Time& start_time() const { return start_time_; }
     u_int32_t          duration()   const { return duration_; }
     u_int32_t          bps()        const { return bps_; }
@@ -128,6 +170,11 @@ protected:
     LinkRef link_ ; 	///< Parent link on which this contact exists
     
     CLInfo* cl_info_;	///< convergence layer specific info
+
+    SPtr_CLInfo sptr_cl_info_;  ///< shared pointer to convergence layer specific info (only one or the other should be used)
+
+    oasys::SpinLock lock_; ///< lock to synchronize access to the Contact Object 
+                           ///< and hopefully prevent the cl_info_ from being deleted while in use
 };
 
 /**

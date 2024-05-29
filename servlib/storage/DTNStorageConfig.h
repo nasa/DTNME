@@ -17,7 +17,7 @@
 #ifndef _DTNSTORAGECONFIG_H_
 #define _DTNSTORAGECONFIG_H_
 
-#include <oasys/storage/StorageConfig.h>
+#include <third_party/oasys/storage/StorageConfig.h>
 
 namespace dtn {
 
@@ -35,7 +35,8 @@ public:
         : StorageConfig(cmd, type, dbname, dbdir),
           payload_dir_(""),
           payload_quota_(0),
-          payload_fd_cache_size_(32)
+          payload_fd_cache_size_(32),
+          block_size_(4096)
     {}
 
     /// Directory to store payload files
@@ -46,6 +47,9 @@ public:
 
     /// Number of payload file descriptors to keep open in a cache.
     u_int payload_fd_cache_size_;
+
+    /// Block size of the internal storage file system in byes
+    size_t block_size_;
 };
 
 } // namespace dtn

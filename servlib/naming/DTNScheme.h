@@ -18,7 +18,7 @@
 #define _DTN_SCHEME_H_
 
 #include "Scheme.h"
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/util/Singleton.h>
 
 namespace dtn {
 
@@ -50,46 +50,25 @@ public:
      *
      * @return true if valid
      */
-    virtual bool validate(const URI& uri, bool is_pattern = false);
+    virtual bool validate(const URI& uri, bool is_pattern, 
+                          bool& node_wildcard, bool& service_wildcard) override;
 
     /**
      * Match the pattern to the endpoint id in a scheme-specific
      * manner.
      */
     virtual bool match(const EndpointIDPattern& pattern,
-                       const EndpointID& eid);
+                       const SPtr_EID& sptr_eid) override;
     
     /**
-     * Append the given service tag to the uri in a scheme-specific
-     * manner.
-     *
-     * @return true if this scheme is capable of service tags and the
-     * tag is a legal one, false otherwise.
+     * Get the destination type of the given URI`
      */
-    virtual bool append_service_tag(URI* uri, const char* tag);
+    virtual eid_dest_type_t eid_dest_type(const URI& uri) override;
 
     /**
-     * Append a wildcard tag to the uri in a scheme-specific
-     * manner.
-     *
-     * @return true if this scheme is capable of wildcards and the
-     * wildcard is appended, false otherwise.
+     * Check if the scheme type is a singleton endpoint id.
      */
-    virtual bool append_service_wildcard(URI* uri);
-
-    /**
-     * Reduce URI to node ID in a scheme specific manner. The default
-     * scheme is not capable of this.
-     *
-     * @return true if this scheme is capable of this reduction and 
-     * the reduction is successful, else false.
-     */
-    virtual bool remove_service_tag(URI* uri);
-
-    /**
-     * Check if the given URI is a singleton EID.
-     */
-    virtual singleton_info_t is_singleton(const URI& uri);
+    virtual bool is_singleton(const URI& uri) override;
     
 private:
     friend class oasys::Singleton<DTNScheme>;

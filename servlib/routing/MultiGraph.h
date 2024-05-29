@@ -18,11 +18,11 @@
 #define _MULTIGRAPH_H_
 
 #include <vector>
-#include <oasys/debug/InlineFormatter.h>
-#include <oasys/debug/Formatter.h>
-#include <oasys/debug/Logger.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/debug/InlineFormatter.h>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
 
 namespace dtn {
 

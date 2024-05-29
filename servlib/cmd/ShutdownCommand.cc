@@ -34,6 +34,7 @@ ShutdownCommand::ShutdownCommand(DTNServer* dtnserver, const char* cmd)
 void
 ShutdownCommand::call_exit(void* clientData)
 {
+    //dzdebug - never saw this function called so changed the shutdown initiation process
     (void)clientData;
     oasys::TclCommandInterp::instance()->exit_event_loop();
 }
@@ -49,12 +50,17 @@ ShutdownCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         return TCL_ERROR;
     }
 
+    BundleDaemon::set_user_initiated_shutdown();
+
     // to make it possible to both return from the shutdown command
     // and still cleanly return from the tcl command, we exit from the
     // event loop in the background
-    Tcl_CreateTimerHandler(0, ShutdownCommand::call_exit,
-                           (void*)dtnserver_);
+    //dzdebug Tcl_CreateTimerHandler(0, ShutdownCommand::call_exit,
+    //dzdeebug                       (void*)dtnserver_);
 
+    //dzdebug  oasys::TclCommandInterp::instance()->exit_event_loop();
+
+    resultf("shutdown initiated");
     return TCL_OK;
 }
 

@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,36 +35,45 @@
 #ifndef _BUNDLE_H_
 #define _BUNDLE_H_
 
+#include <map>
 #include <sys/time.h>
 
-#include <oasys/debug/Formatter.h>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/util/Time.h>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/Time.h>
 
 #include "BlockInfo.h"
+#include "BundleIMCState.h"
 #include "BundleMappings.h"
 #include "BundlePayload.h"
+#include "BundleProtocol.h"
 #include "BundleTimestamp.h"
 #include "CustodyTimer.h"
 #include "ForwardingLog.h"
 #include "GbofId.h"
 #include "MetadataBlock.h"
-#include "SequenceID.h"
 #include "naming/EndpointID.h"
-#include "security/BundleSecurityConfig.h"
-#include "security/Ciphersuite.h"
-
-typedef oasys::ScratchBuffer<u_char*, 64> DataBuffer;
 
 namespace dtn {
 
 class BundleListBase;
-class BundleStore;
 class ExpirationTimer;
-class SQLBundleStore;
+
+
+typedef std::shared_ptr<ExpirationTimer> SPtr_ExpirationTimer;
+
+/// Mapping to track which link redirected a bundle to a given alternate link/conversion layer.
+/// Typical use is a redirection to a Bundle In Bundle Encapsulation (BIBE) CL to allow a
+/// BPv7 bundle to pass through a BPv6 node. The BIBE CL needs to be able to serialize IMC 
+/// bundles based on the original Link Name to generate the correct IMC State Block. This map
+/// uses the redirection link name as the key and the original link name as the value.
+typedef std::map<std::string, std::string> LinkRedirectMap;
+typedef std::unique_ptr<LinkRedirectMap>   QPtr_LinkRedirectMap;
+typedef LinkRedirectMap::iterator          LinkRedirectIter;
+
 
 /**
  * The internal representation of a bundle.
@@ -100,7 +109,9 @@ public:
      * to support the simulator, the location can be overridden to be
      * BundlePayload::NODATA.
      */
-    Bundle(BundlePayload::location_t location = BundlePayload::DISK);
+    Bundle(int32_t bp_version=BundleProtocol::BP_VERSION_7,
+           BundlePayload::location_t location = BundlePayload::DEFAULT);
+           //dzdebug BundlePayload::location_t location = BundlePayload::DISK);
 
     /**
      * Constructor when re-reading the database.
@@ -204,11 +215,11 @@ public:
      * Values for the bundle priority field.
      */
     typedef enum {
-        COS_INVALID   = -1, 		///< invalid
-        COS_BULK      = 0, 		///< lowest priority
-        COS_NORMAL    = 1, 		///< regular priority
-        COS_EXPEDITED = 2, 		///< important
-        COS_RESERVED  = 3  		///< TBD
+        COS_INVALID   = -1,         ///< invalid
+        COS_BULK      = 0,         ///< lowest priority
+        COS_NORMAL    = 1,         ///< regular priority
+        COS_EXPEDITED = 2,         ///< important
+        COS_RESERVED  = 3          ///< TBD
     } priority_values_t;
 
     /**
@@ -216,10 +227,10 @@ public:
      */
     static const char* prioritytoa(u_int8_t priority) {
         switch (priority) {
-        case COS_BULK: 		return "BULK";
-        case COS_NORMAL: 	return "NORMAL";
-        case COS_EXPEDITED: 	return "EXPEDITED";
-        default:		return "_UNKNOWN_PRIORITY_";
+        case COS_BULK:         return "BULK";
+        case COS_NORMAL:     return "NORMAL";
+        case COS_EXPEDITED:     return "EXPEDITED";
+        default:        return "_UNKNOWN_PRIORITY_";
         }
     }
 
@@ -227,19 +238,21 @@ public:
     bundleid_t        bundleid()          const { return bundleid_; }
     oasys::Lock*      lock()              const { return &lock_; }
     const GbofId&     gbofid()            const { return gbofid_; }
-    const std::string gbofid_str()        const { return gbofid_.str(); }
+    std::string       gbofid_str()        const;
 
-    bool              expired()           const { return expiration_timer_ == NULL; }
-    const EndpointID& source()            const { return gbofid_.source(); }
-    const EndpointID& dest()              const { return dest_; }
-    const EndpointID& custodian()         const { return custodian_; }
-    const EndpointID& replyto()           const { return replyto_; }
-    const EndpointID& prevhop()           const { return prevhop_; }
+    bool              expired()           const { return expiration_timer_ == nullptr; }
+    const SPtr_EID    source()            const { return gbofid_.source(); }
+    const SPtr_EID    dest()              const { return sptr_dest_; }
+    const SPtr_EID    custodian()         const { return sptr_custodian_; }
+    const SPtr_EID    replyto()           const { return sptr_replyto_; }
+    const SPtr_EID    prevhop()           const { return sptr_prevhop_; }
     bool              is_fragment()       const { return gbofid_.is_fragment(); }
     bool              is_admin()          const { return is_admin_; }
     bool              do_not_fragment()   const { return do_not_fragment_; }
     bool              custody_requested() const { return custody_requested_; }
-    bool              singleton_dest()    const { return singleton_dest_; }
+    bool              singleton_dest_flag()    const { return singleton_dest_flag_; }
+    //dzdebug bool              singleton_dest()    const { return dest_.is_singleton(); }
+    bool              singleton_dest()    const { return sptr_dest_->is_singleton(); }
     u_int8_t          priority()          const { return priority_; }
     bool              receive_rcpt()      const { return receive_rcpt_; }
     bool              custody_rcpt()      const { return custody_rcpt_; }
@@ -247,48 +260,69 @@ public:
     bool              delivery_rcpt()     const { return delivery_rcpt_; }
     bool              deletion_rcpt()     const { return deletion_rcpt_; }
     bool              app_acked_rcpt()    const { return app_acked_rcpt_; }
-    u_int64_t         expiration()        const { return expiration_; }
-    int64_t           time_to_expiration(); // -1 if expired else seconds to expiration
-    u_int32_t         frag_offset()       const { return gbofid_.frag_offset(); }
-    u_int32_t         frag_length()       const { return gbofid_.frag_length(); }
-    u_int32_t         orig_length()       const { return orig_length_; }
+    bool      req_time_in_status_rpt()    const { return req_time_in_status_rpt_; }
+    size_t          expiration_secs()   const { return expiration_millis_ / 1000; }
+    size_t          expiration_millis() const { return expiration_millis_; }
+    int64_t           time_to_expiration_secs() const; ///< -1 if expired else seconds to expiration
+    int64_t           time_to_expiration_millis() const; ///< -1 if expired else milliseconds to expiration
+    size_t            frag_offset()       const { return gbofid_.frag_offset(); }
+    size_t            frag_length()       const { return gbofid_.frag_length(); }
+    size_t            orig_length()       const { return orig_length_; }
     bool              in_datastore()      const { return in_datastore_; }
-    bool      queued_for_datastore()      const { return queued_for_datastore_;	}
+    bool      queued_for_datastore()      const { return queued_for_datastore_;    }
     bool              local_custody()     const { return local_custody_; }
-    const std::string& owner()            const { return owner_; }
+    bool              bibe_custody()      const { return bibe_custody_; }
     bool              fragmented_incoming() const { return fragmented_incoming_; }
-    const SequenceID& sequence_id()       const { return sequence_id_; }
-    const SequenceID& obsoletes_id()      const { return obsoletes_id_; }
-    const EndpointID& session_eid()       const { return session_eid_; }
-    u_int8_t          session_flags()     const { return session_flags_; }
     const BundlePayload& payload()        const { return payload_; }
     const ForwardingLog* fwdlog()         const { return &fwdlog_; }
     const BundleTimestamp& creation_ts()  const { return gbofid_.creation_ts(); }
-    const BundleTimestamp& extended_id()  const { return extended_id_; }
-    const BlockInfoVec& recv_blocks()     const { return recv_blocks_; }
+
+    // returns the creation time in millisecs
+    // (converts BPv6 seconds to millisecs)
+    size_t creation_time_millis() const;
+
+    // returns the creation time in seconds
+    // (converts BPv7 milliseconds to seconds)
+    size_t creation_time_secs() const;
+
+    const SPtr_BlockInfoVec recv_blocks() const { return recv_blocks_; }
     const MetadataVec& recv_metadata()    const { return recv_metadata_; }
     const LinkMetadataSet& generated_metadata() const { return generated_metadata_; }
     bool              payload_space_reserved() const { return payload_space_reserved_; }
     bool              in_storage_queue()  const { return in_storage_queue_; }
     bool                   deleting()     const { return deleting_; }
     bool          manually_deleting()     const { return manually_deleting_; }
+    int32_t           bp_version()        const { return bp_version_; }
+    bool              is_bpv6()           const { return (bp_version_ == BundleProtocol::BP_VERSION_6); }
+    bool              is_bpv7()           const { return (bp_version_ == BundleProtocol::BP_VERSION_7); }
+    bool              is_bpv_unknown()    const { return (bp_version_ == BundleProtocol::BP_VERSION_UNKNOWN); }
+    size_t primary_block_crc_type()     const { return primary_block_crc_type_; }
+    size_t highest_rcvd_block_number()  const { return highest_rcvd_block_number_; }
+    size_t hop_count()                  const { return hop_count_; }
+    size_t hop_limit()                  const { return hop_limit_; }
+    size_t prev_bundle_age_secs()       const { return prev_bundle_age_millis_ / 1000; }  // convert to seconds
+    size_t prev_bundle_age_millis()     const { return prev_bundle_age_millis_; }  // milliseconds
+    size_t current_bundle_age_secs()    const;
+    size_t current_bundle_age_millis()  const;
+    bool     has_bundle_age_block()       const { return has_bundle_age_block_; }
+    bool     expired_in_link_queue()      const { return expired_in_link_queue_; }
+    bundleid_t frag_created_from_bundleid() const { return frag_created_from_bundleid_; }
 
-#ifdef BSP_ENABLED
-    const BundleSecurityConfig& security_config() const {return security_config_;}
-    const u_char *payload_bek() const {return payload_bek_;}
-    const u_char * payload_iv() const {return payload_iv_;}
-    const u_char * payload_salt() const {return payload_salt_;}
-    const u_char * payload_tag() const {return payload_tag_;}
-    bool payload_encrypted() const {return payload_encrypted_;}
-    bool payload_bek_set() const {return payload_bek_set_;}
-    
-#endif
+#ifdef BARD_ENABLED
+    size_t bard_quota_reserved(bool by_src);
+    size_t bard_extquota_reserved(bool by_src);
+    size_t bard_in_use(bool by_src);
+    bool bard_restage_by_src()             const { return bard_restage_by_src_; }
+    std::string bard_restage_link_name()   const { return bard_restage_link_name_; }
+    bool bard_requested_restage()          const { return ! bard_restage_link_name_.empty(); }
 
-    u_int64_t         age()               const { return age_; } ///< [AEB] return age
-    oasys::Time       time_aeb()          const { return time_aeb_; } ///< [AEB]
-    const BlockInfoVec*    api_blocks_c()   const { return &api_blocks_; }
-    const BlockInfoVec&    api_blocks_r()   const { return api_blocks_; }
-    bool              is_freed() { return freed_; }
+    bool last_restage_attempt_failed()     const { return last_restage_attempt_failed_; }
+    void set_last_restage_attempt_failed()       { last_restage_attempt_failed_ = true; }
+    bool all_restage_attempts_failed()     const { return all_restage_attempts_failed_; }
+    void set_all_restage_attempts_failed()       { all_restage_attempts_failed_ = true; }
+#endif // BARD_ENABLED
+
+    bool is_freed()                       const { return freed_; }
 
 #ifdef ECOS_ENABLED
     bool ecos_enabled()                   const { return ecos_enabled_; }
@@ -298,21 +332,30 @@ public:
     bool ecos_has_flowlabel()             const { return ecos_flags_ & 0x04; }
     bool ecos_reliable()                  const { return ecos_flags_ & 0x08; }
     uint8_t ecos_ordinal()                const { return ecos_ordinal_; }
-    uint64_t ecos_flowlabel()             const { return ecos_flowlabel_; }
+    size_t ecos_flowlabel()             const { return ecos_flowlabel_; }
 #endif
     /// @}
 
     /// @{ Setters and mutable accessors
-    EndpointID* mutable_source()       { return gbofid_.mutable_source(); }
-    EndpointID* mutable_dest()         { return &dest_; }
-    EndpointID* mutable_replyto()      { return &replyto_; }
-    EndpointID* mutable_custodian()    { return &custodian_; }
-    EndpointID* mutable_prevhop()      { return &prevhop_; }
-    void set_is_fragment(bool t)       { gbofid_.set_is_fragment(t); }
+    // source, timestamp and frag vals are incorporated into the GbofID oject
+    void set_source(const SPtr_EID& sptr_src)       { gbofid_.set_source(sptr_src); }
+    void set_source(const std::string& src)         { gbofid_.set_source(src); }
+    void set_creation_ts(const BundleTimestamp& ts) { gbofid_.set_creation_ts(ts); }
+    void set_creation_ts(size_t secs_or_millisecs, size_t seqno) { gbofid_.set_creation_ts(secs_or_millisecs, seqno); }
+    void set_fragment(bool is_frag, size_t offset, size_t length) { gbofid_.set_fragment(is_frag, offset, length); }
+    void set_is_fragment(bool is_frag) { gbofid_.set_is_fragment(is_frag); }
+    void set_frag_offset(size_t offset) { gbofid_.set_frag_offset(offset); }
+    void set_frag_length(size_t length) { gbofid_.set_frag_length(length); }
+
+    SPtr_EID&   mutable_dest()         { return sptr_dest_; }
+    SPtr_EID&   mutable_replyto()      { return sptr_replyto_; }
+    SPtr_EID&   mutable_custodian()    { return sptr_custodian_; }
+    SPtr_EID&   mutable_prevhop()      { return sptr_prevhop_; }
+    void set_bp_version(int32_t v)    { bp_version_ = v; }
     void set_is_admin(bool t)          { is_admin_ = t; }
     void set_do_not_fragment(bool t)   { do_not_fragment_ = t; }
-    void set_custody_requested(bool t) { custody_requested_ = t; }
-    void set_singleton_dest(bool t)    { singleton_dest_ = t; }
+    void set_custody_requested(bool t) { custody_requested_ = t && is_bpv6(); }
+    void set_singleton_dest_flag(bool t)    { singleton_dest_flag_ = t; }
     void set_priority(u_int8_t p)      { priority_ = p; }
     void set_receive_rcpt(bool t)      { receive_rcpt_ = t; }
     void set_custody_rcpt(bool t)      { custody_rcpt_ = t; }
@@ -320,69 +363,45 @@ public:
     void set_delivery_rcpt(bool t)     { delivery_rcpt_ = t; }
     void set_deletion_rcpt(bool t)     { deletion_rcpt_ = t; }
     void set_app_acked_rcpt(bool t)    { app_acked_rcpt_ = t; }
-    void set_expiration(u_int64_t e)   { expiration_ = e; }
-    void set_frag_offset(u_int32_t o)  { gbofid_.set_frag_offset(o); }
-    void set_frag_length(u_int32_t l)  { gbofid_.set_frag_length(l); }
-    void set_orig_length(u_int32_t l)  { orig_length_ = l; }
+    void set_req_time_in_status_rpt(bool t)    { req_time_in_status_rpt_ = t; }
+    void set_expiration_secs(size_t  e)   { expiration_millis_ = e * 1000; }  // convert seconds to millisecs
+    void set_expiration_millis(size_t  e)   { expiration_millis_ = e; }  // in millisecs
+    void set_orig_length(size_t  l)  { orig_length_ = l; }
     void set_in_datastore(bool t)      { in_datastore_ = t; }
     void set_queued_for_datastore(bool t)      { queued_for_datastore_ = t; }
     void set_local_custody(bool t)     { local_custody_ = t; }
-    void set_owner(const std::string& s) { owner_ = s; }
+    void set_bibe_custody(bool t)      { bibe_custody_ = t; }
     void set_fragmented_incoming(bool t) { fragmented_incoming_ = t; }
-    void set_creation_ts(const BundleTimestamp& ts) { gbofid_.set_creation_ts(ts); }
-    BundleTimestamp* mutable_creation_ts() { return gbofid_.mutable_creation_ts(); }
-    SequenceID* mutable_sequence_id()  { return &sequence_id_; }
-    SequenceID* mutable_obsoletes_id() { return &obsoletes_id_; }
-    EndpointID* mutable_session_eid()  { return &session_eid_; }
-    void set_session_flags(u_int8_t f) { session_flags_ = f; }
     void test_set_bundleid(bundleid_t id) { bundleid_ = id; }
     BundlePayload*   mutable_payload() { return &payload_; }
     ForwardingLog*   fwdlog()          { return &fwdlog_; }
-    ExpirationTimer* expiration_timer(){ return expiration_timer_; }
-    CustodyTimerVec* custody_timers()  { return &custody_timers_; }
-    BlockInfoVec*    api_blocks()      { return &api_blocks_; }
-    LinkBlockSet*    xmit_blocks()     { return &xmit_blocks_; }
-    BlockInfoVec*    mutable_recv_blocks() { return &recv_blocks_; }
-    MetadataVec*     mutable_recv_metadata() { return &recv_metadata_; }
-    LinkMetadataSet* mutable_generated_metadata() {
-        return &generated_metadata_;
-    }
-    void set_expiration_timer(ExpirationTimer* e) {
-        expiration_timer_ = e;
-    }
+
+    SPtr_ExpirationTimer expiration_timer();
+
+    CustodyTimerVec*  custody_timers()  { return &custody_timers_; }
+    SPtr_BlockInfoVec api_blocks()      { return api_blocks_; }
+    LinkBlockSet*     xmit_blocks()     { return &xmit_blocks_; }
+    SPtr_BlockInfoVec mutable_recv_blocks() { return recv_blocks_; }
+    MetadataVec*      mutable_recv_metadata() { return &recv_metadata_; }
+    LinkMetadataSet*  mutable_generated_metadata() { return &generated_metadata_; }
+
+    void set_expiration_timer(SPtr_ExpirationTimer e);
+    void clear_expiration_timer();
+
     void set_payload_space_reserved(bool t=true) { payload_space_reserved_ = t; }
     void set_in_storage_queue(bool t)            { in_storage_queue_ = t; }
     void set_deleting(bool t)                    { deleting_ = t; }
     void set_manually_deleting(bool t)           { manually_deleting_ = t; }
 
-#ifdef BSP_ENABLED
-    void set_payload_bek(u_char *bek, u_int32_t bek_len, u_char *iv, u_char *salt) {
-        if(payload_bek_!=NULL) {
-            free(payload_bek_);
-        }
-        payload_bek_ = (u_char *)malloc(bek_len);
-        payload_bek_len_ = bek_len;
-        memcpy(payload_bek_, bek, bek_len);
-        memcpy(payload_iv_, iv, 8);
-        memcpy(payload_salt_, salt, 4);
-        payload_bek_set_ = true;
-    }
-    void set_payload_encrypted() {
-        payload_encrypted_ =true;
-    }
-    void set_payload_tag(u_char *tag) {
-        memcpy(payload_tag_, tag, 16);
-    }
-    BundleSecurityConfig* mutable_security_config() {
-        return &security_config_;
-    }
+    void set_highest_rcvd_block_number(size_t block_num);
+    void set_hop_count(size_t t)               { hop_count_ = t; }
+    void set_hop_limit(size_t t)               { hop_limit_ = t; }
 
-#endif
+    void set_prev_bundle_age_millis(size_t t)  { prev_bundle_age_millis_ = t; has_bundle_age_block_ = true; }
+    void set_expired_in_link_queue()             { expired_in_link_queue_ = true; }
 
-    void set_age(u_int64_t a)          { age_ = a; } ///< [AEB] set age
-    void set_time_aeb(oasys::Time time){ time_aeb_ = time; } ///< [AEB]
+    void set_frag_created_from_bundleid(bundleid_t t) { frag_created_from_bundleid_ = t; }
 
-#ifdef ACS_ENABLED
     // Aggregate Custody Signal methods
     /**
      * Set/Get the Custody ID that we assign to a bundle when
@@ -390,6 +409,9 @@ public:
      */
     void set_custodyid(bundleid_t t)   { custodyid_ = t; }
     bundleid_t custodyid()             { return custodyid_; }
+    void set_custody_dest(std::string& dest)   { custody_dest_ = dest; }
+    std::string& custody_dest()                { return custody_dest_; }
+
     /**
      * Set/Get whether or not the bundle was received with a valid CTEB
      */
@@ -400,126 +422,315 @@ public:
      * NOTE: using 64 bits because we may process IDs from
      * a server that uses 64 bits even if we are not.
      */
-    void set_cteb_custodyid(u_int64_t t)  { cteb_custodyid_ = t; }
-    u_int64_t cteb_custodyid()            { return cteb_custodyid_; }
-#endif // ACS_ENABLED
+    void set_cteb_custodyid(size_t  t)  { cteb_custodyid_ = t; }
+    size_t  cteb_custodyid()            { return cteb_custodyid_; }
 
 #ifdef ECOS_ENABLED
     void set_ecos_enabled(bool t)         { ecos_enabled_ = t; }
     void set_ecos_flags(uint8_t t)        { ecos_flags_ = t; }
     void set_ecos_ordinal(uint8_t t)      { ecos_ordinal_ = t; }
-    void set_ecos_flowlabel(uint64_t t)   { ecos_flowlabel_ = t; }
+    void set_ecos_flowlabel(size_t t)   { ecos_flowlabel_ = t; }
 #endif
+
+#ifdef BARD_ENABLED
+    void set_bard_quota_reserved(bool by_src, size_t t);
+    void set_bard_extquota_reserved(bool by_src, size_t t);
+    void set_bard_in_use(bool by_src, size_t t);
+    void set_bard_restage_by_src(bool t)            { bard_restage_by_src_ = t; }
+    void set_bard_restage_link_name(std::string& t) { bard_restage_link_name_ = t; }
+    void clear_bard_restage_link_name() { bard_restage_link_name_.clear(); }
+    void add_failed_restage_link_name(std::string& link_name);
+    bool find_failed_restage_link_name(std::string& link_name);
+#endif //BARD_ENABLED
     /// @}
+   
+    /// get whether or not the router has processed an IMC bundle
+    bool router_processed_imc() const { return router_processed_imc_; }
+
+    /// set flag indicaiting that the router has processed an IMC bundle
+    /// mark this bundle as having been processed by the IMC router
+    /// (or accounted for by a non-IMC router)
+    void set_router_processed_imc() { router_processed_imc_ = true; }
+
+
+    /**** Following IMC methods are pass throughs to the BundleIMCState object ****/
+    /// get the number of IMC destination nodes
+    size_t num_imc_dest_nodes() const;
+
+    /// add specified node number to both the original and the working list of IMC destinations
+    void add_imc_orig_dest_node(size_t dest_node);
+
+    /// add specified node number to the working list of IMC destinations
+    void add_imc_dest_node(size_t dest_node);
+
+    /// mark the specified node as handled (delivered or transmitted)
+    void imc_dest_node_handled(size_t dest_node);
+
+    /// get the list of [IPN] destination nodes to receive an IMC bundle
+    SPtr_IMC_DESTINATIONS_MAP imc_dest_map() const;
+
+    /// get the list of [IPN] destination nodes for a given link
+    SPtr_IMC_DESTINATIONS_MAP imc_dest_map_for_link(std::string& linkname) const;
+
+    /// get the list of [IPN] destination nodes for a given link
+    std::string imc_link_name_by_index(size_t index_num);
+
+    /// mark all nodes sent to the specified link as handled
+    void imc_link_transmit_success(std::string linkname);
+
+    /// remove the entry for this link to clear the slate for the
+    /// next transmit attempt
+    void imc_link_transmit_failure(std::string linkname);
+  
+
+    /// clear all of the IMC destinations by link lists
+    void clear_imc_link_lists();
+
+    SPtr_IMC_PROCESSED_REGIONS_MAP imc_processed_regions_map() const;
+
+    /// Whether or not a specified region has been processed
+    bool is_imc_region_processed(size_t region);
+
+    /// Add region num to the list of processed regions
+    void add_imc_region_processed(size_t region);
+
+    size_t num_imc_processed_regions() const;
+
+    /// add dest_node to the list of nodes rachable via the specified link
+    void add_imc_dest_node_via_link(std::string linkname, size_t dest_node);
+
+    /// copy all dest_nodes to the list of nodes rachable via the specified link
+    void copy_all_unhandled_nodes_to_via_link(std::string linkname);
+
+    /// get the number of IMC nodes that have been handled [delivered/transmitted]
+    size_t num_imc_nodes_handled() const;
+
+    /// get the number of IMC nodes that have not been handled [delivered/transmitted]
+    size_t num_imc_nodes_not_handled() const;
+
+    /// add specified node number to the list of alternate IMC router destinations
+    void add_imc_alternate_dest_node(size_t dest_node);
+
+    /// Clear the list of alternate IMC router destinations
+    void clear_imc_alternate_dest_nodes();
+
+    /// Clear the list of alternate IMC router destinations
+    size_t imc_alternate_dest_nodes_count() const;
+
+    /// get the list of [IPN] alternate destination nodes to receive an IMC bundle
+    SPtr_IMC_DESTINATIONS_MAP imc_alternate_dest_map() const;
+
+    /// get the list of [IPN] orignal destination nodes
+    SPtr_IMC_DESTINATIONS_MAP imc_orig_dest_map() const;
+
+    /// get the list of unrouteable [IPN] destination nodes
+    SPtr_IMC_DESTINATIONS_MAP imc_unrouteable_dest_map() const;
+
+    /// Clear the list of unrouteable destination nodes
+    void clear_imc_unrouteable_dest_nodes();
+
+    /// add specified node number to the list of unrouteable IMC router destinations
+    void add_imc_unrouteable_dest_node(size_t dest_node, bool in_home_region);
+
+    /// get the number of IMC nodes in the home region that are unrouteable
+    size_t num_imc_home_region_unrouteable() const;
+
+    /// get the number of IMC nodes in the home region that are unrouteable
+    size_t num_imc_outer_regions_unrouteable() const;
+
+
+    /// get the list of [IPN] nodes that have processed the proxy request
+    SPtr_IMC_PROCESSED_BY_NODE_MAP imc_processed_by_nodes_map() const;
+
+    /// copy the the list of [IPN] nodes from another bundle
+    void copy_imc_processed_by_node_list(Bundle* other_bundle);
+
+    /// Add node num to the list of nodes that have processed a proxy petition
+    void add_imc_processed_by_node(size_t node_num);
+
+    /// Whether or not a specified region has been processed
+    bool imc_has_proxy_been_processed_by_node(size_t node_num);
     
+    void set_imc_is_proxy_petition(bool t);
+    bool imc_is_proxy_petition() const;
+
+    void set_imc_sync_request(bool t);
+    bool imc_sync_request() const;
+
+    void set_imc_sync_reply(bool t);
+    bool imc_sync_reply() const;
+
+    void set_imc_is_dtnme_node(bool t);
+    bool imc_is_dtnme_node() const;
+
+    void set_imc_is_router_node(bool t);
+    bool imc_is_router_node() const;
+
+    void set_imc_briefing(bool t);
+    bool imc_briefing() const;
+
+    size_t imc_size_of_sdnv_dest_nodes_array() const;
+    size_t imc_size_of_sdnv_processed_regions_array() const;
+
+    ssize_t imc_sdnv_encode_dest_nodes_array(u_char* buf_ptr, size_t buf_len) const;
+    ssize_t imc_sdnv_encode_processed_regions_array(u_char* buf_ptr, size_t buf_len) const;
+
+    /// add a redirected link name and the original link nmae mapping
+    void add_link_redirect_mapping(const std::string& redirect_link, const std::string& orig_link);
+
+    /// get the original link name associated with a redirected link name.
+    /// Returnis true of redirected link name found else false.
+    bool get_redirect_orig_link(const std::string& redirect_link, std::string& orig_link) const;
+
+    /// remove the redirect entry for the specifed redirected link name
+    void clear_redirect_orig_link(const std::string& redirect_link);
+
+protected:
+    /// verify the BundleIMCState exists after attempting to create it if necessary
+    bool validate_bundle_imc_state();
+    bool validate_bundle_imc_state() const;
+
+    /// generate output of the orignal [as received] IMC Destinations list
+    void format_verbose_imc_orig_dest_map(oasys::StringBuffer* buf);
+
+    /// generate output of the working IMC Destinations list
+    void format_verbose_imc_dest_map(oasys::StringBuffer* buf);
+
+    /// generate output of the IMC Destinations sublists by Link
+    void format_verbose_imc_dest_nodes_per_link(oasys::StringBuffer* buf);
+
+    /// generate output of the IMC Processed Regions
+    void format_verbose_imc_state(oasys::StringBuffer* buf);
+
+private:
+    /**
+     * Initialization helper function.
+     */
+    void init(bundleid_t id);                   ///< Internal initialization method
+
 private:
     /*
      * Bundle data fields that correspond to data transferred between
      * nodes according to the bundle protocol.
      */
-    GbofId gbofid_;             ///< Unique ID of this bundle maintains the
-                                ///      Source eid, Creation timestamp and 
-                                ///      Fragment Offset/Length of the bundle
-    EndpointID dest_;		///< Destination eid
-    EndpointID custodian_;	///< Current custodian eid
-    EndpointID replyto_;	///< Reply-To eid
-    EndpointID prevhop_;	///< Previous hop eid
-    bool is_admin_;		///< Administrative record bundle
-    bool do_not_fragment_;	///< Bundle shouldn't be fragmented
-    bool custody_requested_;	///< Custody requested
-    bool singleton_dest_;	///< Destination endpoint is a singleton
-    u_int8_t priority_;		///< Bundle priority
-    bool receive_rcpt_;		///< Hop by hop reception receipt
-    bool custody_rcpt_;		///< Custody xfer reporting
-    bool forward_rcpt_;		///< Hop by hop forwarding reporting
-    bool delivery_rcpt_;	///< End-to-end delivery reporting
-    bool deletion_rcpt_;	///< Bundle deletion reporting
-    bool app_acked_rcpt_;	///< Acknowlege by application reporting
-    u_int64_t expiration_;	///< Bundle expiration time
-    u_int32_t orig_length_;	///< Length of original bundle
-    SequenceID sequence_id_;	///< Sequence id vector
-    SequenceID obsoletes_id_;	///< Obsoletes id vector
-    EndpointID session_eid_;	///< Session eid
-    u_int8_t session_flags_;	///< Session flags
-    BundlePayload payload_;	///< Reference to the payload
-#ifdef BSP_ENABLED
-    u_char *payload_bek_;
-    u_int32_t payload_bek_len_;
-    u_char payload_salt_[4];
-    u_char payload_iv_[8];
-    u_char payload_tag_[16];
-    bool payload_encrypted_;
-    bool payload_bek_set_;
-    BundleSecurityConfig security_config_; ///The security config that applies to this particular bundle
-#endif
-    
-    u_int64_t age_;             ///< Age of our bundle [AEB]
+    GbofId gbofid_;                 ///< Unique ID of this bundle maintains the
+                                    ///      Source eid, Creation timestamp and 
+                                    ///      Fragment Offset/Length of the bundle
+    SPtr_EID sptr_dest_;            ///< Destination eid
+    SPtr_EID sptr_custodian_;       ///< Current custodian eid
+    SPtr_EID sptr_replyto_;         ///< Reply-To eid
+    SPtr_EID sptr_prevhop_;         ///< Previous hop eid
+    bool is_admin_;                 ///< Administrative record bundle
+    bool do_not_fragment_;          ///< Bundle shouldn't be fragmented
+    bool custody_requested_;        ///< Bundle Custody requested
+    bool singleton_dest_flag_;      ///< Destination endpoint is a singleton as received off the "wire"
+    u_int8_t priority_;             ///< Bundle priority
+    bool receive_rcpt_;             ///< Hop by hop reception receipt
+    bool custody_rcpt_;             ///< Custody xfer reporting
+    bool forward_rcpt_;             ///< Hop by hop forwarding reporting
+    bool delivery_rcpt_;            ///< End-to-end delivery reporting
+    bool deletion_rcpt_;            ///< Bundle deletion reporting
+    bool app_acked_rcpt_;           ///< Acknowlege by application reporting
+    bool req_time_in_status_rpt_;   ///< request time be included in the status reports
+    size_t  expiration_millis_;   ///< Bundle expiration time in millisecs  (BPv7 uses milliseconds; BPv6 uses seconds)
+    oasys::Time received_time_;     ///< Time bundle was createed/received for Age Block millisecs calculations
 
+    size_t prev_bundle_age_millis_; ///< Accumulated Bundle Age at time of receipt from BPv7 Bundle Age Block (millisecs)
+    bool has_bundle_age_block_;     ///< Indication the bundle has a Bundle Age Block
+    size_t orig_length_;            ///< Length of original bundle
+    BundlePayload payload_;         ///< Reference to the payload
+    
     /*
      * Internal fields and structures for managing the bundle that are
      * not transmitted over the network.
      */
-    bundleid_t bundleid_;	   ///< Local bundle identifier
-    mutable oasys::SpinLock lock_; ///< Lock for bundle data that can be
-                                   ///  updated by multiple threads
-    bool in_datastore_;		   ///< Is bundle in persistent store
-    bool queued_for_datastore_;	   ///< Is bundle queued to be put in persistent store
-    bool local_custody_;	   ///< Does local node have custody
-    std::string owner_;            ///< Declared entity that "owns" this
-                                   ///  bundle, which could be empty
-    BundleTimestamp extended_id_;  ///< Identifier for external routers to
-                                   ///  refer to duplicate bundles
-    ForwardingLog fwdlog_;	   ///< Log of bundle forwarding records
-    ExpirationTimer* expiration_timer_;	///< The expiration timer
-    CustodyTimerVec custody_timers_; ///< Live custody timers for the bundle
-    bool fragmented_incoming_;     ///< Is the bundle an incoming reactive
-                                   ///  fragment
+    bundleid_t bundleid_;                   ///< Local bundle identifier
+    mutable oasys::SpinLock lock_;          ///< Lock for bundle data that can be
+                                            ///  updated by multiple threads
+    int32_t bp_version_;                    ///< Bundle Protocol Version
+    size_t  primary_block_crc_type_;      ///< Primary Block CRC Type
+    bool in_datastore_;                     ///< Is bundle in persistent store
+    bool queued_for_datastore_;             ///< Is bundle queued to be put in persistent store
+    bool local_custody_;                    ///< Does local node have custody
+    bool bibe_custody_;                     ///< Does local node have custody
+    ForwardingLog fwdlog_;                  ///< Log of bundle forwarding records
+    SPtr_ExpirationTimer expiration_timer_; ///< The expiration timer
+    CustodyTimerVec custody_timers_;        ///< Live custody timers for the bundle
+    bool fragmented_incoming_;              ///< Is the bundle an incoming reactive
+                                            ///  fragment
 
-    //ExpirationTimer* expiration_timer_aeb_; ///< new timer for debugging [AEB] stuff
-    oasys::Time time_aeb_;         ///< keep track of time for [AEB] stuff 
+    SPtr_BlockInfoVec recv_blocks_;         ///< BP blocks as arrived off the wire
+    SPtr_BlockInfoVec api_blocks_;          ///< BP blocks given from local API
+    LinkBlockSet xmit_blocks_;              ///< Block vector for each link
 
-    BlockInfoVec recv_blocks_;	   ///< BP blocks as arrived off the wire
-    BlockInfoVec api_blocks_;	   ///< BP blocks given from local API
-    LinkBlockSet xmit_blocks_;	   ///< Block vector for each link
+    MetadataVec     recv_metadata_;         ///< Metadata as arrived in bundle 
+    LinkMetadataSet generated_metadata_;    ///< Metadata to be in bundle
 
-    MetadataVec     recv_metadata_;      ///< Metadata as arrived in bundle 
-    LinkMetadataSet generated_metadata_; ///< Metadata to be in bundle
-
-    BundleMappings mappings_;      ///< The set of BundleLists that
-                               	   ///  contain the Bundle.
+    BundleMappings mappings_;               ///< The set of BundleLists that
+                                            ///  contain the Bundle.
     
-    int  refcount_;		   ///< Bundle reference count
-    bool freed_;		   ///< Flag indicating whether a bundle
-                                   ///  free event has been posted
-    bool deleting_;		   ///< Flag indicating delete from database is queued
-    bool manually_deleting_;	   ///< Flag indicating bundle is being manually delete (external router)
+    int  refcount_;                         ///< Bundle reference count
+    bool freed_;                            ///< Flag indicating whether a bundle
+                                            ///  free event has been posted
+    bool deleting_;                         ///< Flag indicating delete from database is queued
+    bool manually_deleting_;                ///< Flag indicating bundle is being manually delete (external router)
 
-    bool payload_space_reserved_;  ///< Payload space reserved flag
-    bool in_storage_queue_;        ///< Flag indicating whether bundle update event is  
-                                   ///  queued in the storage thread
+    bool payload_space_reserved_;           ///< Payload space reserved flag
+    bool in_storage_queue_;                 ///< Flag indicating whether bundle update event is  
+                                            ///  queued in the storage thread
 
-#ifdef ACS_ENABLED
+
+    size_t highest_rcvd_block_number_;     ///< Highest block number received (BP7 only)
+    size_t hop_count_;                     ///< Current number of hops this bundle has travered (BP7 only)
+    size_t hop_limit_;                     ///< Max number of hops allowed before deleting bundle (BP7 only)
+
     // Aggregate Custody Signal parameters
-    bundleid_t custodyid_;          ///< Our Custody ID for the bundle 
-    bool cteb_valid_;              ///< Flag indicating the bundle contains 
-                                   ///  a valid Custody Transfer Extension
-                                   ///  Block (CTEB)
-    u_int64_t cteb_custodyid_;     ///< Previous custodian's Custody ID
-                                   ///  for the bundle 
-#endif // ACS_ENABLED
+    bundleid_t custodyid_;                   ///< Our Custody ID for the bundle 
+    std::string custody_dest_;               ///< BP7 destination EID or "bpv6" for BP6 compatibility
+    bool cteb_valid_;                        ///< Flag indicating the bundle contains 
+                                             ///  a valid Custody Transfer Extension
+                                             ///  Block (CTEB)
+    size_t cteb_custodyid_;                ///< Previous custodian's Custody ID
+                                             ///  for the bundle
 
+    bool expired_in_link_queue_ = false;     /// Whether the bundle expired before it could be sent
+
+    bundleid_t frag_created_from_bundleid_;  ///< original bundle ID this fragment was created from
 
 #ifdef ECOS_ENABLED
-    bool ecos_enabled_;
-    uint8_t ecos_flags_;
-    uint8_t ecos_ordinal_;
-    uint64_t ecos_flowlabel_;
+    bool ecos_enabled_;                      ///< Whether the Extended Class of Service (BP6 only) is enabled for this bundle
+    uint8_t ecos_flags_;                     ///< Extended Class of Service (BP6 only) flags
+    uint8_t ecos_ordinal_;                   ///< Extended Class of Service (BP6 only) ordinal value
+    size_t ecos_flowlabel_;                ///< Extended Class of Service (BP6 only) flow label
 #endif
 
-    /**
-     * Initialization helper function.
-     */
-    void init(bundleid_t id);
+#ifdef BARD_ENABLED
+    size_t bard_quota_reserved_by_src_ = 0;      ///< num bytes reserved for internal storage by source
+    size_t bard_quota_reserved_by_dst_ = 0;      ///< num bytes reserved for internal storage by destination
+    size_t bard_extquota_reserved_by_src_ = 0;   ///< num bytes reserved for external storage by source
+    size_t bard_extquota_reserved_by_dst_ = 0;   ///< num bytes reserved for external storage by destination
+    size_t bard_in_use_by_src_ = 0;              ///< num bytes tracked as in_use in internal storage by source
+    size_t bard_in_use_by_dst_ = 0;              ///< num bytes tracked as in_use in internal storage by destination
+    bool bard_restage_by_src_ = false;           ///< whether restaging begin done by src or dst
+    std::string bard_restage_link_name_;         ///< restage CL link name to use
+    bool last_restage_attempt_failed_ = false;   ///< whether the last restage attempt failed
+    bool all_restage_attempts_failed_ = false;   ///< whether all attempts to restage the bundle have failed
+
+    typedef std::map<std::string,bool> RESTAGE_LINK_NAME_MAP;
+    typedef std::unique_ptr<RESTAGE_LINK_NAME_MAP> QPtr_RestageLinkNameMap;
+    QPtr_RestageLinkNameMap qptr_failed_restage_link_names_;
+#endif //BARD_ENABLED
+
+    /// Flag indicating that the router has processed the IMC bundle to prevent early deletion after a local delivery
+    bool router_processed_imc_ = false;
+
+    QPtr_BundleIMCState qptr_imc_state_;    ///< Pointer to BundleIMCState object if instantiated
+
+    /// Mapping to track which link redirected a bundle to a given alternate link/conversion layer.
+    /// Typical use is a redirection to a Bundle In Bundle Encapsulation (BIBE) CL to allow a
+    /// BPv7 bundle to pass through a BPv6 node. The BIBE CL needs to be able to serialize IMC 
+    /// bundles based on the original Link Name to generate the correct IMC State Block. This map
+    QPtr_LinkRedirectMap qptr_link_redirect_map_;
 };
 
 

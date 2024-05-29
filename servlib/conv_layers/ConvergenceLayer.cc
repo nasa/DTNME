@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -37,23 +37,19 @@
 #endif
 
 #include "ConvergenceLayer.h"
-#include "BluetoothConvergenceLayer.h"
-#include "EthConvergenceLayer.h"
-#include "FileConvergenceLayer.h"
+#include "BIBEConvergenceLayer.h"
 #include "NullConvergenceLayer.h"
-#include "SerialConvergenceLayer.h"
 #include "TCPConvergenceLayer.h"
+#include "TCPConvergenceLayerV3.h"
 #include "UDPConvergenceLayer.h"
-#include "NORMConvergenceLayer.h"
-#include "LTPConvergenceLayer.h"
-#include "AX25CMConvergenceLayer.h"
 
-#ifdef LTPUDP_ENABLED
-#    include "LTPUDPConvergenceLayer.h"
-#    include "LTPUDPReplayConvergenceLayer.h"
-#endif
+#include "LTPUDPConvergenceLayer.h"
+#include "LTPUDPReplayConvergenceLayer.h"
 
 #include "STCPConvergenceLayer.h"
+#include "MinimalTCPConvergenceLayer.h"
+
+#include "RestageConvergenceLayer.h"
 
 #include "bundling/BundleDaemon.h"
 
@@ -80,36 +76,23 @@ void
 ConvergenceLayer::init_clayers()
 {
     add_clayer(new NullConvergenceLayer());
-    add_clayer(new SerialConvergenceLayer());
     add_clayer(new TCPConvergenceLayer());
+    add_clayer(new TCPConvergenceLayerV3());
     add_clayer(new UDPConvergenceLayer());
-#ifdef __linux__
-    add_clayer(new EthConvergenceLayer());
-#endif
-#ifdef OASYS_BLUETOOTH_ENABLED
-    add_clayer(new BluetoothConvergenceLayer());
-#endif
-#ifdef NORM_ENABLED
-    add_clayer(new NORMConvergenceLayer());
-#endif
-#ifdef LTP_ENABLED
-    add_clayer(new LTPConvergenceLayer());
-#endif
 
-#ifdef LTPUDP_ENABLED
     add_clayer(new LTPUDPConvergenceLayer());
     add_clayer(new LTPUDPReplayConvergenceLayer());
-#endif
 
-
-#ifdef OASYS_AX25_ENABLED
-	add_clayer(new AX25CMConvergenceLayer());
-#endif
 
     add_clayer(new STCPConvergenceLayer());
+    add_clayer(new MinimalTCPConvergenceLayer());
 
-    // XXX/demmer fixme
-    //add_clayer("file", new FileConvergenceLayer());
+    add_clayer(new BIBEConvergenceLayer());
+
+#if BARD_ENABLED
+    add_clayer(new RestageConvergenceLayer());
+#endif // BARD_ENABLED
+
 }
 //----------------------------------------------------------------------
 CLVector::~CLVector()
@@ -147,7 +130,12 @@ ConvergenceLayer::shutdown_clayers()
          ++iter)
     {
         (*iter)->shutdown();
+
+        //dzdebug
+        delete (*iter);
     }
+
+    CLVector::instance()->clear();
 }
 
 //----------------------------------------------------------------------
@@ -156,7 +144,11 @@ ConvergenceLayer::set_cla_parameters(AttributeVector &params)
 {
     (void)params;
     log_debug("set cla parameters");
-    BundleDaemon::post(new CLAParamsSetEvent(this, ""));
+    // probably only used by the external convergence layer???
+    CLAParamsSetEvent* event_to_post;
+    event_to_post = new CLAParamsSetEvent(this, "");
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
     return true;
 }
 
@@ -297,7 +289,10 @@ ConvergenceLayer::is_eid_reachable(const std::string& query_id,
     (void)iface;
     (void)endpoint;
 
-    BundleDaemon::post(new EIDReachableReportEvent(query_id, false));
+    EIDReachableReportEvent* event_to_post;
+    event_to_post = new EIDReachableReportEvent(query_id, false);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
 
 //----------------------------------------------------------------------
@@ -316,7 +311,10 @@ ConvergenceLayer::query_link_attributes(const std::string& query_id,
     }
 
     AttributeVector attrib_values;
-    BundleDaemon::post(new LinkAttributesReportEvent(query_id, attrib_values));
+    LinkAttributesReportEvent* event_to_post;
+    event_to_post = new LinkAttributesReportEvent(query_id, attrib_values);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
 
 //----------------------------------------------------------------------
@@ -329,7 +327,10 @@ ConvergenceLayer::query_iface_attributes(const std::string& query_id,
     (void)attributes;
 
     AttributeVector attrib_values;
-    BundleDaemon::post(new IfaceAttributesReportEvent(query_id, attrib_values));
+    IfaceAttributesReportEvent* event_to_post;
+    event_to_post = new IfaceAttributesReportEvent(query_id, attrib_values);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
 
 //----------------------------------------------------------------------
@@ -340,7 +341,28 @@ ConvergenceLayer::query_cla_parameters(const std::string& query_id,
     (void)parameters;
 
     AttributeVector param_values;
-    BundleDaemon::post(new CLAParametersReportEvent(query_id, param_values));
+    CLAParametersReportEvent* event_to_post;
+    event_to_post = new CLAParametersReportEvent(query_id, param_values);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post(sptr_event_to_post);
 }
+
+//----------------------------------------------------------------------
+void
+ConvergenceLayer::list_link_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("Not implemented for CLA: %s\n", name());
+}
+
+/**
+ * Get valid interface options for the CLA
+ */
+//----------------------------------------------------------------------
+void
+ConvergenceLayer::list_interface_opts(oasys::StringBuffer& buf)
+{
+    buf.appendf("Not implemented for CLA: %s\n", name());
+}
+
 
 } // namespace dtn

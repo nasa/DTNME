@@ -18,7 +18,7 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/io/NetUtils.h>
+#include <third_party/oasys/io/NetUtils.h>
 #include "IPConvergenceLayer.h"
 
 namespace dtn {

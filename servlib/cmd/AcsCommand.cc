@@ -19,12 +19,11 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef ACS_ENABLED
-
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "AcsCommand.h"
 
+#include "bundling/BundleDaemon.h"
 #include "bundling/BundleDaemonACS.h"
 
 
@@ -80,8 +79,8 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             return TCL_ERROR;
         }
 
-        EndpointIDPattern pat(argv[2]);
-        if (!pat.valid()) {
+        SPtr_EIDPattern sptr_pat = BD_MAKE_PATTERN(argv[2]);
+        if (!sptr_pat->valid()) {
             resultf("invalid <eid> endpoint id pattern '%s'\n"
                     "usage: acs override <eid> <enabled> "
                     "[<delay> <size>]",
@@ -155,7 +154,7 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
         // made it through all of the checks; apply the values 
-        BundleDaemonACS::instance()->set_route_acs_params(pat, acs_enabled, acs_delay, acs_size);
+        BundleDaemon::instance()->set_route_acs_params(sptr_pat, acs_enabled, acs_delay, acs_size);
         
         return TCL_OK;
     }
@@ -167,8 +166,8 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
             return TCL_ERROR;
         }
 
-        EndpointIDPattern pat(argv[2]);
-        if (!pat.valid()) {
+        SPtr_EIDPattern sptr_pat = BD_MAKE_PATTERN(argv[2]);
+        if (!sptr_pat->valid()) {
             resultf("invalid <eid> endpoint id pattern '%s'\n"
                     "usage: acs del <eid>",
                     argv[2]);
@@ -176,7 +175,7 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
         // made it through all of the checks; delete the acs specific values
-        if (-1 == BundleDaemonACS::instance()->delete_route_acs_params(pat)) {
+        if (-1 == BundleDaemon::instance()->delete_route_acs_params(sptr_pat)) {
             resultf("Warning - No ACS parameters found for %s", argv[2]);
         }
         
@@ -191,7 +190,7 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
         }
 
         oasys::StringBuffer buf;
-        BundleDaemonACS::instance()->dump_acs_params(&buf);
+        BundleDaemon::instance()->dump_acs_params(&buf);
         set_result(buf.c_str());
         return TCL_OK;
     }
@@ -206,4 +205,3 @@ AcsCommand::exec(int argc, const char** argv, Tcl_Interp* interp)
 
 } // namespace dtn
 
-#endif // ACS_ENABLED

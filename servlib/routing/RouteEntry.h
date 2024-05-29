@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -35,9 +35,9 @@
 #ifndef _BUNDLE_ROUTEENTRY_H_
 #define _BUNDLE_ROUTEENTRY_H_
 
-#include <oasys/debug/Formatter.h>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Formatter.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "bundling/CustodyTimer.h"
 #include "bundling/ForwardingInfo.h"
@@ -82,14 +82,14 @@ public:
     /**
      * First constructor requires a destination pattern and a next hop link.
      */
-    RouteEntry(const EndpointIDPattern& dest_pattern, const LinkRef& link);
+    RouteEntry(const SPtr_EIDPattern& sptr_dest_pattern, const LinkRef& link);
 
     /**
      * Alternate constructor requires a destination pattern and a
      * route destination endpoint id.
      */
-    RouteEntry(const EndpointIDPattern& dest_pattern,
-               const EndpointIDPattern& route_to);
+    RouteEntry(const SPtr_EIDPattern& sptr_dest_pattern,
+               const SPtr_EIDPattern& sptr_route_to);
 
     /**
      * Destructor.
@@ -132,10 +132,10 @@ public:
     virtual void serialize( oasys::SerializeAction *a );
 
     /// @{ Accessors
-    const EndpointIDPattern& dest_pattern()   const { return dest_pattern_; }
-    const EndpointIDPattern& source_pattern() const { return source_pattern_; }
+    const SPtr_EIDPattern    dest_pattern()   const { return sptr_dest_pattern_; }
+    const SPtr_EIDPattern    source_pattern() const { return sptr_source_pattern_; }
     const LinkRef&           link()           const { return link_; }
-    const EndpointIDPattern& route_to()       const { return route_to_; }
+    const SPtr_EIDPattern&   route_to()       const { return sptr_route_to_; }
     u_int                    priority()       const { return priority_; }
     RouteEntryInfo*          info()           const { return info_; }
     const CustodyTimerSpec&  custody_spec()   const { return custody_spec_; }
@@ -143,7 +143,7 @@ public:
     action_t action() const { return static_cast<action_t>(action_); }
 
     const std::string& next_hop_str() const {
-        return (link() != NULL) ? link()->name_str() : route_to().str();
+        return (link() != NULL) ? link()->name_str() : route_to()->str();
     }
     /// @}
 
@@ -160,10 +160,10 @@ private:
 
     
     /// The pattern that matches bundles' destination eid
-    EndpointIDPattern dest_pattern_;
+    SPtr_EIDPattern sptr_dest_pattern_;
 
     /// The pattern that matches bundles' source eid
-    EndpointIDPattern source_pattern_;
+    SPtr_EIDPattern sptr_source_pattern_;
     
     /// Bit vector of the bundle priority classes that should match this route
     u_int bundle_cos_;
@@ -175,7 +175,7 @@ private:
     LinkRef link_;
         
     /// Route destination for recursive lookups
-    EndpointIDPattern route_to_;
+    SPtr_EIDPattern sptr_route_to_;
         
     /// Forwarding action code 
     u_int32_t action_;
@@ -197,11 +197,11 @@ private:
  */
 class RouteEntry::DestMatches {
 public:
-    DestMatches(const EndpointIDPattern& dest) : dest_(dest) {}
+    DestMatches(const SPtr_EIDPattern& sptr_dest) : sptr_dest_(sptr_dest) {}
     bool operator()(RouteEntry* entry) {
-        return dest_.equals(entry->dest_pattern());
+        return sptr_dest_ == entry->dest_pattern();
     }
-    EndpointIDPattern dest_;
+    SPtr_EIDPattern sptr_dest_;
 };
 
 /**

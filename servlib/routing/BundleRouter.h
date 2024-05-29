@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,9 +36,12 @@
 #define _BUNDLE_ROUTER_H_
 
 #include <vector>
-#include <oasys/debug/Logger.h>
-#include <oasys/thread/Thread.h>
-#include <oasys/util/StringUtils.h>
+
+#include <third_party/meutils/thread/MsgQueue.h>
+
+#include <third_party/oasys/debug/Logger.h>
+#include <third_party/oasys/thread/Thread.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleEvent.h"
@@ -75,8 +78,14 @@ typedef std::vector<BundleRouter*> BundleRouterList;
  * implementations, and at boot time, one of these is selected as the
  * active routing algorithm. As new algorithms are added to the
  * system, new cases should be added to the "create_router" function.
+ *
+ * This class can either run as its own separate thread or if not 
+ * started then will process events immediately when called.
  */
-class BundleRouter : public BundleEventHandler {
+class BundleRouter : public BundleEventHandler,
+                     public oasys::Thread
+
+{
 public:
     /**
      * Factory method to create the correct subclass of BundleRouter
@@ -120,6 +129,10 @@ public:
         /// link that is ALWAYSON and isopen() if possible
         bool static_router_prefer_always_on_;
         
+        /// Allow [External] router to control delivery of bundles
+        /// if so desired
+        bool auto_deliver_bundles_;
+        
     } config_;
     
     /**
@@ -133,10 +146,16 @@ public:
     virtual void initialize();
 
     /**
+     * This method will post events to the event queue if running as a thread
+     * [by calling the start() method] or will process events immediately not.
+     */
+    virtual void post(SPtr_BundleEvent& event);
+ 
+    /**
      * Pure virtual event handler function (copied from
      * BundleEventHandler for clarity).
      */
-    virtual void handle_event(BundleEvent* event) = 0;
+    virtual void handle_event(SPtr_BundleEvent& sptr_event) = 0;
 
     /**
      * Synchronous probe indicating whether or not this bundle should
@@ -160,6 +179,21 @@ public:
      * @return true if okay to accept custody of the bundle.
      */
     virtual bool accept_custody(Bundle* bundle);
+
+    /**
+     * for handling ACS and BIBE custody releases on individual bundles
+     * - mainly by the ExternalRouter
+     **/ 
+    virtual void handle_custody_released(uint64_t bundleid, bool succeeded, int reason) {
+        (void) bundleid;
+        (void) succeeded;
+        (void) reason;
+    }
+
+    /**
+     * Whether or not to automatically deliver local bundles upon receipt
+     */
+    virtual bool auto_deliver_bundles() { return config_.auto_deliver_bundles_; }
 
     /**
      * Synchronous probe indicating whether or not this bundle can be
@@ -193,6 +227,16 @@ public:
             ForwardingInfo::action_t action = ForwardingInfo::COPY_ACTION);
 
     /**
+     * Check if the bundle should be forwarded to the given next hop.
+     * Reasons why it would not be forwarded include that it is already
+     * in flight on the link.
+     * Allows the bundle to be in flight on multiple routes.
+     * Returns whether or not it is already queued on the link.
+     */
+    virtual bool should_fwd_imc(const Bundle* bundle, const LinkRef& link,
+            ForwardingInfo::action_t action, bool& is_queued);
+
+    /**
      * Format the given StringBuffer with a tcl-parsable version of
      * the routing state.
      *
@@ -214,7 +258,7 @@ public:
     virtual void recompute_routes();
 
     /**
-     * for registration with the BundleDaemon
+     * wind down processing and shtop the threa
      */
     virtual void shutdown();
 
@@ -230,9 +274,22 @@ protected:
      */
     BundleRouter(const char* classname, const std::string& name);
 
+    /**
+     * Main thread function that dispatches events. 
+     */
+    virtual void run() override;
+
+protected:
     /// Name of this particular router
     std::string name_;
-    
+
+    /// Flag indicating whether running as a thread and defaulting
+    /// to false for compatibility with legacy implementation
+    bool thread_mode_ = false;
+
+    /// The event queue
+    meutils::MsgQueue<SPtr_BundleEvent> me_eventq_;
+
     /// The list of all bundles still pending delivery
     pending_bundles_t* pending_bundles_;
 
@@ -242,7 +299,9 @@ protected:
     /// The actions interface, set by the BundleDaemon when the router
     /// is initialized.
     BundleActions* actions_;
-    
+
+    /// Thread name to display when running as a thread
+    std::string thread_name_ = "BundleRouter";
 };
 
 } // namespace dtn

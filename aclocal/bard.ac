@@ -1,0 +1,21 @@
+dnl
+dnl Autoconf support for Bundle Restaging Daemon (BARD)
+dnl
+
+AC_DEFUN(AC_CONFIG_BARD, [
+    ac_bard='yes'
+    AC_ARG_WITH(bard,
+        AC_HELP_STRING([--without-bard],
+                [disable BARD - Bundle Architectural Restaging Daemon support]),
+        ac_bard=$withval)
+    dnl
+    dnl First make sure we even want it
+    dnl
+    if test "$ac_bard" = no; then
+        BARD_ENABLED=
+    else
+        BARD_ENABLED=1
+        AC_DEFINE_UNQUOTED(BARD_ENABLED, 1, [whether Bundle Architectural Restaging Daemon support is enabled])
+        AC_SUBST(BARD_ENABLED)
+    fi # BARD_ENABLED
+])

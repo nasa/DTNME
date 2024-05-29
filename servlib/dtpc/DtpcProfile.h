@@ -20,9 +20,9 @@
 
 #include <map>
 
-#include <oasys/serialize/Serialize.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "naming/EndpointID.h"
 
@@ -102,7 +102,7 @@ public:
     virtual u_int32_t           profile_id()             { return profile_id_; }
     virtual bool                custody_transfer()       { return custody_transfer_; }
     virtual u_int64_t           expiration()             { return expiration_; }
-    virtual const EndpointID&   replyto()                { return replyto_; }
+    virtual const SPtr_EID      replyto()                { return sptr_replyto_; }
     virtual u_int8_t            priority()               { return priority_; }        // class of service
     virtual const char*         priority_str();
     virtual u_int8_t            ecos_ordinal()           { return ecos_ordinal_; }    // extended class of service
@@ -126,7 +126,7 @@ public:
     virtual void set_profile_id(u_int32_t t)             { profile_id_ = t; }
     virtual void set_custody_transfer(bool t)            { custody_transfer_ = t; }
     virtual void set_expiration(u_int64_t t)             { expiration_ = t; }
-    virtual EndpointID* mutable_replyto()                { return &replyto_; }
+    virtual SPtr_EID& mutable_replyto()                  { return sptr_replyto_; }
     virtual void set_priority(u_int8_t t)                { priority_ = t; }
     virtual void set_ecos_ordinal(u_int8_t t)            { ecos_ordinal_ = t; }
     virtual void set_rpt_reception(bool t)               { rpt_reception_ = t; }
@@ -158,7 +158,7 @@ private:
     u_int64_t    expiration_;
 
     /// EID to which receipts/reports are to be sent
-    EndpointID   replyto_;
+    SPtr_EID   sptr_replyto_;
 
     /// Priority (class of service) for bundles for the profile
     u_int8_t     priority_;

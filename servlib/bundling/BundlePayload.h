@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,9 +36,9 @@
 #define _BUNDLE_PAYLOAD_H_
 
 #include <string>
-#include <oasys/serialize/Serialize.h>
-#include <oasys/debug/DebugUtils.h>
-#include <oasys/io/FileIOClient.h>
+#include <third_party/oasys/serialize/Serialize.h>
+#include <third_party/oasys/debug/DebugUtils.h>
+#include <third_party/oasys/io/FileIOClient.h>
 
 namespace dtn {
 
@@ -64,15 +64,16 @@ public:
      * Options for payload location state.
      */
     typedef enum {
-        MEMORY = 1,	/// in memory only (TempBundle)
-        DISK   = 2,	/// on disk
-        NODATA = 3,	/// no data storage at all (used for simulator)
+        DEFAULT = 0, /// default to using BundleDaemon::params_.payload_location_
+        MEMORY = 1,	 /// in memory only (TempBundle)
+        DISK   = 2,	 /// on disk
+        NODATA = 3,	 /// no data storage at all (used for simulator)
     } location_t;
     
     /**
      * Actual payload initialization function.
      */
-    void init(bundleid_t bundleid, location_t location = DISK);
+    void init(bundleid_t bundleid, location_t location = DEFAULT);  //dz was DISK
   
     /**
      * Initialization when re-reading the database
@@ -83,7 +84,7 @@ public:
      * Sync the payload file to disk (if location = DISK)
      */
     void sync_payload();
-
+  
     /**
      * Set the payload length in preparation for filling in with data.
      */
@@ -188,7 +189,22 @@ public:
         return const_cast<BundlePayload*>(this)->
             read_data(offset, len, buf);
     }
-     
+
+    /**
+     * Release the database payload file to be handed off to an app. 
+     * Moves the file up to the main bundle storage path and 
+     * renames it to start with "released_".
+     *
+     * @param filename the path to the released file
+     * @return true on succces else false
+     */
+    bool release_file(std::string& filename);
+
+    /**
+     * Delete the payload from disk
+     * */
+    void delete_payload_file();
+
     /**
      * Virtual from SerializableObject
      */
@@ -213,6 +229,10 @@ protected:
     std::string dir_path_;      ///< directory path of the payload file
 
     bundleid_t bundleid_;
+
+    bool syncing_file_ = false;  ///< flag indicating whether a file sync is in progress
+
+    static oasys::SpinLock dir_lock_;	///< coordinate attempts to create/remove directories
 };
 
 } // namespace dtn

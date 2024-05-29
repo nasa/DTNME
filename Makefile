@@ -24,7 +24,7 @@
 # by default.
 #
 
-SUBDIRS := applib servlib daemon apps sim ehsrouter
+SUBDIRS := third_party/oasys third_party/tinycbor applib servlib daemon apps ehsrouter
 
 all: checkconfigure $(SUBDIRS)
 
@@ -51,41 +51,44 @@ ifeq ($(DTPC_ENABLED),1)
 DTPC_APPS := apps/dtpc_apps/dtpc_send apps/dtpc_apps/dtpc_recv
 endif
 
+
+#third_party/oasys: third_party/oasys/oasys-version.o
+third_party/oasys/oasys-version.o: third_party/oasys/oasys-version.h 
+	pushdir ./third_party/oasys
+	./configure
+	$(MAKE)
+	popdir
+
+#third_party/tinycbor: third_party/tinycbor/src/lib/libtinycbor.a
+third_party/tinycbor/src/lib/libtinycbor.a:
+	pushdir ./third_party/tinycbor
+	$(MAKE)
+	popdir
+
+
 #
 # Dependency rules between subdirectories needed for make -j
 #
-applib servlib ehsrouter: dtn-version.o
+applib servlib ehsrouter: third_party/oasys third_party/tinycbor dtn-version.o
 daemon: applib servlib
 apps: applib servlib
-sim: servlib
 
 #
 # Rules for the version files
 #
 dtn-version.o: dtn-version.c
 dtn-version.c: dtn-version.h
-dtn-version.h: dtn-version.h.in dtn-version.dat
+dtn-version.h: dtn-version.h.in dtn-version.dat   FORCE
 	$(OASYS_ETCDIR)/tools/subst-version $(SRCDIR)/dtn-version.dat \
 		< $(SRCDIR)/dtn-version.h.in > dtn-version.h
+
+.PHONY: FORCE
+FORCE:
 
 vpath dtn-version.h.in $(SRCDIR)
 vpath dtn-version.h    $(SRCDIR)
 vpath dtn-version.c    $(SRCDIR)
 vpath dtn-version.dat  $(SRCDIR)
-
-bump-version:
-	cd $(SRCDIR) && tools/bump-version dtn-version.dat
-
-#
-# Test rules
-#
-test: tests
-tests: 
-	$(MAKE) all
-	$(MAKE) -C test
-
-dtn-tests:
-	$(MAKE) -C test
 
 #
 # Installation rules
@@ -96,38 +99,33 @@ installdirs:
 	for dir in $(DESTDIR)$(localstatedir)/dtn \
 		   $(DESTDIR)$(localstatedir)/dtn/bundles \
 		   $(DESTDIR)$(localstatedir)/dtn/db ; do \
-	    (mkdir -p $$dir; chmod 755 $$dir; \
+	    (mkdir -p $$dir; chmod 777 $$dir; \
 		[ x$(DTN_USER) = x ] || chown $(DTN_USER) $$dir); \
 	done
 
 	[ -d $(DESTDIR)$(bindir) ] || \
-	    (mkdir -p $(DESTDIR)$(bindir); chmod 755 $(DESTDIR)$(bindir))
+	    (mkdir -p $(DESTDIR)$(bindir); chmod 777 $(DESTDIR)$(bindir))
 
 	[ -d $(DESTDIR)$(libdir) ] || \
-	    (mkdir -p $(DESTDIR)$(libdir); chmod 755 $(DESTDIR)$(libdir))
+	    (mkdir -p $(DESTDIR)$(libdir); chmod 777 $(DESTDIR)$(libdir))
 
 installbin: installdirs
-	for prog in daemon/dtnd \
-		    tools/dtnd-control \
-		    apps/dtncat/dtncat \
-		    apps/dtncp/dtncp \
-		    apps/dtncpd/dtncpd \
-		    apps/dtnhttpproxy/dtnhttpproxy \
-		    apps/dtnpeek/dtnpeek \
-		    apps/dtnperf/dtnperf-client \
-		    apps/dtnperf/dtnperf-server \
-		    apps/dtnping/dtnping \
-		    apps/dtnping/dtntraceroute \
-		    $(DTPC_APPS) \
-		    apps/dtnpublish/dtnpublish \
-		    apps/dtnsource/dtnsource \
-		    apps/dtnrecv/dtnrecv \
-		    apps/dtnsend/dtnsend \
-		    apps/dtnsink/dtnsink \
-		    apps/dtntunnel/dtntunnel \
-		    apps/num2sdnv/num2sdnv \
-		    apps/num2sdnv/sdnv2num \
-		    ehsrouter/test_ehsrouter; do \
+	for prog in daemon/dtnme \
+                    apps/deliver_me/deliver_me \
+                    apps/echo_me/echo_me \
+                    apps/dtnme_cli/dtnme_cli \
+                    apps/dtpc_send_me/dtpc_send_me \
+                    apps/dtpc_recv_me/dtpc_recv_me \
+                    apps/ping_me/ping_me \
+                    apps/recv_me/recv_me \
+                    apps/report_me/report_me \
+                    apps/sdnv_convert_me/sdnv_convert_me \
+                    apps/send_me/send_me \
+                    apps/sink_me/sink_me \
+                    apps/source_me/source_me \
+                    apps/trace_me/trace_me \
+                    apps/tunnel_me/tunnel_me \
+                    ehsrouter/test_ehsrouter; do \
 	    ($(INSTALL_PROGRAM) $$prog $(DESTDIR)$(bindir)) ; \
 	done
 
@@ -145,38 +143,11 @@ installlib: installdirs
 		(cd $(DESTDIR)$(libdir) && rm -f $$lib.$(SHLIB_EXT) && \
 		 ln -s $$lib-$(DTN_VERSION).$(SHLIB_EXT) $$lib.$(SHLIB_EXT)) \
 	done
-	if [ -z $(PYTHON_BUILD_EXT) ]; then \
-	cd applib && make perlapi_install; \
-	else \
-	cd applib && make pythonapi_install && make perlapi_install; \
-	fi
 
 
 installetc: installdirs
 	[ -d $(DESTDIR)$(sysconfdir) ] || mkdir -p $(DESTDIR)$(sysconfdir)
-	if [ -f $(DESTDIR)$(sysconfdir)/dtn.conf ]; then \
-		echo "WARNING: $(DESTDIR)$(sysconfdir)/dtn.conf exists -- not overwriting"; \
-	else \
-		$(INSTALL_DATA) daemon/dtn.conf $(DESTDIR)$(sysconfdir)/dtn.conf; \
-	fi
-
-	$(INSTALL_DATA) servlib/routing/router.xsd $(DESTDIR)$(sysconfdir)/router.xsd
-	$(INSTALL_DATA) servlib/conv_layers/clevent.xsd $(DESTDIR)$(sysconfdir)/clevent.xsd
-
-xsdbindings:
-	$(MAKE) -C servlib xsdbindings
-
-#
-# Build a TAGS database. Note this includes all the sources so it gets
-# header files as well.
-#
-.PHONY: TAGS tags
-tags TAGS:
-	cd $(SRCDIR) && \
-	find . -name \*.h -or -name \*.c -or -name \*.cc | \
-		xargs etags -l c++
-	find . -name \*.h -or -name \*.c -or -name \*.cc | \
-		xargs ctags 
+		$(INSTALL_DATA) daemon/dtnme_daemon.cfg $(DESTDIR)$(sysconfdir)/dtnme_daemon.cfg; \
 
 #
 # And a rule to make sure that configure has been run recently enough.
@@ -194,5 +165,4 @@ $(SRCDIR)/configure $(OASYS_ETCDIR)/Rules.make.in:
 	@echo error -- Makefile did not set SRCDIR properly
 	@exit 1
 
-CFGDIRS  := oasys/include oasys 
-CFGFILES = Rules.make System.make oasys/share oasys/lib oasys/include/oasys
+CFGFILES = Rules.make System.make aclocal.m4 config.log config.status configure dtn-config.h dtn-config.h.in dtn-version.h 

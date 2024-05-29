@@ -44,12 +44,13 @@ extern "C" {
  * Constants.
  * (Note that we use #defines to get the comments as well)
  */
-#define DTN_MAX_ENDPOINT_ID 256 /* max endpoint_id size (bytes) */
+#define DTN_MAX_ENDPOINT_ID 64 /* max endpoint_id size (bytes) - was 256 */
 #define DTN_MAX_PATH_LEN PATH_MAX /* max path length */
-#define DTN_MAX_EXEC_LEN ARG_MAX /* length of string passed to exec() */
+//#define DTN_MAX_EXEC_LEN ARG_MAX	/* length of string passed to exec() */
+#define DTN_MAX_EXEC_LEN 1050000 /* length of string passed to exec() */
 #define DTN_MAX_AUTHDATA 1024 /* length of auth/security data*/
 #define DTN_MAX_REGION_LEN 64 /* 64 chars "should" be long enough */
-#define DTN_MAX_BUNDLE_MEM 50000 /* biggest in-memory bundle is ~50K*/
+#define DTN_MAX_BUNDLE_MEM 100000000 /* biggest in-memory bundle is 100MB */
 #define DTN_MAX_BLOCK_LEN 1024 /* length of block data (currently 1K) */
 #define DTN_MAX_BLOCKS 256 /* number of blocks in bundle */
 
@@ -98,9 +99,12 @@ typedef u_int dtn_timeval_t;
  #define u_hyper u_quad_t
  #define xdr_u_hyper_t xdr_u_quad_t
 #endif
+/**
+ * BPv6 uses seconds and BPv7 uses milliseconds
+ */
 
 struct dtn_timestamp_t {
-	u_hyper secs;
+	u_hyper secs_or_millisecs;
 	u_hyper seqno;
 };
 typedef struct dtn_timestamp_t dtn_timestamp_t;
@@ -402,6 +406,7 @@ struct dtn_bundle_spec_t {
 	u_int ecos_flags;
 	u_int ecos_ordinal;
 	u_int ecos_flow_label;
+	u_int bp_version;
 	struct {
 		u_int blocks_len;
 		dtn_extension_block_t *blocks_val;
@@ -491,15 +496,22 @@ typedef struct dtn_bundle_status_report_t dtn_bundle_status_report_t;
  * dtn_bundle_status_report_t structure which contains the parsed fields
  * of the status report.
  *
- *     DTN_PAYLOAD_MEM         - payload contents in memory
- *     DTN_PAYLOAD_FILE        - payload contents in file
- *     DTN_PAYLOAD_TEMP_FILE   - in file, assume ownership (send only)
+ *     DTN_PAYLOAD_MEM                       - payload contents in memory
+ *     DTN_PAYLOAD_FILE                      - payload contents in file
+ *     DTN_PAYLOAD_TEMP_FILE                 - in file, assume ownership (send only)
+ *     DTN_PAYLOAD_VARIABLE                  - payload contents in memory if up to the max allowed else in file
+ *     DTN_PAYLOAD_RELEASED_DB_FILE          - payload contents as original database file released to the app
+ *     DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE - payload contents in memory if up to the max allowed else as
+ *                                             original database file released to the app
  */
 
 enum dtn_bundle_payload_location_t {
 	DTN_PAYLOAD_FILE = 0,
 	DTN_PAYLOAD_MEM = 1,
 	DTN_PAYLOAD_TEMP_FILE = 2,
+	DTN_PAYLOAD_VARIABLE = 3,
+	DTN_PAYLOAD_RELEASED_DB_FILE = 4,
+	DTN_PAYLOAD_VARIABLE_RELEASED_DB_FILE = 5,
 };
 typedef enum dtn_bundle_payload_location_t dtn_bundle_payload_location_t;
 
@@ -514,6 +526,7 @@ struct dtn_bundle_payload_t {
 		char *buf_val;
 	} buf;
 	dtn_bundle_status_report_t *status_report;
+	uint64_t size_of_payload;
 };
 typedef struct dtn_bundle_payload_t dtn_bundle_payload_t;
 

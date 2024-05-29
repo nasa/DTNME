@@ -20,7 +20,7 @@
 
 #include <list>
 
-#include "oasys/thread/SpinLock.h"
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "DtpcTopicAggregator.h"
 
@@ -69,18 +69,18 @@ public:
     virtual void deliver_data_item(DtpcApplicationDataItem* data_item);
 
     /// @{ Accessors
-    virtual const EndpointID&   remote_eid()     { return remote_eid_; }
+    virtual const SPtr_EID      remote_eid()     { return sptr_remote_eid_; }
     virtual time_t              expiration_ts()  { return expiration_ts_; }
     virtual bool                expired();
     /// @}
 
     /// @{ Setters and mutable accessors
-    virtual void set_remote_eid(const EndpointID& eid)  { remote_eid_.assign(eid); }
+    virtual void set_remote_eid(const SPtr_EID& sptr_eid)  { sptr_remote_eid_ = sptr_eid; }
     virtual void set_expiration_ts(u_int64_t t)         { expiration_ts_ = t; }
     /// @}
 protected:
     /// EID - Remote EID - Source EID from received bundle
-    EndpointID remote_eid_;
+    SPtr_EID sptr_remote_eid_;
 
     /// Expiration time (seconds since 1/1/1970 - actual time, not a lifetime)
     time_t expiration_ts_;

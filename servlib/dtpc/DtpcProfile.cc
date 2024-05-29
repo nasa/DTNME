@@ -31,14 +31,15 @@
 
 #include "DtpcProfile.h"
 
+#include "bundling/BundleDaemon.h"
+
 namespace dtn {
 
 //----------------------------------------------------------------------
 DtpcProfile::DtpcProfile(u_int32_t profile_id)
     : profile_id_(profile_id),
       custody_transfer_(false),
-      expiration_(864000),
-      replyto_("dtn:none"),
+      expiration_(3600),
       priority_(0),
       ecos_ordinal_(0),
       rpt_reception_(false),
@@ -52,7 +53,9 @@ DtpcProfile::DtpcProfile(u_int32_t profile_id)
       in_datastore_(false),
       queued_for_datastore_(false),
       reloaded_from_ds_(false)
-{}
+{
+    sptr_replyto_ = BD_MAKE_EID_NULL();
+}
 
 
 //----------------------------------------------------------------------
@@ -60,7 +63,6 @@ DtpcProfile::DtpcProfile(const oasys::Builder&)
     : profile_id_(0),
       custody_transfer_(false),
       expiration_(864000),
-      replyto_("dtn:none"),
       priority_(0),
       ecos_ordinal_(0),
       rpt_reception_(false),
@@ -74,8 +76,9 @@ DtpcProfile::DtpcProfile(const oasys::Builder&)
       in_datastore_(false),
       queued_for_datastore_(false),
       reloaded_from_ds_(false)
-{}
-
+{
+    sptr_replyto_ = BD_MAKE_EID_NULL();
+}
 //----------------------------------------------------------------------
 DtpcProfile::~DtpcProfile () 
 {}
@@ -85,9 +88,12 @@ DtpcProfile::~DtpcProfile ()
 void
 DtpcProfile::serialize(oasys::SerializeAction* a)
 {
+    std::string tmp_replyto = sptr_replyto_->str();
+
+
     a->process("profile_id", &profile_id_);
     a->process("custody_transfer", &custody_transfer_);
-    a->process("replyto", &replyto_);
+    a->process("replyto", &tmp_replyto);
     a->process("expiration", &expiration_);
     a->process("priority", &priority_);
     a->process("ecos_ordinal", &ecos_ordinal_);
@@ -99,6 +105,10 @@ DtpcProfile::serialize(oasys::SerializeAction* a)
     a->process("retransmission_limit", &retransmission_limit_);
     a->process("aggregation_size_limit", &aggregation_size_limit_);
     a->process("aggregation_time_limit", &aggregation_time_limit_);
+
+    if (a->action_code() == oasys::Serialize::UNMARSHAL) {
+        sptr_replyto_ = BD_MAKE_EID(tmp_replyto);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -120,12 +130,12 @@ DtpcProfile::format_for_list(oasys::StringBuffer* buf)
 {
 #define bool_to_c(x)   ((x) ? 'T' : 'F')
 
-    buf->appendf("%6"PRIu32" %6"PRIu32" %7"PRIu32" %7"PRIu32"  %c   %8"PRIu64" %-9.9s  %3u  %c    %c    %c    %c    %c   %s\n",
+    buf->appendf("%6" PRIu32 " %6" PRIu32 " %7" PRIu32 " %7" PRIu32 "  %c   %8" PRIu64 " %-9.9s  %3u  %c    %c    %c    %c    %c   %s\n",
                  profile_id_, retransmission_limit_, aggregation_size_limit_, aggregation_time_limit_,
                  bool_to_c(custody_transfer_), expiration_, priority_str(),
                  ecos_ordinal_, bool_to_c(rpt_reception_), bool_to_c(rpt_acceptance_),
                  bool_to_c(rpt_forward_), bool_to_c(rpt_delivery_), bool_to_c(rpt_deletion_),
-                 replyto_.c_str());
+                 sptr_replyto_->c_str());
 }
 
 //----------------------------------------------------------------------
@@ -135,8 +145,8 @@ DtpcProfile::format_verbose(oasys::StringBuffer* buf)
 
 #define bool_to_str(x)   ((x) ? "true" : "false")
 
-    buf->appendf("profile id %"PRIu32":\n", profile_id_);
-    buf->appendf("              dest: %s\n", replyto_.c_str());
+    buf->appendf("profile id %" PRIu32 ":\n", profile_id_);
+    buf->appendf("              dest: %s\n", sptr_replyto_->c_str());
 }
 
 //----------------------------------------------------------------------
@@ -165,7 +175,7 @@ DtpcProfile::operator==(const DtpcProfile& other) const
 {
     return (profile_id_ == other.profile_id_)
         && (custody_transfer_ == other.custody_transfer_)
-        && (replyto_ == other.replyto_)
+        && (sptr_replyto_ == other.sptr_replyto_)
         && (expiration_ == other.expiration_)
         && (priority_ == other.priority_)
         && (ecos_ordinal_ == other.ecos_ordinal_)

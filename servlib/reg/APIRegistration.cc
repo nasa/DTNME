@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -36,15 +36,14 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/thread/SpinLock.h>
-#include <oasys/serialize/SerializableVector.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/serialize/SerializableVector.h>
 
 #include "APIRegistration.h"
 #include "reg/RegistrationTable.h"
 #include "bundling/Bundle.h"
 #include "bundling/BundleDaemon.h"
 #include "bundling/BundleList.h"
-#include "session/Session.h"
 
 namespace dtn {
 
@@ -53,14 +52,15 @@ APIRegistration::APIRegistration(const oasys::Builder& builder)
     : Registration(builder)
 {
     bundle_list_ = new BlockingBundleList(logpath_);
-    session_notify_list_ = NULL;
     unacked_bundle_list_ = new BundleList(logpath_);
     acked_bundle_list_   = new BundleList(logpath_);
+
+    reg_list_type_str_ = "API_Reg";
 }
     
 //----------------------------------------------------------------------
 APIRegistration::APIRegistration(u_int32_t regid,
-                                 const EndpointIDPattern& endpoint,
+                                 const SPtr_EIDPattern& sptr_endpoint,
                                  failure_action_t failure_action,
                                  replay_action_t replay_action,
                                  u_int32_t session_flags,
@@ -68,20 +68,16 @@ APIRegistration::APIRegistration(u_int32_t regid,
                                  bool delivery_acking,
                                  u_int64_t reg_token,
                                  const std::string& script)
-    : Registration(regid, endpoint, failure_action, replay_action,
+    : Registration(regid, sptr_endpoint, failure_action, replay_action,
                    session_flags, expiration, delivery_acking, script)
 {
     memcpy(&reg_token_, &reg_token, sizeof(u_int64_t));
 
     bundle_list_ = new BlockingBundleList(logpath_);
-    if (session_flags & Session::CUSTODY) {
-        session_notify_list_ = new BlockingBundleList(logpath_);
-        session_notify_list_->logpath_appendf("/session_notify");
-    } else {
-        session_notify_list_ = NULL;
-    }
     unacked_bundle_list_ = new BundleList(logpath_);
     acked_bundle_list_   = new BundleList(logpath_);
+
+    reg_list_type_str_ = "API_Reg";
 }
 
 //----------------------------------------------------------------------
@@ -110,12 +106,6 @@ APIRegistration::serialize(oasys::SerializeAction* a)
         acked_bundle_list_->serialize(a);
     }
 
-    if (a->action_code() == oasys::Serialize::UNMARSHAL &&
-        (session_flags_ & Session::CUSTODY))
-    {
-        session_notify_list_ = new BlockingBundleList(logpath_);
-        session_notify_list_->logpath_appendf("/session_notify");
-    }
     log_debug("APIRegistration::serialize -- done.");
 }
 
@@ -123,67 +113,72 @@ APIRegistration::serialize(oasys::SerializeAction* a)
 APIRegistration::~APIRegistration()
 {
     delete bundle_list_;
-    if (session_notify_list_) {
-        delete session_notify_list_;
-    }
     delete unacked_bundle_list_;
     delete acked_bundle_list_;
 }
 
 //----------------------------------------------------------------------
-void
-APIRegistration::deliver_bundle(Bundle* bundle)
+int
+APIRegistration::deliver_bundle(Bundle* bundle, SPtr_Registration& sptr_reg)
 {
+    (void) sptr_reg;
+
+    int deliver_status = REG_DELIVER_BUNDLE_QUEUED;
+
     if (!active() && (failure_action_ == DROP)) {
-        log_info("deliver_bundle: "
+        log_debug("deliver_bundle: "
                  "dropping bundle id %" PRIbid " for passive registration %d (%s)",
-                 bundle->bundleid(), regid_, endpoint_.c_str());
-        
-        // post an event saying we "delivered" it
-        BundleDaemon::post(new BundleDeliveredEvent(bundle, this));
-        return;
-    }
-    
-    if (!active() && (failure_action_ == EXEC)) {
-        // this sure seems like a security hole, but what can you
-        // do -- it's in the spec
-        log_info("deliver_bundle: "
-                 "running script '%s' for registration %d (%s)",
-                 script_.c_str(), regid_, endpoint_.c_str());
-        
-        system(script_.c_str());
-        // fall through
-    }
-
-    log_info("deliver_bundle: queuing bundle id %" PRIbid " for %s delivery to %s",
-             bundle->bundleid(),
-             active() ? "active" : "deferred",
-             endpoint_.c_str());
-
-    oasys::ScopeLock l(&lock_, "adding bundle to bundle_list");
-    if (active() || (replay_action() == Registration::NEW)) {
-        if (BundleDaemon::instance()->params_.test_permuted_delivery_) {
-            bundle_list_->insert_random(bundle);
-        } else {
-            bundle_list_->push_back(bundle);
-        }
+                 bundle->bundleid(), regid_, sptr_endpoint_->c_str());
+        deliver_status = REG_DELIVER_BUNDLE_DROPPED;
     } else {
-        // application is not connected
-        // either the replay action is NONE, which is an implicit ack, or
-        // this bundle will be included in an ALL playback on reconnect
-
-        // XXX/dz bundle used to be flagged as delivered before the actual
-        // delivery so we need to issue the delivered event to mark it
-        if (replay_action() == Registration::NONE) {
-            BundleDaemon::post(new BundleDeliveredEvent(bundle, this));
-        }
-
-        acked_bundle_list_->push_back(bundle);
-    }
     
-    if (BundleDaemon::instance()->params_.serialize_apireg_bundle_lists_) {
-        update();
+        //dzdebug    if (!active() && (failure_action_ == EXEC)) {
+        //dzdebug        // this sure seems like a security hole, but what can you
+        //dzdebug        // do -- it's in the spec
+        //dzdebug        log_info("deliver_bundle: "
+        //dzdebug                 "running script '%s' for registration %d (%s)",
+        //dzdebug                 script_.c_str(), regid_, sptr_endpoint_->c_str());
+        //dzdebug        
+        //dzdebug        system(script_.c_str());
+        //dzdebug        // fall through
+        //dzdebug    }
+
+        //log_debug("deliver_bundle: queuing bundle id %" PRIbid " for %s delivery to %s",
+        //         bundle->bundleid(),
+        //         active() ? "active" : "deferred",
+        //         sptr_endpoint_->c_str());
+
+        oasys::ScopeLock l(&lock_, "adding bundle to bundle_list");
+
+        if (active() || (replay_action() == Registration::NEW)) {
+            if (BundleDaemon::instance()->params_.test_permuted_delivery_) {
+                bundle_list_->insert_random(bundle);
+            } else {
+                bundle_list_->push_back(bundle);
+            }
+
+            //deliver_status = REG_DELIVER_BUNDLE_QUEUED;
+
+        } else {
+            // application is not connected
+            // either the replay action is NONE, which is an implicit ack, or
+            // this bundle will be included in an ALL playback on reconnect
+    
+            if (replay_action() != Registration::ALL) {
+                deliver_status = REG_DELIVER_BUNDLE_SUCCESS;
+            } else {
+                acked_bundle_list_->push_back(bundle);
+
+                //deliver_status = REG_DELIVER_BUNDLE_QUEUED;
+            }
+        }
+    
+        if (BundleDaemon::instance()->params_.serialize_apireg_bundle_lists_) {
+            update();
+        }
     }
+
+    return deliver_status;
 }
 
 //----------------------------------------------------------------------
@@ -199,19 +194,6 @@ APIRegistration::delete_bundle(Bundle* bundle)
 
     if (acked_bundle_list_->erase(bundle))
         return;
-
-    if (BundleDaemon::instance()->params_.serialize_apireg_bundle_lists_) {
-        update();
-    }
-}
-
-//----------------------------------------------------------------------
-void
-APIRegistration::session_notify(Bundle* bundle)
-{
-    oasys::ScopeLock l(&lock_, "session_notify");
-    log_debug("session_notify *%p", bundle);
-    session_notify_list_->push_back(bundle);
 
     if (BundleDaemon::instance()->params_.serialize_apireg_bundle_lists_) {
         update();
@@ -285,6 +267,17 @@ APIRegistration::deliver_front()
 }
 
 //----------------------------------------------------------------------
+void 
+APIRegistration::bundle_delivery_succeeded(BundleRef& bref)
+{
+    if (replay_action() == Registration::NEW) {
+        // only providing newly received bundles on reconnect 
+        // so no longer needs to be keep this bundle
+        delete_bundle(bref.object());
+    }
+}
+
+//----------------------------------------------------------------------
 void
 APIRegistration::save(Bundle *b)
 {
@@ -295,7 +288,9 @@ APIRegistration::save(Bundle *b)
         unacked_bundle_list_->push_back(b);
     } else {
         // auto-acking enabled
-        acked_bundle_list_->push_back(b);
+        if (replay_action() == Registration::ALL) {
+            acked_bundle_list_->push_back(b);
+        }
     }
 }
 
@@ -309,11 +304,11 @@ APIRegistration::update()
 
 //----------------------------------------------------------------------
 void
-APIRegistration::bundle_ack(const EndpointID& source_eid,
+APIRegistration::bundle_ack(const SPtr_EID& sptr_source,
                             const BundleTimestamp& creation_ts)
 {
     BundleRef b("APIRegistration::bundle_ack");
-    b = unacked_bundle_list_->find(source_eid, creation_ts);
+    b = unacked_bundle_list_->find(sptr_source, creation_ts);
     if (b.object() == NULL) {
         log_debug("acknowledgement of unknown bundle");
         return;
@@ -321,11 +316,13 @@ APIRegistration::bundle_ack(const EndpointID& source_eid,
 
     oasys::ScopeLock l(&lock_, "bundle_ack");
 
-    acked_bundle_list_->push_back(b.object());
+    if (replay_action() == Registration::ALL) {
+        acked_bundle_list_->push_back(b.object());
+    }
     unacked_bundle_list_->erase(b.object());
 
     log_info("registration %d (%s) acknowledged delivery of bundle %" PRIbid,
-             regid_, endpoint_.c_str(), (b.object())->bundleid());
+             regid_, sptr_endpoint_->c_str(), (b.object())->bundleid());
 
     if (BundleDaemon::instance()->params_.serialize_apireg_bundle_lists_) {
         update();

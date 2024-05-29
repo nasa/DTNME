@@ -17,7 +17,7 @@
 #ifndef _REGISTRATION_COMMAND_H_
 #define _REGISTRATION_COMMAND_H_
 
-#include <oasys/tclcmd/TclCommand.h>
+#include <third_party/oasys/tclcmd/TclCommand.h>
 
 namespace dtn {
 
@@ -26,7 +26,15 @@ namespace dtn {
  */
 class RegistrationCommand : public oasys::TclCommand {
 public:
+    /**
+     * Default Constructor
+     */
     RegistrationCommand();
+
+    /**
+     * Alternate constructor to specify a command string
+     */
+    RegistrationCommand(const char* cmd_str);
     
     /**
      * Virtual from CommandModule.

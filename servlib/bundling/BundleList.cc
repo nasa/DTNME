@@ -15,7 +15,7 @@
  */
 
 /*
- *    Modifications made to this file by the patch file dtnme_mfs-33289-1.patch
+ *    Modifications made to this file by the patch file dtn2_mfs-33289-1.patch
  *    are Copyright 2015 United States Government as represented by NASA
  *       Marshall Space Flight Center. All Rights Reserved.
  *
@@ -38,7 +38,7 @@
 
 #include <algorithm>
 #include <stdlib.h>
-#include <oasys/thread/SpinLock.h>
+#include <third_party/oasys/thread/SpinLock.h>
 
 #include "Bundle.h"
 #include "BundleList.h"
@@ -67,6 +67,8 @@ BundleList::set_name(const std::string& name)
 //----------------------------------------------------------------------
 BundleList::~BundleList()
 {
+    deleting_ = true;
+
     clear();
 }
 
@@ -271,7 +273,10 @@ BundleList::pop_front(bool used_notifier)
     // Assign the bundle to a temporary reference, then remove the
     // list reference on the bundle and return the temporary
     ret = del_bundle(list_.begin(), used_notifier);
-    ret->del_ref(ltype_.c_str(), name_.c_str()); 
+
+    if (!deleting_) {
+        ret->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return ret;
 }
 
@@ -290,7 +295,10 @@ BundleList::pop_back(bool used_notifier)
     // Assign the bundle to a temporary reference, then remove the
     // list reference on the bundle and return the temporary
     ret = del_bundle(--list_.end(), used_notifier);
-    ret->del_ref(ltype_.c_str(), name_.c_str()); 
+
+    if (!deleting_) {
+        ret->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return ret;
 }
 
@@ -329,7 +337,9 @@ BundleList::erase(Bundle* bundle, bool used_notifier)
     Bundle* b = del_bundle(*itr, used_notifier);
     ASSERT(b == bundle);
     
-    bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    if (!deleting_) {
+        bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
     return true;
 }
 
@@ -346,7 +356,9 @@ BundleList::erase(iterator& iter, bool used_notifier)
     Bundle* b = del_bundle(iter, used_notifier);
     ASSERT(b == bundle);
     
-    bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    if (!deleting_) {
+        bundle->del_ref(ltype_.c_str(), name_.c_str()); 
+    }
 }
 
 //----------------------------------------------------------------------
@@ -394,7 +406,6 @@ BundleList::find(bundleid_t bundle_id) const
 }
 
 //----------------------------------------------------------------------
-#ifdef ACS_ENABLED
 BundleRef
 BundleList::find_custodyid(bundleid_t custody_id) const
 {
@@ -416,11 +427,10 @@ BundleList::find_custodyid(bundleid_t custody_id) const
 
     return ret;
 }
-#endif // ACS_ENABLED
 
 //----------------------------------------------------------------------
 BundleRef
-BundleList::find(const EndpointID& source_eid,
+BundleList::find(const SPtr_EID& sptr_source,
                  const BundleTimestamp& creation_ts) const
 {
     BundleRef ret("BundleList::find() temporary");
@@ -428,9 +438,9 @@ BundleList::find(const EndpointID& source_eid,
     oasys::ScopeLock l(lock_, "BundleList::find");
 
     for (iterator iter = begin(); iter != end(); ++iter) {
-        if ((*iter)->creation_ts().seconds_ == creation_ts.seconds_ &&
+        if ((*iter)->creation_ts().secs_or_millisecs_ == creation_ts.secs_or_millisecs_ &&
             (*iter)->creation_ts().seqno_ == creation_ts.seqno_ &&
-            (*iter)->source().equals(source_eid) &&
+            ((*iter)->source() == sptr_source) &&
             !((*iter)->is_freed()))
         {
             ret = *iter;
@@ -486,31 +496,6 @@ BundleList::find(std::string gbofid_str) const
 }
 
 //----------------------------------------------------------------------
-BundleRef
-BundleList::find(const GbofId& gbof_id, const BundleTimestamp& extended_id) const
-{
-    BundleRef ret("BundleList::find() temporary (by gbof_id and timestamp)");
-    
-    oasys::ScopeLock l(lock_, "BundleList::find (by gbof_id and timestamp");
-
-    for (iterator iter = begin(); iter != end(); ++iter) {
-        if (extended_id == (*iter)->extended_id() &&
-            gbof_id.equals((*iter)->source(),
-                           (*iter)->creation_ts(),
-                           (*iter)->is_fragment(),
-                           (*iter)->payload().length(),
-                           (*iter)->frag_offset()) &&
-            !((*iter)->is_freed()))
-        {
-            ret = *iter;
-            return ret;
-        }
-    }
-
-    return ret;
-}
-
-//----------------------------------------------------------------------
 void
 BundleList::move_contents(BundleList* other)
 {
@@ -529,11 +514,7 @@ void
 BundleList::clear()
 {
     oasys::ScopeLock l(lock_, "BundleList::clear");
-    
-    BundleRef b("BundleList::clear temporary");
-    while (!list_.empty()) {
-        b = pop_front();
-    }
+    list_.clear();
 }
 
 

@@ -19,54 +19,35 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <inttypes.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 
-
-#include <oasys/debug/Log.h>
-#include <oasys/io/FileUtils.h>
-#include <oasys/io/NetUtils.h>
-#include <oasys/io/UDPClient.h>
-#include <oasys/util/StringUtils.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/io/FileUtils.h>
+#include <third_party/oasys/io/NetUtils.h>
+#include <third_party/oasys/io/UDPClient.h>
+#include <third_party/oasys/util/StringUtils.h>
 
 #include "EhsDtnNode.h"
 #include "EhsExternalRouterImpl.h"
 
-#define SEND(event, data, dtn_node) \
-    rtrmessage::bpa message; \
-    message.event(data); \
-    send_msg(message, dtn_node->eid());
-
-// in case a method needs to send multiple messages
-#define SEND2(event, data, dtn_node) \
-    rtrmessage::bpa message2; \
-    message2.event(data); \
-    send_msg(message2, dtn_node->eid());
-
-// in case a method needs to send multiple messages
-#define SEND3(event, data, dtn_node) \
-    rtrmessage::bpa message3; \
-    message3.event(data); \
-    send_msg(message3, dtn_node->eid());
-
-#define CATCH(exception) \
-    catch (exception &e) { log_msg(oasys::LOG_WARN, "%s", e.what()); }
 
 namespace dtn {
 
 
 //----------------------------------------------------------------------
 EhsExternalRouterImpl::EhsExternalRouterImpl(LOG_CALLBACK_FUNC log_callback, int log_level, bool oasys_app)
-    : IOHandlerBase(new oasys::Notifier("/ehs/extrtr")),
-      Thread("/ehs/extrtr", oasys::Thread::DELETE_ON_EXIT),
+//    : IOHandlerBase(new oasys::Notifier("/ehs/extrtr")),
+    : Thread("/ehs/extrtr", oasys::Thread::DELETE_ON_EXIT),
+      oasys::Logger("EhsExternalRouterImpl", "/ehs/extrtr"),
+      ExternalRouterClientIF("EhsExternalRouterImpl"),
+      eventq_(logpath_),
       log_callback_(log_callback),
       log_level_(log_level),
-      oasys_app_(oasys_app)
+      oasys_app_(oasys_app),
+      tcp_client_("/ehs/extrtr/tcpclient"),
+      tcp_sender_()
 {
     set_logpath("/ehs/extrtr");
 
@@ -78,35 +59,22 @@ EhsExternalRouterImpl::~EhsExternalRouterImpl()
 {
     log_msg(oasys::LOG_INFO, "Destroying EhsExternalRouterImpl");
 
-    if (NULL != sender_) {
-        sender_->set_should_stop();
-    }
-
-    do {
-        // limit scope of lock
-        oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-        if (NULL != tcp_sender_) {
-            tcp_sender_->set_should_stop();
-        }
-        usleep(300000);
-        if (NULL != tcp_client_) {
-            tcp_client_->close();
-            delete tcp_client_;
-        }
-    } while (false);
+    tcp_sender_.set_should_stop();
+    tcp_client_.close();
 
     // free list of DTN nodes
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
         dtn_node_map_.erase(iter);
-        node->set_should_stop();
+        node->do_shutdown();
 
         iter = dtn_node_map_.begin();
     }
+    node = nullptr;
 
+    // free the link config objects
     EhsLinkCfgIterator cliter = link_configs_.begin();
     while (cliter != link_configs_.end()) {
         EhsLinkCfg* cl = cliter->second;
@@ -118,27 +86,19 @@ EhsExternalRouterImpl::~EhsExternalRouterImpl()
 
     fwdlink_xmt_enabled_.clear();
 
-    sleep(1);
-
     // free all pending events
     std::string *event;
-    while (eventq->try_pop(&event))
+    while (eventq_.try_pop(&event)) {
         delete event;
+    }
 
-    delete eventq;
-
-    sleep(1);
-
-    delete parser_;
-
-    // free the link config objects
 }
 
 //----------------------------------------------------------------------
 void
 EhsExternalRouterImpl::init() 
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    tcp_sender_.set_parent(this);
 
     // start out in LOS state until informed we can start transmitting
     fwdlnk_aos_ = false;
@@ -149,28 +109,12 @@ EhsExternalRouterImpl::init()
     max_expiration_rtn_ = 48 * 60 * 60; // 48 hours worth of seconds
 
     // intialize socket parameters
-    sender_                 = NULL;
-    use_tcp_interface_      = false;
-    tcp_client_             = NULL;
-
-    // listen for the ALLRTRS group (224.0.0.2) on the loopback interface only
-    local_addr_ = htonl(INADDR_LOOPBACK);
-    remote_addr_ = htonl(INADDR_ALLRTRS_GROUP);
-
-    // Initialize EhsExternalRouterImpl parameters
-    local_port_             = 8001;
-    remote_port_            = 8001;
-    schema_                 = "/etc/router.xsd";
-    server_validation_      = false;
-    client_validation_      = false;
-    parser_                 = NULL;
+    remote_addr_ = htonl(INADDR_LOOPBACK);
+    remote_port_ = 8001;
 
     // Default accepting custody of bundles to true
     accept_custody_.put_pair_double_wildcards(true);
 
-    //set_logfd(false);
-
-    eventq = new oasys::MsgQueue< std::string * >(logpath_);
 
     send_seq_ctr_ = 0;
     bytes_recv_ = 0;
@@ -182,41 +126,25 @@ EhsExternalRouterImpl::init()
 bool 
 EhsExternalRouterImpl::configure_use_tcp_interface(std::string& val)
 {
-    bool result = true;
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-    if ((0 == val.compare("true")) || (0 == val.compare("TRUE"))) {
-        use_tcp_interface_ = true;
-    } else if ((0 == val.compare("false")) || (0 == val.compare("FALSE"))) {
-        use_tcp_interface_ = false;
-    } else  {
-        use_tcp_interface_ = false;
-        result = false;
-    } 
-
-    return result;
+    (void) val;
+    return true;
 }
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouterImpl::configure_mc_address(std::string& val)
+EhsExternalRouterImpl::configure_remote_address(std::string& val)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
     return (0 == oasys::gethostbyname(val.c_str(), &remote_addr_));
 }
 
 //----------------------------------------------------------------------
 bool 
-EhsExternalRouterImpl::configure_mc_port(std::string& val)
+EhsExternalRouterImpl::configure_remote_port(std::string& val)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-    uint32_t port = strtoul(val.c_str(), NULL, 10);
+    uint32_t port = strtoul(val.c_str(), nullptr, 10);
     bool result = (port > 0 && port < 65536);
     if (result) {
         remote_port_ = port;
-        local_port_ = port;
     } else {
         log_msg(oasys::LOG_ERR, 
                 "configure_mc_port - Invalid port number: %s", 
@@ -229,60 +157,17 @@ EhsExternalRouterImpl::configure_mc_port(std::string& val)
 bool 
 EhsExternalRouterImpl::configure_network_interface(std::string& val)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-    bool result = true;
-    if (0 == val.compare("any")) {
-        local_addr_ = htonl(INADDR_ANY);
-    } else if (0 == val.compare("lo")) {
-        local_addr_ = htonl(INADDR_LOOPBACK);
-    } else if (0 == val.compare("localhost")) {
-        local_addr_ = htonl(INADDR_LOOPBACK);
-    } else if (val.find("eth") != std::string::npos) {
-        int fd = socket(AF_INET, SOCK_DGRAM, 0);
-        struct ifreq ifr;
-        memset(&ifr, 0, sizeof(ifr));
-        strncpy(ifr.ifr_name, val.c_str(), IFNAMSIZ-1);
-        if (ioctl(fd, SIOCGIFADDR, &ifr)) {
-            result = false;
-            log_msg(oasys::LOG_ERR, 
-                    "configure_network_interface - Error in ioctl for interface name: %s", 
-                    ifr.ifr_name);
-        } else {
-            //dzdebug local_addr_ = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
-            struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in*>(&ifr.ifr_addr);
-            local_addr_ = sin->sin_addr.s_addr;
-        }
-    } else {
-        // Assume this is the IP address of one of our interfaces?
-        if (0 != oasys::gethostbyname(val.c_str(), &local_addr_)) {
-            result = false;
-            log_msg(oasys::LOG_ERR, 
-                    "configure_network_interface - Error in gethostbyname for %s", 
-                    val.c_str());
-        }
-    }
-
-    log_msg(oasys::LOG_INFO, "configure_network_interface: %s", intoa(local_addr_));
-
-    return result;
+    (void) val;
+    return true;
 }
 
 //----------------------------------------------------------------------
 bool 
 EhsExternalRouterImpl::configure_schema_file(std::string& val)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-    bool result = oasys::FileUtils::readable(val.c_str());
-    if (result) {
-        schema_ = val;
-    } else {
-        log_msg(oasys::LOG_ERR, 
-                "configure_schema_file - Invalid filename or access rights: %s", 
-                val.c_str());
-    }
-    return result;
+    // depricated - only retained for backward compatibility for a while
+    (void) val;
+    return true;
 }
 
 //----------------------------------------------------------------------
@@ -312,7 +197,7 @@ EhsExternalRouterImpl::configure_forward_link(std::string& val)
         cl->is_fwdlnk_ = true;
 
         // parse throttle (bits per sec)
-        char* endc = NULL;
+        char* endc = nullptr;
         cl->throttle_bps_ = strtoul(tokens[tok_idx++].c_str(), &endc, 10);
 
         // parse the reachable nodes list
@@ -362,25 +247,32 @@ EhsExternalRouterImpl::configure_forward_link(std::string& val)
         }
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            do {
+                oasys::ScopeLock l(&config_lock_, __func__);
 
-            EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
-            if (find_iter != link_configs_.end()) {
-                // replace the config object
-                delete find_iter->second;
-                find_iter->second = cl;
-            } else {
-                link_configs_[link_id] = cl;
-            }
+                EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
+                if (find_iter != link_configs_.end()) {
+                    // replace the config object
+                    delete find_iter->second;
+                    find_iter->second = cl;
+                } else {
+                    link_configs_[link_id] = cl;
+                }
+            } while (false); // limit scope of lock
 
-            // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
-            EhsDtnNodeIterator iter = dtn_node_map_.begin();
-            while (iter != dtn_node_map_.end()) {
-                node = iter->second;
-                node->reconfigure_link(link_id);
-                ++iter;
-            }
+
+            do {
+                oasys::ScopeLock l(&node_map_lock_, __func__);
+
+                // inform each DtnNode to reconfigure the link
+                SPtr_EhsDtnNode node;
+                EhsDtnNodeIterator iter = dtn_node_map_.begin();
+                while (iter != dtn_node_map_.end()) {
+                    node = iter->second;
+                    node->reconfigure_link(link_id);
+                    ++iter;
+                }
+            } while (false); // limit scope of lock
 
             log_msg(oasys::LOG_INFO, "configure_forward_link: FORWARD_LINK Link ID: %s - success",
                     link_id.c_str());
@@ -424,7 +316,7 @@ EhsExternalRouterImpl::configure_fwdlink_transmit_enable(std::string& val)
         // parse the source nodes list
         uint64_t node_id = 0;
         uint64_t end_node_id = 0;
-        char* endc = NULL;
+        char* endc = nullptr;
 
         std::vector<std::string> node_tokens;
 
@@ -512,28 +404,34 @@ EhsExternalRouterImpl::configure_fwdlink_transmit_enable(std::string& val)
         }
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            do {
+                oasys::ScopeLock l(&config_lock_, __func__);
 
-            // update the list of enabled src/dest combos
-            EhsNodeBoolIterator src_iter = tmp_src_list.begin();
-            EhsNodeBoolIterator dst_iter;
-            while (src_iter != tmp_src_list.end()) {
-                dst_iter = tmp_dst_list.begin();
-                while (dst_iter != tmp_dst_list.end()) {
-                    fwdlink_xmt_enabled_.put_pair(src_iter->first, dst_iter->first, true);
-                    ++dst_iter;
+                // update the list of enabled src/dest combos
+                EhsNodeBoolIterator src_iter = tmp_src_list.begin();
+                EhsNodeBoolIterator dst_iter;
+                while (src_iter != tmp_src_list.end()) {
+                    dst_iter = tmp_dst_list.begin();
+                    while (dst_iter != tmp_dst_list.end()) {
+                        fwdlink_xmt_enabled_.put_pair(src_iter->first, dst_iter->first, true);
+                        ++dst_iter;
+                    }
+                    ++src_iter;
                 }
-                ++src_iter;
-            }
+            } while (false); // limit scope of lock
  
-            // inform each DtnNode to reconfigure the fwdlink transmit
-            EhsDtnNode* node;
-            EhsDtnNodeIterator iter = dtn_node_map_.begin();
-            while (iter != dtn_node_map_.end()) {
-                node = iter->second;
-                node->fwdlink_transmit_enable(tmp_src_list, tmp_dst_list);
-                ++iter;
-            }
+            do {
+                oasys::ScopeLock l(&node_map_lock_, __func__);
+
+                // inform each DtnNode to reconfigure the fwdlink transmit
+                SPtr_EhsDtnNode node;
+                EhsDtnNodeIterator iter = dtn_node_map_.begin();
+                while (iter != dtn_node_map_.end()) {
+                    node = iter->second;
+                    node->fwdlink_transmit_enable(tmp_src_list, tmp_dst_list);
+                    ++iter;
+                }
+            } while (false); // limit scope of lock
 
             log_msg(oasys::LOG_INFO, "configure_fwdlink_transmit_enable: FWDLINK_TRANSMIT_ENABLE - success");
         }
@@ -573,7 +471,7 @@ EhsExternalRouterImpl::configure_fwdlink_transmit_disable(std::string& val)
         // parse the source nodes list
         uint64_t node_id = 0;
         uint64_t end_node_id = 0;
-        char* endc = NULL;
+        char* endc = nullptr;
 
         std::vector<std::string> node_tokens;
 
@@ -661,28 +559,34 @@ EhsExternalRouterImpl::configure_fwdlink_transmit_disable(std::string& val)
         }
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            do {
+                oasys::ScopeLock l(&config_lock_, __func__);
 
-            // update the list of enabled src/dest combos
-            EhsNodeBoolIterator src_iter = tmp_src_list.begin();
-            EhsNodeBoolIterator dst_iter;
-            while (src_iter != tmp_src_list.end()) {
-                dst_iter = tmp_dst_list.begin();
-                while (dst_iter != tmp_dst_list.end()) {
-                    fwdlink_xmt_enabled_.clear_pair(src_iter->first, dst_iter->first);
-                    ++dst_iter;
+                // update the list of enabled src/dest combos
+                EhsNodeBoolIterator src_iter = tmp_src_list.begin();
+                EhsNodeBoolIterator dst_iter;
+                while (src_iter != tmp_src_list.end()) {
+                    dst_iter = tmp_dst_list.begin();
+                    while (dst_iter != tmp_dst_list.end()) {
+                        fwdlink_xmt_enabled_.clear_pair(src_iter->first, dst_iter->first);
+                        ++dst_iter;
+                    }
+                    ++src_iter;
                 }
-                ++src_iter;
-            }
+            } while (false); // limit scope of lock
  
-            // inform each DtnNode to reconfigure the fwdlink transmit
-            EhsDtnNode* node;
-            EhsDtnNodeIterator iter = dtn_node_map_.begin();
-            while (iter != dtn_node_map_.end()) {
-                node = iter->second;
-                node->fwdlink_transmit_disable(tmp_src_list, tmp_dst_list);
-                ++iter;
-            }
+            do {
+                oasys::ScopeLock l(&node_map_lock_, __func__);
+
+                // inform each DtnNode to reconfigure the fwdlink transmit
+                SPtr_EhsDtnNode node;
+                EhsDtnNodeIterator iter = dtn_node_map_.begin();
+                while (iter != dtn_node_map_.end()) {
+                    node = iter->second;
+                    node->fwdlink_transmit_disable(tmp_src_list, tmp_dst_list);
+                    ++iter;
+                }
+            } while (false); // limit scope of lock
 
             log_msg(oasys::LOG_INFO, "configure_fwdlink_transmit_disable: FWDLINK_TRANSMIT_DISABLE - success");
         }
@@ -697,10 +601,10 @@ EhsExternalRouterImpl::configure_fwdlnk_allow_ltp_acks_while_disabled(bool allow
 {
     fwdlnk_force_LOS_while_disabled_ = !allowed;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     // inform each DtnNode to reconfigure 
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -717,10 +621,10 @@ EhsExternalRouterImpl::shutdown_server()
 {
     bool result = true;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     // inform each DtnNode to shutdown
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -737,6 +641,7 @@ bool
 EhsExternalRouterImpl::configure_link_enable(std::string& val)
 {
     bool result = true;
+    bool minor_error = false;
 
     std::vector<std::string> tokens;
 
@@ -753,128 +658,136 @@ EhsExternalRouterImpl::configure_link_enable(std::string& val)
         int tok_idx = 0;
         std::string link_id = tokens[tok_idx++];
 
-        
-        lock_.lock(__FUNCTION__);
-        EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
-        lock_.unlock();
 
-        if (find_iter == link_configs_.end()) {
-            // load a temp EhsLinkCfg until we know all data is good
-            cl = new EhsLinkCfg(link_id);
-        } else {
-            cl = find_iter->second;
-        }
+        do {
+            oasys::ScopeLock l(&config_lock_, __func__);
 
+            EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
 
-        // set the fwd link indication... NOT!
-        cl->is_fwdlnk_ = false;
+            if (find_iter == link_configs_.end()) {
+                // load a temp EhsLinkCfg until we know all data is good
+                cl = new EhsLinkCfg(link_id);
+                link_configs_[link_id] = cl;
 
-        // parse the "establish connection" flag
-        cl->establish_connection_ = (0 == tokens[tok_idx++].compare("true"));
-
-        // parse the source nodes list
-        uint64_t node_id = 0;
-        uint64_t end_node_id = 0;
-        char* endc = NULL;
-
-        std::vector<std::string> node_tokens;
-
-        int node_toks = oasys::tokenize(tokens[tok_idx++].c_str(), ",", &node_tokens);
-
-        for (int ix=0; ix<node_toks; ix++) {
-            node_id = strtoull(node_tokens[ix].c_str(), &endc, 10);
-
-            if ('\0' == *endc) {
-                cl->source_nodes_[node_id] = true;
-            } else if ('-' == *endc) {
-                // a range has been specified
-                char* end_str = endc + 1;
-                end_node_id = strtoull(end_str, &endc, 10);
-
-                if ('\0' == *endc  &&  end_node_id > node_id) {
-                    if (end_node_id - node_id > 100) {
-                        result = false;
-                        log_msg(oasys::LOG_ERR, 
-                                "configure_link_enable: LINK_ENABLE (%s) has too many nodes in source range: %s -- aborted", 
-                                link_id.c_str(), node_tokens[ix].c_str());
-                        break;
-                    } else {
-                        for (uint64_t jx=node_id; jx<=end_node_id; jx++) {
-                             cl->source_nodes_[jx] = true;
-                        }
-                    }
-                } else {
-                    result = false;
-                    log_msg(oasys::LOG_ERR, 
-                            "configure_link_enable: LINK_ENABLE (%s) has invalid range of source Node IDs: %s  -- aborted", 
-                            link_id.c_str(), node_tokens[ix].c_str());
-                    break;
-                }
+                log_msg(oasys::LOG_INFO, "configure_link_enable: LINK_ENABLE added Link ID: %s - success",
+                        link_id.c_str());
             } else {
-                result = false;
-                log_msg(oasys::LOG_ERR, 
-                        "configure_link_enable: LINK_ENABLE (%s) has invalid source Node ID: %s  -- aborted", 
-                        link_id.c_str(), node_tokens[ix].c_str());
-                break;
+                cl = find_iter->second;
             }
-        }
 
-        // parse the destination nodes list if no errors so far
-        if (result) {
-            node_toks = oasys::tokenize(tokens[tok_idx++].c_str(), ",", &node_tokens);
-    
+
+            // set the fwd link indication... NOT!
+            cl->is_fwdlnk_ = false;
+
+            // parse the "establish connection" flag
+            cl->establish_connection_ = (0 == tokens[tok_idx++].compare("true"));
+
+            // parse the source nodes list
+            uint64_t node_id = 0;
+            uint64_t end_node_id = 0;
+            char* endc = nullptr;
+
+            std::vector<std::string> node_tokens;
+
+            int node_toks = oasys::tokenize(tokens[tok_idx++].c_str(), ",", &node_tokens);
+
             for (int ix=0; ix<node_toks; ix++) {
                 node_id = strtoull(node_tokens[ix].c_str(), &endc, 10);
 
                 if ('\0' == *endc) {
-                    cl->dest_nodes_[node_id] = true;
+                    cl->source_nodes_[node_id] = true;
                 } else if ('-' == *endc) {
                     // a range has been specified
                     char* end_str = endc + 1;
                     end_node_id = strtoull(end_str, &endc, 10);
 
                     if ('\0' == *endc  &&  end_node_id > node_id) {
-                        if (end_node_id - node_id > 100) {
-                            result = false;
+                        if (end_node_id - node_id > 10000) {
+                            minor_error = true;
                             log_msg(oasys::LOG_ERR, 
-                                    "configure_link_enable: LINK_ENABLE (%s) has too many nodes in dest range: %s -- aborted", 
-                                    link_id.c_str(), node_tokens[ix].c_str());
-                            break;
+                                    "configure_link_enable: LINK_ENABLE (%s) has a source range that is > 10,000 - only enabling endpoints: %" PRIu64 
+                                    " and %" PRIu64,
+                                    link_id.c_str(), node_id, end_node_id);
+
+                             cl->source_nodes_[node_id] = true;
+                             cl->source_nodes_[end_node_id] = true;
+
                         } else {
                             for (uint64_t jx=node_id; jx<=end_node_id; jx++) {
-                                 cl->dest_nodes_[jx] = true;
+                                 cl->source_nodes_[jx] = true;
                             }
                         }
                     } else {
                         result = false;
                         log_msg(oasys::LOG_ERR, 
-                                "configure_link_enable: LINK_ENABLE (%s) has invalid range of dest Node IDs: %s  -- aborted", 
+                                "configure_link_enable: LINK_ENABLE (%s) has invalid range of source Node IDs: %s  -- aborted", 
                                 link_id.c_str(), node_tokens[ix].c_str());
                         break;
                     }
                 } else {
                     result = false;
                     log_msg(oasys::LOG_ERR, 
-                            "configure_link_enable: LINK_ENABLE (%s) has invalid dest Node ID: %s  -- aborted", 
+                            "configure_link_enable: LINK_ENABLE (%s) has invalid source Node ID: %s  -- aborted", 
                             link_id.c_str(), node_tokens[ix].c_str());
                     break;
                 }
             }
-        }
+
+            // parse the destination nodes list if no errors so far
+            if (result) {
+                node_toks = oasys::tokenize(tokens[tok_idx++].c_str(), ",", &node_tokens);
+    
+                for (int ix=0; ix<node_toks; ix++) {
+                    node_id = strtoull(node_tokens[ix].c_str(), &endc, 10);
+
+                    if ('\0' == *endc) {
+                        cl->dest_nodes_[node_id] = true;
+                    } else if ('-' == *endc) {
+                        // a range has been specified
+                        char* end_str = endc + 1;
+                        end_node_id = strtoull(end_str, &endc, 10);
+
+                        if ('\0' == *endc  &&  end_node_id > node_id) {
+                            if (end_node_id - node_id > 10000) {
+                                minor_error = true;
+                                log_msg(oasys::LOG_ERR, 
+                                        "configure_link_enable: LINK_ENABLE (%s) has a destination range that is > 10,000 - only enabling endpoints: %" PRIu64 
+                                        " and %" PRIu64,
+                                        link_id.c_str(), node_id, end_node_id);
+
+                                 cl->dest_nodes_[node_id] = true;
+                                 cl->dest_nodes_[end_node_id] = true;
+                            } else {
+                                for (uint64_t jx=node_id; jx<=end_node_id; jx++) {
+                                     cl->dest_nodes_[jx] = true;
+                                }
+                            }
+                        } else {
+                            result = false;
+                            log_msg(oasys::LOG_ERR, 
+                                    "configure_link_enable: LINK_ENABLE (%s) has invalid range of dest Node IDs: %s  -- aborted", 
+                                    link_id.c_str(), node_tokens[ix].c_str());
+                            break;
+                        }
+                    } else {
+                        result = false;
+                        log_msg(oasys::LOG_ERR, 
+                                "configure_link_enable: LINK_ENABLE (%s) has invalid dest Node ID: %s  -- aborted", 
+                                link_id.c_str(), node_tokens[ix].c_str());
+                        break;
+                    }
+                }
+            }
+        } while (false); // limit scope of lock
+
+
+
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-            if (find_iter == link_configs_.end()) {
-                link_configs_[link_id] = cl;
-
-                log_msg(oasys::LOG_INFO, "configure_link_enable: LINK_ENABLE added Link ID: %s - success",
-                        link_id.c_str());
-            }
-
+            oasys::ScopeLock l(&node_map_lock_, __func__);
 
             // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
@@ -884,13 +797,10 @@ EhsExternalRouterImpl::configure_link_enable(std::string& val)
 
             log_msg(oasys::LOG_DEBUG, "configure_link_enable: LINK_ENABLE Link ID: %s - success",
                     link_id.c_str());
-        } else {
-            // not using this object because of an error
-            delete cl;
         }
     }
 
-    return result;
+    return result && !minor_error;
 }
 
 //----------------------------------------------------------------------
@@ -913,34 +823,36 @@ EhsExternalRouterImpl::configure_link_disable(std::string& val)
         std::string link_id = tokens[tok_idx++];
 
         
-        lock_.lock(__FUNCTION__);
-        EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
+        do {
+            oasys::ScopeLock l(&config_lock_, __func__);
 
-        if (find_iter != link_configs_.end()) {
-            EhsLinkCfg* cl = find_iter->second;
-            link_configs_.erase(find_iter);
-            delete cl;
+            EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
 
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            if (find_iter != link_configs_.end()) {
+                EhsLinkCfg* cl = find_iter->second;
+                link_configs_.erase(find_iter);
+                delete cl;
+            }
+        } while (false); // limit scope of lock
+
+
+
+        do {
+            oasys::ScopeLock l(&node_map_lock_, __func__);
     
             // inform each DtnNode to close and delete the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
                 node->link_disable(link_id);
                 ++iter;
             }
+        } while (false); // limit scope of lock
 
-            log_msg(oasys::LOG_INFO, 
-                    "configure_link_disable: LINK_DISABLE Link ID (%s) disabled",
-                    link_id.c_str());
-        } else {
-            log_msg(oasys::LOG_DEBUG, 
-                    "configure_link_disable: LINK_DISABLE Link ID not found: %s",
-                    link_id.c_str());
-        }
-        lock_.unlock();
+        log_msg(oasys::LOG_INFO, 
+                "configure_link_disable: LINK_DISABLE Link ID (%s) disabled",
+                link_id.c_str());
     }
 
     return result;
@@ -964,7 +876,7 @@ EhsExternalRouterImpl::configure_max_expiration_fwd(std::string& val)
 
         int tok_idx = 0;
 
-        char* endc = NULL;
+        char* endc = nullptr;
         uint64_t exp = strtoull(tokens[tok_idx].c_str(), &endc, 10);
         if ('\0' != *endc) {
             log_msg(oasys::LOG_ERR, 
@@ -977,10 +889,10 @@ EhsExternalRouterImpl::configure_max_expiration_fwd(std::string& val)
 
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            oasys::ScopeLock l(&node_map_lock_, __func__);
 
             // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
@@ -1014,7 +926,7 @@ EhsExternalRouterImpl::configure_max_expiration_rtn(std::string& val)
 
         int tok_idx = 0;
 
-        char* endc = NULL;
+        char* endc = nullptr;
         uint64_t exp = strtoull(tokens[tok_idx].c_str(), &endc, 10);
         if ('\0' != *endc) {
             log_msg(oasys::LOG_ERR, 
@@ -1027,10 +939,10 @@ EhsExternalRouterImpl::configure_max_expiration_rtn(std::string& val)
 
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            oasys::ScopeLock l(&node_map_lock_, __func__);
 
             // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
@@ -1065,7 +977,7 @@ EhsExternalRouterImpl::configure_source_node_priority(std::string& val)
 
         int tok_idx = 0;
 
-        char* endc = NULL;
+        char* endc = nullptr;
         int priority = strtol(tokens[tok_idx].c_str(), &endc, 10);
         if ('\0' != *endc) {
             log_msg(oasys::LOG_ERR, 
@@ -1125,10 +1037,10 @@ EhsExternalRouterImpl::configure_source_node_priority(std::string& val)
         }
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            oasys::ScopeLock l(&node_map_lock_, __func__);
 
             // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
@@ -1148,12 +1060,12 @@ EhsExternalRouterImpl::configure_source_node_priority(std::string& val)
 bool 
 EhsExternalRouterImpl::configure_source_node_priority(uint64_t node_id, int priority)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     src_priority_.set_node_priority(node_id, priority);
 
     // inform each DtnNode to reconfigure the link
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1186,7 +1098,7 @@ EhsExternalRouterImpl::configure_dest_node_priority(std::string& val)
 
         int tok_idx = 0;
 
-        char* endc = NULL;
+        char* endc = nullptr;
         int priority = strtol(tokens[tok_idx].c_str(), &endc, 10);
         if ('\0' != *endc) {
             log_msg(oasys::LOG_ERR, 
@@ -1246,10 +1158,10 @@ EhsExternalRouterImpl::configure_dest_node_priority(std::string& val)
         }
 
         if (result) {
-            oasys::ScopeLock l(&lock_, __FUNCTION__);
+            oasys::ScopeLock l(&node_map_lock_, __func__);
 
             // inform each DtnNode to reconfigure the link
-            EhsDtnNode* node;
+            SPtr_EhsDtnNode node;
             EhsDtnNodeIterator iter = dtn_node_map_.begin();
             while (iter != dtn_node_map_.end()) {
                 node = iter->second;
@@ -1269,12 +1181,12 @@ EhsExternalRouterImpl::configure_dest_node_priority(std::string& val)
 bool 
 EhsExternalRouterImpl::configure_dest_node_priority(uint64_t node_id, int priority)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     dst_priority_.set_node_priority(node_id, priority);
 
     // inform each DtnNode to reconfigure the link
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1288,277 +1200,82 @@ EhsExternalRouterImpl::configure_dest_node_priority(uint64_t node_id, int priori
     return true;
 }
 
-//----------------------------------------------------------------------
-bool
-EhsExternalRouterImpl::open_socket() 
-{
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
-    params_.multicast_ = true;
-    params_.recv_bufsize_ = 10240000;
-//    params_.send_bufsize_ = 1024000;
-    if (fd() == -1) {
-        init_socket();
-    }
-
-    // if still no socket then there was an error
-    if (fd() == -1) {
-        log_msg(oasys::LOG_ERR, "Error intializing socket");
-        return false;
-    }
-
-
-    // Check the buffer sizes
-    uint32_t rcv_size = 0;
-    uint32_t snd_size = 0;
-    socklen_t len = sizeof(rcv_size);
-    if (::getsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &rcv_size, &len) != 0) {
-        log_msg(oasys::LOG_ERR, "Error reading socket receive buffer size");
-    }
-    if (::getsockopt(fd_, SOL_SOCKET, SO_SNDBUF, &snd_size, &len) != 0) {
-        log_msg(oasys::LOG_ERR, "Error reading socket send buffer size");
-    }
-    log_msg(oasys::LOG_NOTICE, "EhsExternalRouterImpl - Receiver Socket Buffers: rcv: %u snd: %u",
-            rcv_size, snd_size);
-
-    if (bind(remote_addr_, local_port_)) {
-        log_msg(oasys::LOG_ERR, "Error binding socket to port");
-        return false;
-    }
-
-    return true;
-}
-
-
 
 //----------------------------------------------------------------------
 void
-EhsExternalRouterImpl::run() 
+EhsExternalRouterImpl::send_msg(std::string* msg)
 {
-    if (use_tcp_interface_)
-    {
-        run_tcp();
-    }
-    else
-    {
-        run_multicast();
-    }
-}
+    oasys::ScopeLock l(&tcp_sender_lock_, __func__);
 
-//----------------------------------------------------------------------
-void
-EhsExternalRouterImpl::run_multicast() 
-{
-    log_msg(oasys::LOG_INFO, "EhsExternalRouterImpl running multicast on network_interface: %s", intoa(local_addr_));
-
-    // Create the XML parser
-    parser_ = new oasys::XercesXMLUnmarshal(client_validation_,
-                                            schema_.c_str());
-
-
-    // variables used to read in UDP packets
-    char recv_buf[MAX_UDP_PACKET+8];
-    in_addr_t raddr;
-    u_int16_t rport;
-    int bytes;
-
-
-    sender_ = new Sender(this, params_, local_addr_, remote_addr_, remote_port_);
-    sender_->start();
-
-
-    if (open_socket()) {
-        // block on input from the socket and
-        // on input from the bundle event list
-        struct pollfd pollfds[1];
-
-        struct pollfd* sock_poll = &pollfds[0];
-        sock_poll->fd = fd();
-        sock_poll->events = POLLIN;
-        sock_poll->revents = 0;
-
-        bool first_receive = true;
-        while (!should_stop()) {
-            int ret = oasys::IO::poll_multiple(pollfds, 1, 1000,
-                get_notifier());
-
-            if (ret == oasys::IOTIMEOUT) {
-                continue;
-            }
-
-            if (ret == oasys::IOINTR) {
-                log_msg(oasys::LOG_DEBUG, "poll interrupted - abort");
-                set_should_stop();
-                continue;
-            }
-
-            if (ret == oasys::IOERROR) {
-                log_msg(oasys::LOG_DEBUG, "poll error - abort");
-                set_should_stop();
-                continue;
-            }
-
-            if (sock_poll->revents & POLLIN) {
-                if (first_receive) {
-                    first_receive = false;
-                    recv_timer_.get_time();
-                }
-
-                bytes = recvfrom(recv_buf, MAX_UDP_PACKET, 0, &raddr, &rport);
-                recv_buf[bytes] = '\0';
-
-                bytes_recv_ += bytes;
-
-                //dz debug
-                //log_msg(oasys::LOG_DEBUG, "received %d bytes from %s:%u:", 
-                //        bytes, intoa(raddr), rport);
-                //log_msg(oasys::LOG_CRIT, "ExternalRouter Msg: %s", recv_buf);
-
-                process_action(recv_buf);
-            }
-
-            if (!first_receive && recv_timer_.elapsed_ms() >= 1000) {
-                recv_timer_.get_time();
-                if (bytes_recv_ > max_bytes_recv_) max_bytes_recv_ = bytes_recv_;
-                bytes_recv_ = 0;
-            }
-        }
-    }
+    tcp_sender_.post(msg);
 }
 
 
 //----------------------------------------------------------------------
-void
-EhsExternalRouterImpl::send_msg(rtrmessage::bpa &message, const std::string* server_eid)
+int
+EhsExternalRouterImpl::process_action(std::unique_ptr<std::string>& msgptr)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    CborParser parser;
+    CborValue cvMessage;
+    CborValue cvElement;
+    CborError err;
 
-    xercesc::MemBufFormatTarget buf;
-    xml_schema::namespace_infomap map;
+    err = cbor_parser_init((const uint8_t*) msgptr->c_str(), msgptr->length(), 0, &parser, &cvMessage);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
 
-    // Identify the DTN node for which this message is intended
-    message.server_eid(server_eid->c_str());
+    err = cbor_value_enter_container(&cvMessage, &cvElement);
+    CBORUTIL_CHECK_CBOR_DECODE_ERR_RETURN
 
-    if (use_tcp_interface_) {
-        // only one destination supported for TCP so set seq ctr at this funnel point
-        message.sequence_ctr(send_seq_ctr_++);
-    } else {
-        // UDP can theoretically support multiple nodes so sequence is maintained
-        // in the EHSDtnNode and since it is multi-threaded it is possible for
-        // those to go through out of order. Review log messages carefully on the DTNME server
-        // to determine if messages are just received out of order or getting dropped.
-    }
-
-    if (server_validation_)
-        map[""].schema = schema_.c_str();
-
-    try {
-        bpa_(buf, message, map, "UTF-8",
-             xml_schema::flags::dont_initialize);
-         if (!should_stop()) {
-             if (use_tcp_interface_) {
-                 tcp_sender_->post(new std::string((char *)buf.getRawBuffer()));
-             } else {
-                 sender_->eventq->push_back(new std::string((char *)buf.getRawBuffer()));
-             }
-         }
-    }
-    catch (xml_schema::serialization &e) {
-        const xml_schema::errors &elist = e.errors();
-        xml_schema::errors::const_iterator i = elist.begin();
-        xml_schema::errors::const_iterator end = elist.end();
-
-        for (; i < end; ++i) {
-            std::cout << (*i).message() << std::endl;
-        }
-    }
-    CATCH(xml_schema::unexpected_element)
-    CATCH(xml_schema::no_namespace_mapping)
-    CATCH(xml_schema::no_prefix_mapping)
-    CATCH(xml_schema::xsi_already_in_use)
-}
+    uint64_t msg_type;
+    uint64_t msg_version;
+    std::string server_eid;
+    int status = decode_server_msg_header(cvElement, msg_type, msg_version, server_eid);
+    CHECK_CBORUTIL_STATUS_RETURN
 
 
-
-
-//----------------------------------------------------------------------
-void
-EhsExternalRouterImpl::process_action(const char *payload)
-{
-    // clear any error condition before next parse
-    parser_->reset_error();
-    
-    // parse the xml payload received
-    const xercesc::DOMDocument *doc = parser_->doc(payload);
-
-    // was the message valid?
-    if (parser_->error()) {
-        log_msg(oasys::LOG_WARN, "process_action - received invalid message");
-        return;
-    }
-
-    std::unique_ptr<rtrmessage::bpa> instance;
-
-    try {
-        instance = rtrmessage::bpa_(*doc);
-    }
-    CATCH(xml_schema::expected_element)
-    CATCH(xml_schema::unexpected_element)
-    CATCH(xml_schema::expected_attribute)
-    CATCH(xml_schema::unexpected_enumerator)
-    CATCH(xml_schema::no_type_info)
-    CATCH(xml_schema::not_derived)
-
-    rtrmessage::bpa* in_bpa = instance.get();
-
-    // Check that we have an instance object to work with
-    if (NULL == in_bpa) {
-        log_msg(oasys::LOG_WARN, "process_action - no object extracted from message");
-        return;
-    }
-
-    EhsDtnNode* dtn_node = NULL;
+    SPtr_EhsDtnNode dtn_node = nullptr;
 
     // all messages should include the EID of the DTNME node
-    if (in_bpa->eid().present()) {
-
-        // configure for this EID if not already done 
-        std::string eid_str = in_bpa->eid().get();
-        std::string eid_ipn_str = in_bpa->eid_ipn().get();
+    if (!server_eid.empty()) {
         std::string alert_str;
-        if (in_bpa->alert().present()) {
-            alert_str = in_bpa->alert().get().c_str();
-            // the only other alert is "shuttingDown" as a standalone message
+
+        if (msg_type == EXTRTR_MSG_ALERT) {
+            if (msg_version == 0) {
+                decode_alert_msg_v0(cvElement, alert_str);
+            }
         }
 
-        dtn_node = get_dtn_node(eid_str, eid_ipn_str, alert_str);
+        dtn_node = get_dtn_node(server_eid, server_eid, alert_str);
 
-        if (NULL == dtn_node) {
-            return;
+        if (nullptr == dtn_node) {
+            return CBORUTIL_FAIL;
         }
     } else {
-        //log_msg(oasys::LOG_DEBUG, "Received message without EID - probably a loopback: %s", payload);
-        return;
+        log_msg(oasys::LOG_ALWAYS, "Received message without server EID");
+        return CBORUTIL_FAIL;
     }
 
     // post the message to the correct DTN node
-    dtn_node->post_event(new EhsBpaReceivedEvent(instance));
+    dtn_node->post_event(new EhsCborReceivedEvent(msgptr));
+
+    return CBORUTIL_SUCCESS;
 }
 
 //----------------------------------------------------------------------
-EhsDtnNode*
+SPtr_EhsDtnNode
 EhsExternalRouterImpl::get_dtn_node(std::string eid, std::string eid_ipn, std::string alert)
 {
-    EhsDtnNode* dtn_node = NULL;
+    SPtr_EhsDtnNode dtn_node;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     EhsDtnNodeIterator iter = dtn_node_map_.find(eid);
     if (iter == dtn_node_map_.end()) {
         // not currently in the list - create one if the alert is not shuttingDown
         if (0 != alert.compare("shuttingDown")) {
-            dtn_node = new EhsDtnNode(this, eid, eid_ipn);
-            dtn_node_map_.insert(EhsDtnNodePair(eid, dtn_node));
+            dtn_node = std::make_shared<EhsDtnNode>(this, eid, eid_ipn);
+            dtn_node_map_[eid] = dtn_node;
+
             dtn_node->set_log_level(log_level_);
             dtn_node->set_fwdlnk_force_LOS_while_disabled(fwdlnk_force_LOS_while_disabled_);
             dtn_node->set_fwdlnk_enabled_state(fwdlnk_enabled_);
@@ -1576,15 +1293,18 @@ EhsExternalRouterImpl::get_dtn_node(std::string eid, std::string eid_ipn, std::s
         if (0 == alert.compare("shuttingDown")) {
             log_msg(oasys::LOG_NOTICE, "DTN node shutting down: %s", eid.c_str());
             dtn_node_map_.erase(iter);
-            dtn_node->set_should_stop();
-            dtn_node = NULL;
+            dtn_node->do_shutdown();
+            dtn_node = nullptr;
         } else if (0 == alert.compare("justBooted")) {
             log_msg(oasys::LOG_NOTICE, "DTN node just booted: %s - re-initializing",
                     eid.c_str());
-            dtn_node->set_should_stop();
+            dtn_node->do_shutdown();
+            dtn_node_map_.erase(iter);
+            dtn_node = nullptr;
 
-            dtn_node = new EhsDtnNode(this, eid, eid_ipn);
-            dtn_node_map_.insert(EhsDtnNodePair(eid, dtn_node));
+            dtn_node = std::make_shared<EhsDtnNode>(this, eid, eid_ipn);
+            dtn_node_map_[eid] = dtn_node;
+
             dtn_node->set_log_level(log_level_);
             dtn_node->set_fwdlnk_force_LOS_while_disabled(fwdlnk_force_LOS_while_disabled_);
             dtn_node->set_fwdlnk_enabled_state(fwdlnk_enabled_);
@@ -1601,12 +1321,31 @@ EhsExternalRouterImpl::get_dtn_node(std::string eid, std::string eid_ipn, std::s
 }
 
 //----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::remove_dtn_nodes_after_comm_error()
+{
+    SPtr_EhsDtnNode dtn_node;
+
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    while (iter != dtn_node_map_.end()) {
+        dtn_node = iter->second;
+        dtn_node->do_shutdown();
+        dtn_node = nullptr;
+
+        ++iter;
+    }
+    dtn_node_map_.clear();
+}
+
+//----------------------------------------------------------------------
 bool 
 EhsExternalRouterImpl::get_link_configuration(EhsLink* el)
 {
     bool result = false;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&config_lock_, __func__);
 
     EhsLinkCfg* cfglnk;
     EhsLinkCfgIterator cfg_iter = link_configs_.begin();
@@ -1647,8 +1386,6 @@ EhsExternalRouterImpl::get_accept_custody_list(EhsSrcDstWildBoolMap& accept_cust
 void
 EhsExternalRouterImpl::get_source_node_priority(NodePriorityMap& pmap)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
     pmap = src_priority_;
 }
 
@@ -1656,8 +1393,6 @@ EhsExternalRouterImpl::get_source_node_priority(NodePriorityMap& pmap)
 void
 EhsExternalRouterImpl::get_dest_node_priority(NodePriorityMap& pmap)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-
     pmap = dst_priority_;
 }
 
@@ -1665,29 +1400,36 @@ EhsExternalRouterImpl::get_dest_node_priority(NodePriorityMap& pmap)
 bool
 EhsExternalRouterImpl::configure_link_throttle(std::string& link_id, uint32_t throttle_bps)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    bool result = false;
+    EhsLinkCfg* cl = nullptr;
 
-    bool result = true;
+    do {
+        oasys::ScopeLock l(&config_lock_, __func__);
 
-    EhsLinkCfg* cl;
-    EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
-    if (find_iter == link_configs_.end()) {
-        result = false;
-        log_msg(oasys::LOG_ERR, "configure_link_throttle - Link ID not found: %s", link_id.c_str());
-    } else {
-        cl = find_iter->second;
-        cl->throttle_bps_ = throttle_bps;
-    }
+        EhsLinkCfgIterator find_iter = link_configs_.find(link_id);
+        if (find_iter == link_configs_.end()) {
+            log_msg(oasys::LOG_ERR, "configure_link_throttle - Link ID not found: %s", link_id.c_str());
+        } else {
+            cl = find_iter->second;
+            cl->throttle_bps_ = throttle_bps;
+            result = true;
+        }
+    } while (false); // limit scope of lock
+
 
     // inform each DtnNode to reconfigure the link
-    if (result) {
-        EhsDtnNode* node;
-        EhsDtnNodeIterator iter = dtn_node_map_.begin();
-        while (iter != dtn_node_map_.end()) {
-            node = iter->second;
-            node->reconfigure_link(link_id);
-            ++iter;
-        }
+    if (cl != nullptr) {
+        do {
+            oasys::ScopeLock l(&node_map_lock_, __func__);
+
+            SPtr_EhsDtnNode node;
+            EhsDtnNodeIterator iter = dtn_node_map_.begin();
+            while (iter != dtn_node_map_.end()) {
+                node = iter->second;
+                node->reconfigure_link(link_id);
+                ++iter;
+            }
+        } while (false); // limit scope of lock
     }
 
     return result;
@@ -1700,7 +1442,7 @@ EhsExternalRouterImpl::configure_accept_custody(std::string& val)
 {
     bool result = true;
 
-    char* endc = NULL;
+    char* endc = nullptr;
     uint64_t src_node_id = 0;
     bool wildcard_source = false;
     bool accept = false;
@@ -1821,7 +1563,7 @@ EhsExternalRouterImpl::configure_accept_custody(std::string& val)
     }
 
     // inform each DtnNode to reconfigure the accept_custody list
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1839,12 +1581,12 @@ EhsExternalRouterImpl::set_fwdlnk_enabled_state(bool state, uint32_t timeout_ms)
 {
     (void) timeout_ms;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     fwdlnk_enabled_ = state;
 
     // inform each DtnNode of the new fwd link state
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1861,12 +1603,12 @@ EhsExternalRouterImpl::set_fwdlnk_aos_state(bool state, uint32_t timeout_ms)
 {
     (void) timeout_ms;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     fwdlnk_aos_ = state;
 
     // inform each DtnNode of the new fwd link state
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1883,28 +1625,34 @@ EhsExternalRouterImpl::set_fwdlnk_throttle(uint32_t bps, uint32_t timeout_ms)
 {
     (void) timeout_ms;
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    do {
+        oasys::ScopeLock l(&config_lock_, __func__);
 
-    EhsLinkCfg* cfglnk;
-    EhsLinkCfgIterator cfg_iter = link_configs_.begin();
-    while (cfg_iter != link_configs_.end()) {
-        cfglnk = cfg_iter->second;
+        EhsLinkCfg* cfglnk;
+        EhsLinkCfgIterator cfg_iter = link_configs_.begin();
+        while (cfg_iter != link_configs_.end()) {
+            cfglnk = cfg_iter->second;
 
-        if (cfglnk->is_fwdlnk_) {
-            cfglnk->throttle_bps_ = bps;
+            if (cfglnk->is_fwdlnk_) {
+                cfglnk->throttle_bps_ = bps;
+            }
+
+            ++cfg_iter;
         }
+    } while (false); // limit scope of lock
 
-        ++cfg_iter;
-    }
+    do {
+        oasys::ScopeLock l(&node_map_lock_, __func__);
 
-    // inform each DtnNode of the new fwd link rate
-    EhsDtnNode* node;
-    EhsDtnNodeIterator iter = dtn_node_map_.begin();
-    while (iter != dtn_node_map_.end()) {
-        node = iter->second;
-        node->set_fwdlnk_throttle(bps);
-        ++iter;
-    }
+        // inform each DtnNode of the new fwd link rate
+        SPtr_EhsDtnNode node;
+        EhsDtnNodeIterator iter = dtn_node_map_.begin();
+        while (iter != dtn_node_map_.end()) {
+            node = iter->second;
+            node->set_fwdlnk_throttle(bps);
+            ++iter;
+        }
+    } while (false); // limit scope of lock
 
     return EHSEXTRTR_SUCCESS;
 }
@@ -1914,10 +1662,10 @@ int
 EhsExternalRouterImpl::bundle_delete(uint64_t source_node_id, uint64_t dest_node_id)
 {
     int cnt = 0;
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
     
     // inform each DtnNode of the new fwd link rate
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1933,10 +1681,10 @@ int
 EhsExternalRouterImpl::bundle_delete_all()
 {
     int cnt = 0;
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
     
     // inform each DtnNode of the new fwd link rate
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -1958,7 +1706,7 @@ EhsExternalRouterImpl::update_statistics()
         snprintf(buf, sizeof(buf), "Listening...");
     } else {
         
-        oasys::ScopeLock l(&lock_, __FUNCTION__);
+        oasys::ScopeLock l(&node_map_lock_, __func__);
 
         uint64_t received = 0;
         uint64_t transmitted = 0;
@@ -1970,20 +1718,111 @@ EhsExternalRouterImpl::update_statistics()
         bool fwdlnk_aos = false;
         bool fwdlnk_enabled = false;
 
-        EhsDtnNode* node;
+        SPtr_EhsDtnNode node;
         EhsDtnNodeIterator iter = dtn_node_map_.begin();
         while (iter != dtn_node_map_.end()) {
             node = iter->second;
-            node->update_statistics(&received, &transmitted, &transmit_failed, &delivered, &rejected,
-                                    &pending, &custody, &fwdlnk_aos, &fwdlnk_enabled);
+            node->update_statistics(received, transmitted, transmit_failed, delivered, rejected,
+                                    pending, custody, fwdlnk_aos, fwdlnk_enabled);
             ++iter;
         }
 
         snprintf(buf, sizeof(buf), 
                  "Nodes: %d (%s/%s) Bundles Rcv: %" PRIu64 " Xmt: %" PRIu64 " XFail: %" PRIu64 " Dlv: %" PRIu64  
-                 " Rjct: %" PRIu64 " Pend: %" PRIu64 " Cust: %" PRIu64, 
+                 " Rjct: %" PRIu64 " Pend: %" PRIu64 " Cust: %" PRIu64 "     ", 
                  nodes, fwdlnk_enabled?"enabled":"disabled", fwdlnk_aos?"AOS":"LOS", 
                  received, transmitted, transmit_failed, delivered, rejected, pending, custody);
+    }
+
+    return (const char*) buf;
+}
+
+//----------------------------------------------------------------------
+const char* 
+EhsExternalRouterImpl::update_statistics2()
+{
+    static char buf[256];
+
+    int nodes = num_dtn_nodes();
+    if (0 == nodes) {
+        snprintf(buf, sizeof(buf), "Listening...");
+    } else {
+        
+        oasys::ScopeLock l(&node_map_lock_, __func__);
+
+        uint64_t received = 0;
+        uint64_t transmitted = 0;
+        uint64_t transmit_failed = 0;
+        uint64_t delivered = 0;
+        uint64_t expired = 0;
+        uint64_t rejected = 0;
+        uint64_t pending = 0;
+        uint64_t custody = 0;
+        bool fwdlnk_aos = false;
+        bool fwdlnk_enabled = false;
+
+        SPtr_EhsDtnNode node;
+        EhsDtnNodeIterator iter = dtn_node_map_.begin();
+        while (iter != dtn_node_map_.end()) {
+            node = iter->second;
+            node->update_statistics2(received, transmitted, transmit_failed, delivered, rejected,
+                                    pending, custody, expired, fwdlnk_aos, fwdlnk_enabled);
+            ++iter;
+        }
+
+        snprintf(buf, sizeof(buf), 
+                 "Nodes: %d (%s/%s) Bundles Rcv: %" PRIu64 " Xmt: %" PRIu64 " XFail: %" PRIu64 " Dlv: %" PRIu64  
+                 " Expd: %" PRIu64 " Rjct: %" PRIu64 " Pend: %" PRIu64 " Cust: %" PRIu64 "     ", 
+                 nodes, fwdlnk_enabled?"enabled":"disabled", fwdlnk_aos?"AOS":"LOS", 
+                 received, transmitted, transmit_failed, delivered, expired, rejected, pending, custody);
+    }
+
+    return (const char*) buf;
+}
+
+//----------------------------------------------------------------------
+const char* 
+EhsExternalRouterImpl::update_statistics3()
+{
+    static char buf[256];
+
+    int nodes = num_dtn_nodes();
+    if (0 == nodes) {
+        snprintf(buf, sizeof(buf), "Listening...");
+    } else {
+        
+        oasys::ScopeLock l(&node_map_lock_, __func__);
+
+        uint64_t received = 0;
+        uint64_t transmitted = 0;
+        uint64_t transmit_failed = 0;
+        uint64_t delivered = 0;
+        uint64_t expired = 0;
+        uint64_t rejected = 0;
+        uint64_t pending = 0;
+        uint64_t custody = 0;
+        bool fwdlnk_aos = false;
+        bool fwdlnk_enabled = false;
+        uint64_t links_open = 0;
+        uint64_t num_links = 0;
+
+        SPtr_EhsDtnNode node;
+        EhsDtnNodeIterator iter = dtn_node_map_.begin();
+        while (iter != dtn_node_map_.end()) {
+            node = iter->second;
+            node->update_statistics3(received, transmitted, transmit_failed, delivered, rejected,
+                                    pending, custody, expired, fwdlnk_aos, fwdlnk_enabled, links_open,
+                                    num_links);
+            ++iter;
+        }
+
+        snprintf(buf, sizeof(buf), 
+                 "Nodes: %d (%s/%s) Links: %" PRIu64 "/%" PRIu64 
+                 " Bundles Rcv: %" PRIu64 " Xmt: %" PRIu64 " XFail: %" PRIu64 " Dlv: %" PRIu64  
+                 " Expd: %" PRIu64 " Rjct: %" PRIu64 " Cust: %" PRIu64 " Pend: %" PRIu64 "     " ,
+                 nodes, fwdlnk_enabled?"enabled":"disabled", fwdlnk_aos?"AOS":"LOS", 
+                 links_open, num_links,
+                 received, transmitted, transmit_failed, delivered, expired, rejected, custody, pending );
     }
 
     return (const char*) buf;
@@ -1993,7 +1832,7 @@ EhsExternalRouterImpl::update_statistics()
 int
 EhsExternalRouterImpl::num_dtn_nodes()
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     return dtn_node_map_.size();
 }
@@ -2002,9 +1841,9 @@ EhsExternalRouterImpl::num_dtn_nodes()
 void
 EhsExternalRouterImpl::set_link_statistics(bool enabled)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2018,10 +1857,10 @@ EhsExternalRouterImpl::set_link_statistics(bool enabled)
 void
 EhsExternalRouterImpl::bundle_list(oasys::StringBuffer* buf)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     int cnt = 0;
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2043,9 +1882,9 @@ EhsExternalRouterImpl::bundle_list(oasys::StringBuffer* buf)
 void
 EhsExternalRouterImpl::bundle_stats_by_src_dst(int* count, EhsBundleStats** stats)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2061,9 +1900,9 @@ EhsExternalRouterImpl::bundle_stats_by_src_dst_free(int count, EhsBundleStats** 
     (void) count;
 
     // currently *stats is a single block of memory
-    if (stats != NULL && *stats != NULL) {
+    if (stats != nullptr && *stats != nullptr) {
         free(*stats);
-        *stats = NULL;
+        *stats = nullptr;
     }
 }
 
@@ -2071,9 +1910,9 @@ EhsExternalRouterImpl::bundle_stats_by_src_dst_free(int count, EhsBundleStats** 
 void
 EhsExternalRouterImpl::fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2089,21 +1928,116 @@ EhsExternalRouterImpl::fwdlink_interval_stats_free(int count, EhsFwdLinkInterval
     (void) count;
 
     // currently *stats is a single block of memory
-    if (stats != NULL && *stats != NULL) {
+    if (stats != nullptr && *stats != nullptr) {
         free(*stats);
-        *stats = NULL;
+        *stats = nullptr;
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::request_bard_usage_stats()
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->request_bard_usage_stats();
+    }
+}
+
+//----------------------------------------------------------------------
+bool
+EhsExternalRouterImpl::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, EhsRestageCLStatsVector& cl_stats)
+{
+    bool result = false;
+
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        result = node->bard_usage_stats(usage_stats, cl_stats);
+    }
+
+    return result;
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->bard_add_quota(quota);
     }
 }
 
 
 //----------------------------------------------------------------------
 void
+EhsExternalRouterImpl::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->bard_del_quota(quota);
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
+                                         std::string& cl_name,  LinkParametersVector& params)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->send_link_add_msg(link_id, next_hop, link_mode, cl_name, params);
+    }
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsExternalRouterImpl::send_link_del_msg(std::string& link_id)
+{
+    oasys::ScopeLock l(&node_map_lock_, __func__);
+
+    SPtr_EhsDtnNode node;
+    EhsDtnNodeIterator iter = dtn_node_map_.begin();
+    if (iter != dtn_node_map_.end()) {
+        node = iter->second;
+        node->send_link_del_msg(link_id);
+    }
+}
+
+
+
+
+
+
+//----------------------------------------------------------------------
+void
 EhsExternalRouterImpl::unrouted_bundle_stats_by_src_dst(oasys::StringBuffer* buf)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     int cnt = 0;
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2126,10 +2060,10 @@ EhsExternalRouterImpl::unrouted_bundle_stats_by_src_dst(oasys::StringBuffer* buf
 void
 EhsExternalRouterImpl::bundle_stats(oasys::StringBuffer* buf)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     int cnt = 0;
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2152,10 +2086,10 @@ EhsExternalRouterImpl::bundle_stats(oasys::StringBuffer* buf)
 void
 EhsExternalRouterImpl::link_dump(oasys::StringBuffer* buf)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     int cnt = 0;
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2177,10 +2111,10 @@ EhsExternalRouterImpl::link_dump(oasys::StringBuffer* buf)
 void
 EhsExternalRouterImpl::fwdlink_transmit_dump(oasys::StringBuffer* buf)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&node_map_lock_, __func__);
 
     int cnt = 0;
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2202,13 +2136,9 @@ EhsExternalRouterImpl::fwdlink_transmit_dump(oasys::StringBuffer* buf)
 uint64_t
 EhsExternalRouterImpl::max_bytes_sent()
 {
-    uint64_t result = 0;
-    if (NULL != sender_) result = sender_->max_bytes_sent();
+    oasys::ScopeLock l(&tcp_sender_lock_, __func__);
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-    if (NULL != tcp_sender_) result = tcp_sender_->max_bytes_sent();
-
-    return result;
+    return tcp_sender_.max_bytes_sent();
 }
 
 //----------------------------------------------------------------------
@@ -2218,7 +2148,7 @@ EhsExternalRouterImpl::set_log_level(int level)
     log_level_ = level;
 
     // update all of the DtnNodes
-    EhsDtnNode* node;
+    SPtr_EhsDtnNode node;
     EhsDtnNodeIterator iter = dtn_node_map_.begin();
     while (iter != dtn_node_map_.end()) {
         node = iter->second;
@@ -2232,7 +2162,7 @@ void
 EhsExternalRouterImpl::log_msg(const std::string& path, oasys::log_level_t level, const char*format, ...)
 {
     if ((int)level >= log_level_) {
-        if (NULL != log_callback_) {
+        if (nullptr != log_callback_) {
             va_list args;
             va_start(args, format);
             log_msg_va(path, level, format, args);
@@ -2246,8 +2176,8 @@ void
 EhsExternalRouterImpl::log_msg_va(const std::string& path, oasys::log_level_t level, const char*format, va_list args)
 {
     if ((int)level >= log_level_) {
-        if (NULL != log_callback_) {
-            oasys::ScopeLock l(&log_lock_, __FUNCTION__);
+        if (nullptr != log_callback_) {
+            oasys::ScopeLock l(&log_lock_, __func__);
 
             static char buf[2048];
             vsnprintf(buf, sizeof(buf), format, args);
@@ -2264,8 +2194,8 @@ void
 EhsExternalRouterImpl::log_msg(const std::string& path, oasys::log_level_t level, std::string& msg)
 {
     if ((int)level >= log_level_) {
-        if (NULL != log_callback_) {
-            oasys::ScopeLock l(&log_lock_, __FUNCTION__);
+        if (nullptr != log_callback_) {
+            oasys::ScopeLock l(&log_lock_, __func__);
 
             log_callback_(path, (int)level, msg);
         }
@@ -2278,7 +2208,7 @@ EhsExternalRouterImpl::log_msg(oasys::log_level_t level, const char*format, ...)
 {
     // internal use only - passes the logpath_ of this object
     if ((int)level >= log_level_) {
-        if (NULL != log_callback_) {
+        if (nullptr != log_callback_) {
             va_list args;
             va_start(args, format);
             log_msg_va(logpath_, level, format, args);
@@ -2288,178 +2218,13 @@ EhsExternalRouterImpl::log_msg(oasys::log_level_t level, const char*format, ...)
 }
 
 
-//----------------------------------------------------------------------
-EhsExternalRouterImpl::Sender::Sender(EhsExternalRouterImpl* parent, 
-                                      oasys::IPSocket::ip_socket_params& params,
-                                      in_addr_t local_addr,
-                                      in_addr_t remote_addr, uint16_t remote_port)
-    : IOHandlerBase(new oasys::Notifier("/ehs/extrtr/sender")),
-      Thread("/ehs/extrtr/sender", oasys::Thread::DELETE_ON_EXIT),
-      lock_(new oasys::SpinLock()),
-      parent_(parent),
-      bucket_(logpath(), 50000000, 65535*8)
-{
-    local_addr_ = local_addr;
-    remote_addr_ = remote_addr;
-    remote_port_ = remote_port;
-
-    set_logpath("/ehs/extrtr/sender");
-
-    bytes_sent_ = 0;
-    max_bytes_sent_ = 0;
-
-    // Local port should be zero - let the OS assign a port
-    local_port_ = 0;
-
-    // copy the param values from the parent and then override a few
-    params_ = params;
-
-//    params_.recv_bufsize_ = 102400000;
-    params_.send_bufsize_ = 10240000;
-    params_.multicast_ = false;
-
-    if (fd() == -1) {
-        init_socket();
-    }
-
-    // Now initialize for multicast sending only
-    // set TTL on outbound packets
-    u_char ttl = (u_char) params_.mcast_ttl_ & 0xff;
-    if (::setsockopt(fd_, IPPROTO_IP, IP_MULTICAST_TTL, (void*) &ttl, 1)
-            < 0) {
-        parent_->log_msg(logpath_, oasys::LOG_WARN, 
-                         "Sender - error setting multicast ttl: %s",
-                         strerror(errno));
-    }
-
-    // restrict outbound multicast to named interface
-    // (INADDR_ANY means outbound on all interaces)
-    struct in_addr which;
-    memset(&which,0,sizeof(struct in_addr));
-    which.s_addr = local_addr_;
-    if (::setsockopt(fd_, IPPROTO_IP, IP_MULTICAST_IF, &which,
-                sizeof(which)) < 0)
-    {
-        parent_->log_msg(logpath_, oasys::LOG_WARN, 
-                         "Sender - error setting outbound multicast interface: %s",
-                         intoa(local_addr_));
-    }
-
-    // Check the buffer sizes
-    uint32_t rcv_size = 0;
-    uint32_t snd_size = 0;
-    socklen_t len = sizeof(rcv_size);
-    if (::getsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &rcv_size, &len) != 0) {
-        parent_->log_msg(oasys::LOG_ERR, "Error reading socket receive buffer size");
-    }
-    if (::getsockopt(fd_, SOL_SOCKET, SO_SNDBUF, &snd_size, &len) != 0) {
-        parent_->log_msg(oasys::LOG_ERR, "Error reading socket send buffer size");
-    }
-    parent_->log_msg(oasys::LOG_NOTICE, "EhsExternalRouterImpl - Sender Socket Buffers: rcv: %u snd: %u",
-                     rcv_size, snd_size);
-
-    // we always delete the thread object when we exit
-    Thread::set_flag(Thread::DELETE_ON_EXIT);
-
-    eventq = new oasys::MsgQueue< std::string * >(logpath_, lock_);
-}
-
-EhsExternalRouterImpl::Sender::~Sender()
-{
-    // free all pending events
-    std::string *event;
-    while (eventq->try_pop(&event))
-        delete event;
-
-    delete eventq;
-}
-
-//----------------------------------------------------------------------
-// Sender main loop
-void
-EhsExternalRouterImpl::Sender::run() 
-{
-    // block on input from the socket and
-    // on input from the bundle event list
-    struct pollfd pollfds[1];
-
-    struct pollfd* event_poll = &pollfds[0];
-    event_poll->fd = eventq->read_fd();
-    event_poll->events = POLLIN;
-    event_poll->revents = 0;
-
-    bool first_transmit = true;
-    while (1) {
-        if (should_stop()) return;
-
-        // block waiting...
-        int ret = oasys::IO::poll_multiple(pollfds, 1, 1000,
-                                           get_notifier());
-
-        if (ret == oasys::IOINTR) {
-            parent_->log_msg(logpath_, oasys::LOG_DEBUG, 
-                             "EhsExternalRotuerImpl::Sender interrupted");
-            set_should_stop();
-            continue;
-        }
-
-        if (ret == oasys::IOERROR) {
-            parent_->log_msg(logpath_, oasys::LOG_DEBUG, 
-                             "EhsExternalRotuerImpl::Sender IO error");
-            set_should_stop();
-            continue;
-        }
-
-        // check for an event
-        if (event_poll->revents & POLLIN) {
-            std::string *event;
-            if (eventq->try_pop(&event)) {
-                ASSERT(event != NULL)
-
-                if (first_transmit) {
-                    first_transmit = false;
-                    transmit_timer_.get_time();
-                }
-
-                //dz debug - rate limiting
-//                while (!bucket_.try_to_drain(event->size()*8)) {
-//                    usleep(100);
-//                }
-
-                int cc = sendto(const_cast< char * >(event->c_str()),
-                    event->size(), 0,
-                    remote_addr_,
-                    remote_port_);
-
-                bytes_sent_ += cc;
-
-                delete event;
-            }
-        }
-
-        if (!first_transmit && transmit_timer_.elapsed_ms() >= 1000) {
-            //if (bytes_sent_ > 0) {
-            //    bytes_sent_ *= 8;
-            //    parent_->log_msg(logpath_, oasys::LOG_CRIT, 
-            //                     "EhsExternalRouterImpl sent %" PRIu64 " bits in %u ms", 
-            //                     bytes_sent_, transmit_timer_.elapsed_ms());
-            //    transmit_timer_.get_time();
-            //    bytes_sent_ = 0;
-            //}
-
-            transmit_timer_.get_time();
-            if (bytes_sent_ > max_bytes_sent_) max_bytes_sent_ = bytes_sent_;
-            bytes_sent_ = 0;
-        }
-    }
-}
-
-
 
 //----------------------------------------------------------------------
 void
-EhsExternalRouterImpl::run_tcp() 
+EhsExternalRouterImpl::run() 
 {
+    char threadname[16] = "EhsExtRtrImpTcp";
+    pthread_setname_np(pthread_self(), threadname);
 
     oasys::ScratchBuffer<u_char*, 2048> buffer;
 
@@ -2471,33 +2236,19 @@ EhsExternalRouterImpl::run_tcp()
     US union_size;
 
 
-    log_msg(oasys::LOG_INFO, "EhsExternalRouterImpl running TCP on network_interface: %s", intoa(local_addr_));
-
-    // Create the XML parser
-    parser_ = new oasys::XercesXMLUnmarshal(client_validation_,
-                                            schema_.c_str());
-
-
     // initialize the TCP client
-    tcp_client_ = new oasys::TCPClient("ehsrouter/tcpclient");
-    tcp_client_->set_logfd(false);
-    tcp_client_->init_socket();
+    tcp_client_.set_logfd(false);
+    tcp_client_.init_socket();
 
-    tcp_sender_ = new TcpSender(this);
-    tcp_sender_->start();
+    tcp_sender_.start();
 
     while (!should_stop())
     {
         // try to connect if needed
-//        if (tcp_client_->state() == oasys::IPSocket::CONNECTING) {
-//                log_crit("socket state is CONNECTING - sleep a bit and check again");
-//            usleep(100000); // wait 1/10th second and check again
-//            continue;
-//        }
-        if (tcp_client_->state() != oasys::IPSocket::ESTABLISHED) {
-            log_crit("connect to DTNME server... state = %d", (int)tcp_client_->state());
-            if (tcp_client_->connect(remote_addr_, remote_port_) != 0) {
-                log_crit("Unable to connect to External Router TCP interface... will try again in 10 seconds");
+        if (tcp_client_.state() != oasys::IPSocket::ESTABLISHED) {
+            if (tcp_client_.connect(remote_addr_, remote_port_) != 0) {
+                log_err("Unable to connect to External Router TCP interface (%s:%u)... will try again in 10 seconds",
+                        intoa(remote_addr_) , remote_port_);
                 int ctr = 0;
                 while (!should_stop() && ++ctr <= 100)
                 {
@@ -2512,12 +2263,22 @@ EhsExternalRouterImpl::run_tcp()
             continue;
         }
 
-        log_crit("Connected to DTNME server - state = %d", (int)tcp_client_->state());
+        log_always("Connected to DTNME server - state = %d", (int)tcp_client_.state());
 
-        while (!should_stop() && (tcp_client_->state() == oasys::IPSocket::ESTABLISHED)) {
+        // Send the ExtneralRouter client-side magic number first thing
+        union_size.int_size = 0x58434C54;  // XCLT
+        union_size.int_size = ntohl(union_size.int_size);
+        int cc = tcp_client_.writeall(union_size.chars, 4);
+        if (cc != 4) {
+            log_err("error sending ExternalRouter client-side magic number: %s", strerror(errno));
+        }
+
+        bool got_magic_number = false;
+
+        while (!should_stop() && (tcp_client_.state() == oasys::IPSocket::ESTABLISHED)) {
             // read the length field (4 bytes)
 
-            //int cc = tcp_client_->readall(union_size.chars, 4);
+            //int cc = tcp_client_.readall(union_size.chars, 4);
             int ret;
 
             int data_to_read = 4;       
@@ -2528,12 +2289,12 @@ EhsExternalRouterImpl::run_tcp()
             union_size.int_size = -1;
             while (!should_stop() && (data_to_read > 0))
             {
-                ret = tcp_client_->timeout_read((char *) &(union_size.chars[data_ptr]), data_to_read, 100);
+                ret = tcp_client_.timeout_read((char *) &(union_size.chars[data_ptr]), data_to_read, 100);
                 if ((ret == oasys::IOEOF) || (ret == oasys::IOERROR)) {   
 //                    if (errno == EINTR) {
 //                        continue;
 //                    }
-                    tcp_client_->close();
+                    tcp_client_.close();
                     //set_should_stop();
                     break;
                 }
@@ -2549,27 +2310,38 @@ EhsExternalRouterImpl::run_tcp()
 
             union_size.int_size = ntohl(union_size.int_size);
 
-            if ((union_size.int_size < 0) || (union_size.int_size > 1000000)) {
-                // received signal that other side is closing
-                log_crit("Error reading TCP socket - message length = %d", union_size.int_size);
-                tcp_client_->close();
+            if (!got_magic_number) {
+                // first 4 bytes read must be the client side magic number or we abort
+                if (union_size.int_size != 0x58525452) {   // XRTR
+                    log_err("Aborting - did not receive ExternalRouter server-side magic number: %8.8x", union_size.int_size);
+                    tcp_client_.close();
+                    break;
+                }
+                got_magic_number = true;
+
+                //dzdebug
+                log_always("EhsExternalRouterImpl got magic number from server");
+
+                continue; // now try to read a size value
+            }
+
+            // allow up to 10MB of data from the server (bundle report segments)
+            if ((union_size.int_size < 0) || (union_size.int_size > 10000000)) {
+                log_crit("Error reading TCP socket - expected message length = %d", union_size.int_size);
+                tcp_client_.close();
                 continue;
             }
 
             buffer.clear();
-            buffer.reserve(union_size.int_size+1);  // allow for a terminating NULL character
+            buffer.reserve(union_size.int_size);
 
 
             data_ptr = 0;
             data_to_read = union_size.int_size;
             while (!should_stop() && (data_to_read > 0)) {
-                ret = tcp_client_->timeout_read((char*) buffer.buf()+data_ptr, data_to_read, 100);
+                ret = tcp_client_.timeout_read((char*) buffer.buf()+data_ptr, data_to_read, 100);
                 if ((ret == oasys::IOEOF) || (ret == oasys::IOERROR)) {   
-                //    if (errno == EINTR) {
-//                        continue;
-//                    }
-                    tcp_client_->close();
-                    //set_should_stop();
+                    tcp_client_.close();
                     break;
                 }
                 if (ret > 0) {
@@ -2584,58 +2356,44 @@ EhsExternalRouterImpl::run_tcp()
             if (should_stop()) continue;
 
             // process the message
-            log_debug("Received message of length: %d", union_size.int_size);
+            //dzdebug log_debug("Received message of length: %d", union_size.int_size);
 
-            // add terminating NULL character
-            memset(buffer.buf()+union_size.int_size, 0, 1);
-            process_action((const char*) buffer.buf());
+            std::unique_ptr<std::string> msgptr(new std::string((const char*) buffer.buf(), union_size.int_size));
 
+            process_action(msgptr);
         }
 
+        remove_dtn_nodes_after_comm_error();
+
 
     }
 
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-    if (tcp_sender_ != NULL ) tcp_sender_->set_should_stop();
+    tcp_sender_.set_should_stop();
 }
 
-void
-EhsExternalRouterImpl::tcp_sender_closed(TcpSender* tcp_sender)
+EhsExternalRouterImpl::TcpSender::TcpSender()
+    : Thread("/ehs/extrtr/tcpsndr"),
+      Logger("EhsExternalRouterImpl::TcpSender", "/ehs/extrtr/tcpsndr"),
+      eventq_(logpath_)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
-    if (tcp_sender_ == tcp_sender)
-    {
-        tcp_sender_ = NULL;
-    }
-}
-
-
-EhsExternalRouterImpl::TcpSender::TcpSender(EhsExternalRouterImpl* parent)
-    : Thread("tcpsndr"),
-      Logger("EhsExternalRouterImpl::TcpSender", "tcpsndr")
-{
-    parent_ = parent;
-
-    // we always delete the thread object when we exit
-    Thread::set_flag(Thread::DELETE_ON_EXIT);
-
-    eventq_ = new oasys::MsgQueue< std::string * >(logpath_);
 }
 
 EhsExternalRouterImpl::TcpSender::~TcpSender()
 {
     // free all pending events
     std::string *event;
-    while (eventq_->try_pop(&event))
+    while (eventq_.try_pop(&event))
         delete event;
-
-    delete eventq_;
 }
 
 void
 EhsExternalRouterImpl::TcpSender::post(std::string* event)
 {
-    eventq_->push_back(event);
+    if (should_stop()) {
+        delete event;
+    } else {
+        eventq_.push_back(event);
+    }
 }
 
 void
@@ -2649,7 +2407,7 @@ EhsExternalRouterImpl::TcpSender::run()
     struct pollfd pollfds[1];
 
     struct pollfd* event_poll = &pollfds[0];
-    event_poll->fd = eventq_->read_fd();
+    event_poll->fd = eventq_.read_fd();
     event_poll->events = POLLIN;
     event_poll->revents = 0;
 
@@ -2657,6 +2415,10 @@ EhsExternalRouterImpl::TcpSender::run()
 
         // block waiting...
         int ret = oasys::IO::poll_multiple(pollfds, 1, 10);
+
+        if (should_stop()) {
+            break;
+        }
 
         if (ret == oasys::IOINTR) {
             log_debug("TcpSender interrupted");
@@ -2673,8 +2435,8 @@ EhsExternalRouterImpl::TcpSender::run()
         // check for an event
         if (event_poll->revents & POLLIN) {
             std::string *event;
-            if (eventq_->try_pop(&event)) {
-                ASSERT(event != NULL)
+            if (eventq_.try_pop(&event)) {
+                ASSERT(event != nullptr)
 
                 parent_->send_tcp_msg(event);
 
@@ -2682,9 +2444,6 @@ EhsExternalRouterImpl::TcpSender::run()
             }
         }
     }
-
-    parent_->tcp_sender_closed(this);
-
 }
 
 void
@@ -2699,14 +2458,14 @@ EhsExternalRouterImpl::send_tcp_msg(std::string* msg)
 
     int cc;
 
-    if (tcp_client_->state() == oasys::IPSocket::ESTABLISHED) {
+    if (tcp_client_.state() == oasys::IPSocket::ESTABLISHED) {
         union_size.int_size = htonl(msg->size());
 
-        cc = tcp_client_->writeall(union_size.chars, 4);
+        cc = tcp_client_.writeall(union_size.chars, 4);
         if (cc != 4) {
             log_err("error writing msg: %s", strerror(errno));
         } else {
-            cc = tcp_client_->writeall( const_cast< char * >(msg->c_str()), msg->size());
+            cc = tcp_client_.writeall( const_cast< char * >(msg->c_str()), msg->size());
             if (cc != (int) msg->size())
             {
                 log_err("error writing msg: %s", strerror(errno));
@@ -2722,6 +2481,4 @@ EhsExternalRouterImpl::TcpSender::max_bytes_sent()
 }
 
 } // namespace dtn
-#endif // XERCES_C_ENABLED && EHS_DP_ENABLED
 
-#endif // EHSROUTER_ENABLED

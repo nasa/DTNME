@@ -19,14 +19,10 @@
 #define _EHS_BUNDLE_TREE_H_
 
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <map>
 
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
 
 #include "EhsBundleRef.h"
 #include "EhsExternalRouter.h"
@@ -88,6 +84,8 @@ public:
     virtual EhsBundleRef bundle_custody_released(uint64_t bundleid);
     virtual EhsBundleRef bundle_transmitted(uint64_t bundleid, bool success);
     virtual EhsBundleRef bundle_delivered(uint64_t bundleid);
+    virtual void prepare_for_resync();
+    virtual size_t finalize_resync(EhsBundleMap& undelivered_bmap, EhsBundleMap& custody_bmap);
 
     /**
      * Utility reporting functions
@@ -98,9 +96,13 @@ public:
     virtual void dump(oasys::StringBuffer* buf);
     virtual void bundle_stats_by_src_dst(int* count, EhsBundleStats** stats);
     virtual void fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats);
-    virtual void get_bundle_stats(uint64_t* received, uint64_t* transmitted, uint64_t* transmit_failed,
-                                  uint64_t* delivered, uint64_t* rejected,
-                                  uint64_t* pending, uint64_t* custody);
+    virtual void get_bundle_stats(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                  uint64_t& delivered, uint64_t& rejected,
+                                  uint64_t& pending, uint64_t& custody);
+    virtual void get_bundle_stats2(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                                   uint64_t& delivered, uint64_t& rejected,
+                                   uint64_t& pending, uint64_t& custody, uint64_t& expired);
+    virtual uint64_t get_bundles_pending();
     virtual void bundle_id_list(EhsBundleMap& bidlist, uint64_t source_node_id, uint64_t dest_node_id);
     virtual void bundle_id_list(EhsBundleMap& bidlist);
 
@@ -631,9 +633,5 @@ public:
 
 } // namespace dtn
 
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#endif // EHSROUTER_ENABLED
 
 #endif /* _EHS_BUNDLE_TREE_H_ */

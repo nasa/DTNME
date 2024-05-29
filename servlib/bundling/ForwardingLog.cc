@@ -18,9 +18,9 @@
 #  include <dtn-config.h>
 #endif
 
-#include <oasys/thread/SpinLock.h>
-#include <oasys/util/StringBuffer.h>
-#include <oasys/serialize/Serialize.h>
+#include <third_party/oasys/thread/SpinLock.h>
+#include <third_party/oasys/util/StringBuffer.h>
+#include <third_party/oasys/serialize/Serialize.h>
 #include "ForwardingLog.h"
 #include "conv_layers/ConvergenceLayer.h"
 #include "reg/Registration.h"
@@ -58,7 +58,7 @@ ForwardingLog::get_latest_entry(const LinkRef& link, ForwardingInfo* info) const
 
 
             if (!BundleDaemon::params_.persistent_links_) {
-                if ((iter->remote_eid() != EndpointID::NULL_EID()) &&
+                if ((iter->remote_eid() != BD_NULL_EID()) &&
                     (iter->remote_eid() != link->remote_eid())) {
                     // XXX/dz - had issues with persistent links probably due
                     //          to different IP addresses from VPN sessions
@@ -66,7 +66,7 @@ ForwardingLog::get_latest_entry(const LinkRef& link, ForwardingInfo* info) const
                     return false;
                 }
             } else {
-                ASSERT((iter->remote_eid() == EndpointID::NULL_EID()) ||
+                ASSERT((iter->remote_eid() == BD_NULL_EID()) ||
                        (iter->remote_eid() == link->remote_eid()));
             }
             *info = *iter;
@@ -106,7 +106,7 @@ ForwardingLog::get_latest_entry(const Registration* reg,
             // registration id to registration eid is persistent,
             // which will need to be revisited once the forwarding log
             // is serialized to disk.
-            ASSERT(iter->remote_eid() == EndpointID::NULL_EID() ||
+            ASSERT(iter->remote_eid() == BD_NULL_EID() ||
                    iter->remote_eid() == reg->endpoint());
             *info = *iter;
             return true;
@@ -172,7 +172,7 @@ ForwardingLog::get_count(unsigned int states,
 
 //----------------------------------------------------------------------
 size_t
-ForwardingLog::get_count(const EndpointID& eid,
+ForwardingLog::get_count(const SPtr_EID& sptr_eid,
                          unsigned int states,
                          unsigned int actions) const
 {
@@ -183,8 +183,8 @@ ForwardingLog::get_count(const EndpointID& eid,
     Log::const_iterator iter;
     for (iter = log_.begin(); iter != log_.end(); ++iter)
     {
-        if ((iter->remote_eid() == EndpointIDPattern::WILDCARD_EID() ||
-             iter->remote_eid() == eid) &&
+        if ((iter->remote_eid() == BD_WILD_PATTERN() ||
+             iter->remote_eid() == sptr_eid) &&
             (iter->state()  & states)  != 0 &&
             (iter->action() & actions) != 0)
         {
@@ -205,11 +205,11 @@ ForwardingLog::dump(oasys::StringBuffer* buf) const
     {
         const ForwardingInfo* info = &(*iter);
         
-        buf->appendf("\t%s -> %s [%s] %s at %u.%u "
+        buf->appendf("\t%s -> %s [%s] %s at %" PRIu64 ".%" PRIu64 " "
                      "[custody min %d pct %d max %d]\n",
                      ForwardingInfo::state_to_str(info->state()),
                      info->link_name().c_str(),
-                     info->remote_eid().c_str(),
+                     info->remote_eid()->c_str(),
                      ForwardingInfo::action_to_str(info->action()),
                      info->timestamp().sec_,
                      info->timestamp().usec_,
@@ -231,9 +231,11 @@ ForwardingLog::add_entry(const LinkRef& link,
     log_.push_back(ForwardingInfo(state, action, link->name_str(), 0xffffffff,
                                   link->remote_eid(), custody_timer));
 
-    link->set_used_in_fwdlog();
-
     if (BundleDaemon::params_.persistent_fwd_logs_) {
+        if (!link->used_in_fwdlog()) {
+            link->set_used_in_fwdlog();
+        }
+
         BundleDaemon* daemon = BundleDaemon::instance();
         daemon->actions()->store_update(bundle_);
     }
@@ -270,17 +272,17 @@ ForwardingLog::add_entry(const Registration* reg,
 
 //----------------------------------------------------------------------
 void
-ForwardingLog::add_entry(const EndpointID&        eid,
+ForwardingLog::add_entry(const SPtr_EID&        sptr_eid,
                          ForwardingInfo::action_t action,
                          state_t                  state)
 {
     oasys::ScopeLock l(lock_, "ForwardingLog::add_entry");
 
-    oasys::StringBuffer name("eid-%s", eid.c_str());
+    oasys::StringBuffer name("eid-%s", sptr_eid->c_str());
     CustodyTimerSpec custody_timer;
     
     log_.push_back(ForwardingInfo(state, action, name.c_str(), 0xffffffff,
-                                  eid, custody_timer));
+                                  sptr_eid, custody_timer));
     if (BundleDaemon::params_.persistent_fwd_logs_) {
         BundleDaemon* daemon = BundleDaemon::instance();
         daemon->actions()->store_update(bundle_);
@@ -301,7 +303,7 @@ ForwardingLog::update(const LinkRef& link, state_t state)
             // This assertion holds as long as the mapping of link
             // name to remote eid is persistent. This may need to be
             // revisited once link tables are serialized to disk.
-            ASSERT(iter->remote_eid() == EndpointID::NULL_EID() ||
+            ASSERT(iter->remote_eid() == BD_NULL_EID() ||
                    iter->remote_eid() == link->remote_eid());
             iter->set_state(state);
 

@@ -17,7 +17,7 @@
 #ifndef _SDNV_H_
 #define _SDNV_H_
 
-#include <oasys/compat/inttypes.h>
+#include <third_party/oasys/compat/inttypes.h>
 
 #ifdef __cplusplus
 

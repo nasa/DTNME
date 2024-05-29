@@ -33,9 +33,11 @@ AlwaysOnLink::AlwaysOnLink(std::string name, ConvergenceLayer* cl,
 void
 AlwaysOnLink::set_initial_state()
 {
-    BundleDaemon::post_at_head(
-        new LinkStateChangeRequest(LinkRef(this, "AlwaysOnLink"),
-                                   Link::OPEN, ContactEvent::USER));
+    LinkStateChangeRequest* event_to_post;
+    event_to_post = new LinkStateChangeRequest(LinkRef(this, "AlwaysOnLink"),
+                                               Link::OPEN, ContactEvent::USER);
+    SPtr_BundleEvent sptr_event_to_post(event_to_post);
+    BundleDaemon::post_at_head(sptr_event_to_post);
 }
 
 } // namespace dtn

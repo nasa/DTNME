@@ -15,12 +15,10 @@
 #ifndef _TEST_EHSROUTER_H_
 #define _TEST_EHSROUTER_H_
 
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
-#include <oasys/debug/Log.h>
-#include <oasys/thread/Mutex.h>
-#include <oasys/util/App.h>
-#include <oasys/util/Singleton.h>
+#include <third_party/oasys/debug/Log.h>
+#include <third_party/oasys/thread/Mutex.h>
+#include <third_party/oasys/util/App.h>
+#include <third_party/oasys/util/Singleton.h>
 
 
 namespace dtn {
@@ -65,6 +63,11 @@ public:
     virtual void send_recv_stats();
     virtual void fwdlink_transmit_dump();
     virtual void bundle_stats_by_src_dst();
+    virtual void bard_usage_report();
+    virtual void bard_add_quota();
+    virtual void bard_del_quota();
+    virtual void add_restage_cl();
+    virtual void del_restage_cl();
     virtual void unrouted_bundle_stats_by_src_dst();
     virtual std::string fmt_bytes(uint64_t bytes);
 
@@ -95,7 +98,5 @@ protected:
 
 } // namespace dpp
 
-
-#endif // defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
 
 #endif /* _TEST_EHSROUTER_H_ */

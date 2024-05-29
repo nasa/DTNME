@@ -19,15 +19,12 @@
 #  include <dtn-config.h>
 #endif
 
-#ifdef EHSROUTER_ENABLED
-
-#if defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED)
-
 #include <inttypes.h>
 
-#include <oasys/io/IO.h>
+#include <third_party/oasys/io/IO.h>
 
 #include "bundling/BundleProtocol.h"
+#include "bundling/BundleProtocolVersion6.h"
 #include "bundling/SDNV.h"
 #include "EhsDtnNode.h"
 #include "EhsExternalRouterImpl.h"
@@ -41,11 +38,13 @@ namespace dtn {
 EhsDtnNode::EhsDtnNode(EhsExternalRouterImpl* parent, 
                        std::string eid, std::string eid_ipn)
     : EhsEventHandler("EhsDtnNode", "/ehs/node/%s", eid.c_str()),
-      Thread("EhsDtnNode", oasys::Thread::DELETE_ON_EXIT),
+      Thread("EhsDtnNode"),
+      ExternalRouterClientIF("EhsDtnNode"),
       eid_(eid),
       eid_ping_(eid),
       eid_ipn_(eid_ipn),
       eid_ipn_ping_(eid_ipn),
+      eid_ipn_dtpc_(eid_ipn),
       parent_(parent),
       prime_mode_(true),
       fwdlnk_enabled_(false),
@@ -60,6 +59,10 @@ EhsDtnNode::EhsDtnNode(EhsExternalRouterImpl* parent,
         // change the service number from 0 to 2047
         eid_ipn_ping_.resize(eid_ipn_ping_.length()-1);
         eid_ipn_ping_.append("2047");
+
+        // change the service number from 0 to 129
+        eid_ipn_dtpc_.resize(eid_ipn_dtpc_.length()-1);
+        eid_ipn_dtpc_.append("129");
     }
     
     if (0 == strncmp("dtn:", eid_.c_str(), 4)) {
@@ -74,17 +77,13 @@ EhsDtnNode::EhsDtnNode(EhsExternalRouterImpl* parent,
 
     last_recv_seq_ctr_ = 0;
     send_seq_ctr_ = 0;
-
-    memset(&stats_, 0, sizeof(stats_));
 }
 
 
 //----------------------------------------------------------------------
 EhsDtnNode::~EhsDtnNode()
 {
-    set_should_stop();
-    router_->set_should_stop();
-    router_ = NULL;
+    do_shutdown();
 
     all_bundles_.clear();
 
@@ -121,12 +120,35 @@ EhsDtnNode::~EhsDtnNode()
     while (iter != bundles_by_dest_map_.end()) {
        bmap = iter->second;
        bmap->clear();
+
+       bundles_by_dest_map_.erase(iter);
+
+       iter = bundles_by_dest_map_.begin();
     }
     bundles_by_dest_map_.clear();
 
-    sleep(1);
-
     delete eventq_;
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::do_shutdown()
+{
+    if (should_stop()) {
+        return;
+    }
+
+    set_should_stop();
+    
+    router_->set_should_stop();
+    while (!router_->is_stopped()) {
+        usleep(100000);
+    }
+    router_ = nullptr;
+
+    while (!is_stopped()) {
+        usleep(100000);
+    }
 }
 
 //----------------------------------------------------------------------
@@ -152,72 +174,134 @@ EhsDtnNode::set_prime_mode(bool prime_mode)
 
 
 //----------------------------------------------------------------------
-void
-EhsDtnNode::inc_bundle_stats_by_src_dst(EhsBundle* eb)
-{
-    // update src-dst stats
-    EhsSrcDstKey* skey = NULL;
-    EhsSrcDstKey tmpkey = EhsSrcDstKey(eb->ipn_source_node(), eb->ipn_dest_node());
-    SrcDstStatsIterator siter = src_dst_stats_list_.find(&tmpkey);
-    if (siter == src_dst_stats_list_.end()) {
-        skey = new EhsSrcDstKey(eb->ipn_source_node(), eb->ipn_dest_node());
-        src_dst_stats_list_[skey] = skey;
-    } else {
-        skey = siter->second;
-    }
-    ++skey->total_bundles_;
-    skey->total_bytes_ += eb->length();
-}
-        
-//----------------------------------------------------------------------
-void
-EhsDtnNode::dec_bundle_stats_by_src_dst(EhsBundle* eb)
-{
-    // update src-dst stats
-    EhsSrcDstKey tmpkey = EhsSrcDstKey(eb->ipn_source_node(), eb->ipn_dest_node());
-    SrcDstStatsIterator siter = src_dst_stats_list_.find(&tmpkey);
-    if (siter != src_dst_stats_list_.end()) {
-        EhsSrcDstKey* skey = siter->second;
-        --skey->total_bundles_;
-        skey->total_bytes_ -= eb->length();
-    }
-}
-        
-//----------------------------------------------------------------------
 bool
 EhsDtnNode::shutdown_server()
 {
     // issue request to shutdown the DTNME server
-    rtrmessage::bpa msg;
-    rtrmessage::bpa::shutdown_request::type req;
-    msg.shutdown_request(req);
-    send_msg(msg);
+    client_send_shutdown_req_msg();
 
     return true;
 }
 
+
 //----------------------------------------------------------------------
 void
-EhsDtnNode::process_bundle_report(rtrmessage::bpa* msg)
+EhsDtnNode::process_hello_msg(CborValue& cvElement, uint64_t msg_version)
 {
-    rtrmessage::bundle_report::bundle::container& c = msg->bundle_report().get().bundle();
+    // the hello msg_version can be used as master version level for the 
+    // ExternalRouter I/F to determine compatibility - also each message
+    // has a version for use at a lower level
 
-    EhsBundleRef bref("process_bundle_report");
 
-    rtrmessage::bundle_report::bundle::container::iterator iter = c.begin();
-    while (iter != c.end()) {
-        rtrmessage::bundle_report::bundle::type& xbundle = *iter;
-        uint64_t id = xbundle.bundleid();
+
+    if (msg_version == 0) {
+        uint64_t bundles_received = 0;
+        uint64_t bundles_pending = 0;
+        if (CBORUTIL_SUCCESS != decode_hello_msg_v0(cvElement, bundles_received, bundles_pending))
+        {
+            log_msg(oasys::LOG_ERR, "process_hello_msg: error parsing CBOR");
+            return;
+        }
+
+        if ((bundles_received == last_hello_bundles_received_) &&
+            (bundles_pending == last_hello_bundles_pending_)) {
+            // no change in 10 seconds so we should be stablized and 
+            // can compare pending values
+
+            //XXX/dz TODO
+            // if pending does not match mark all bundles as "not in report"
+            // request a bundle report that sets the flag in each bundle
+            // after processing the report check for bundles "not in report"
+            // which are out of sync and can be deleted from our list
+
+            uint64_t local_pending = all_bundles_.get_bundles_pending();
+
+            if (bundles_pending != local_pending) {
+                log_msg(oasys::LOG_ALWAYS, "Pending bundles (%" PRIu64 ") out of sync with DTNME server (%" PRIu64 ")",
+                        local_pending, bundles_pending);
+
+                resync_bundles_in_process_ = true;
+                // set all bundles to indicate they were not in the resync report
+                all_bundles_.prepare_for_resync();
+                // request a current bundle report to resync with
+                client_send_bundle_query_msg();
+
+            }
+        }
+
+        last_hello_bundles_received_ = bundles_received;
+        last_hello_bundles_pending_ = bundles_pending;
+    }
+
+
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::do_resync_processing()
+{
+    if (resync_bundles_in_process_) {
+        oasys::ScopeLock l(&lock_, __func__);
+
+        // provide the undeliveerd and custody lists so that bundles can be deleted from them also
+        size_t num_deleted = all_bundles_.finalize_resync(undelivered_bundles_, custody_bundles_);
+
+        log_msg(oasys::LOG_ALWAYS, "Reync deleted %zu bundles", num_deleted);
+
+        resync_bundles_in_process_ = false;
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_alert_msg_v0(CborValue& cvElement)
+{
+    std::string alert_msg;
+    if (CBORUTIL_SUCCESS != decode_alert_msg_v0(cvElement, alert_msg))
+    {
+        log_msg(oasys::LOG_ERR, "process_alert_msg: error parsing CBOR");
+        return;
+    }
+
+    log_msg(oasys::LOG_ALWAYS, "Alert msg: %s", alert_msg.c_str());
+}
+
+
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_bundle_report_v0(CborValue& cvElement)
+{
+    extrtr_bundle_vector_t bundle_vec;
+
+    bool last_msg = false;
+    if (CBORUTIL_SUCCESS != decode_bundle_report_msg_v0(cvElement, bundle_vec, last_msg))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_report_v0: error parsing CBOR - num bundles = %zu",
+                                bundle_vec.size());
+    }
+
+    EhsBundleRef bref("process_bundle_report_v0");
+
+
+
+    extrtr_bundle_vector_iter_t iter = bundle_vec.begin();
+    while (iter != bundle_vec.end()) {
+        extrtr_bundle_ptr_t bundleptr = *iter;
+
+
+        uint64_t id = bundleptr->bundleid_;
 
         bref = all_bundles_.find(id);
-        if (bref == NULL) {
-            EhsBundle* eb = new EhsBundle(this, xbundle);
+        if (bref == nullptr) {
+            EhsBundle* eb = new EhsBundle(this, bundleptr);
+
             eb->set_is_fwd_link_destination(router_->is_fwd_link_destination(eb->ipn_dest_node()));
 
             bref = eb;
 
             if (! all_bundles_.bundle_received(bref)) {
-                log_msg(oasys::LOG_CRIT, "process_bundle_report - ignoring duplicate Bundle ID: %" PRIu64
+                log_msg(oasys::LOG_CRIT, "process_bundle_report_v0 - ignoring duplicate Bundle ID: %" PRIu64
                                          " src: %s dest: %s len: %d", 
                         bref->bundleid(), bref->source().c_str(), bref->dest().c_str(), bref->length());
                 return;
@@ -227,33 +311,27 @@ EhsDtnNode::process_bundle_report(rtrmessage::bpa* msg)
 
             if (bref->is_ecos_critical()) {
                 if (critical_bundles_.insert_bundle(bref)) {
-                    log_msg(oasys::LOG_WARN, "process_bundle_report - accepted ECOS Critical Bundle: %s"
+                    log_msg(oasys::LOG_WARN, "process_bundle_report_v0 - accepted ECOS Critical Bundle: %s"
                                              "  (ID: %" PRIu64 ") received on link: %s", 
                             bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
 
                     // TODO: start a timer to check for expired critical bundles
                 } else {
-                    log_msg(oasys::LOG_WARN, "process_bundle_report - rejecting duplicate ECOS Critical Bundle: %s"
+                    log_msg(oasys::LOG_WARN, "process_bundle_report_v0 - rejecting duplicate ECOS Critical Bundle: %s"
                                              "  (ID: %" PRIu64 ") received on link: %s", 
                             bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
 
                     all_bundles_.bundle_rejected(bref);
 
                     // issue delete request if not authorized
-                    rtrmessage::delete_bundle_request req;
-                    req.local_id() = bref->bundleid();
-                    req.gbofid_str(bref->gbofid_str());
-    
-                    rtrmessage::bpa message; 
-                    message.delete_bundle_request(req);
-                    send_msg(message);
+                    client_send_delete_bundle_req_msg(bref->bundleid());
 
                     return;
                 }
             }
 
-            if (eb->custodyid() > 0) {
-                custody_bundles_.insert(EhsBundlePair(eb->custodyid(), bref));
+            if (eb->local_custody()) {
+                custody_bundles_.insert(EhsBundlePair(eb->bundleid(), bref));
             } else if (accept_custody_before_routing(bref)) {
                 //log_msg(oasys::LOG_DEBUG, "bundle_report- added bundle - ID: %" PRIu64 " dest: %s len: %d --- waiting to accept custody before routing", 
                 //        id, bref->dest().c_str(), bref->length());
@@ -263,13 +341,148 @@ EhsDtnNode::process_bundle_report(rtrmessage::bpa* msg)
             //log_msg(oasys::LOG_DEBUG, "bundle_report - added bundle - ID: %" PRIu64 " dest: %s len: %d", 
             //         id, bref->dest().c_str(), bref->length());
 
-            route_bundle(bref);
+            if (!bundleptr->expired_in_transit_) {
+                //dzdebug
+                //log_msg(oasys::LOG_ALWAYS, "bundle_report/received- routing bundle ID: %" PRIu64 " dest: %s len: %d", 
+                //     id, bref->dest().c_str(), bref->length());
+                route_bundle(bref);
+            } else {
+                //dzdebug
+                log_msg(oasys::LOG_WARN, "bundle_report- expired in transit: ID: %" PRIu64 " dest: %s len: %d", 
+                     id, bref->dest().c_str(), bref->length());
+
+            }
 
         } else {
-            bref->process_bundle_report(xbundle);
+            bref->process_bundle_report(bundleptr);
 
             //log_msg(oasys::LOG_DEBUG, "bundle_report - updated Bundle ID: %" PRIu64 " dest: %s len: %d", 
             //        id, bref->dest().c_str(), bref->length());
+        }
+
+        ++iter;
+    }
+
+
+    if (last_msg) {
+        do_resync_processing();
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_bundle_received_v0(CborValue& cvElement)
+{
+    std::string link_id;
+    extrtr_bundle_vector_t bundle_vec;
+
+    if (CBORUTIL_SUCCESS != decode_bundle_received_msg_v0(cvElement, link_id, bundle_vec))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_received_v0: error parsing CBOR - num bundles = %zu",
+                                bundle_vec.size());
+    }
+
+    EhsBundleRef bref("process_bundle_received");
+
+    extrtr_bundle_vector_iter_t iter = bundle_vec.begin();
+    while (iter != bundle_vec.end()) {
+        extrtr_bundle_ptr_t bundleptr = *iter;
+
+
+        uint64_t id = bundleptr->bundleid_;
+
+
+
+
+        bref = all_bundles_.find(id);
+        if (bref == nullptr) {
+            EhsBundle* eb = new EhsBundle(this, bundleptr);
+
+            eb->set_is_fwd_link_destination(router_->is_fwd_link_destination(eb->ipn_dest_node()));
+
+            bref = eb;
+
+            if (! all_bundles_.bundle_received(bref)) {
+                log_msg(oasys::LOG_CRIT, "process_bundle_received_v0 - ignoring duplicate Bundle ID: %" PRIu64
+                                         " src: %s dest: %s len: %d", 
+                        bref->bundleid(), bref->source().c_str(), bref->dest().c_str(), bref->length());
+                return;
+            }
+
+            add_bundle_by_dest(bref);
+
+            DeliveredBundleIDIterator iter = delivered_bundle_id_list_.find(id);
+            if (iter != delivered_bundle_id_list_.end()) {
+                //log_msg(oasys::LOG_WARN, "bundle_received - ignoring delivered Bundle ID: %" PRIu64, id);
+                delivered_bundle_id_list_.erase(iter);
+                finalize_bundle_delivered_event(id);
+                return;
+            }
+
+            // this call fills in the remote address for us
+            std::string remote_addr = "";
+            if (!router_->accept_bundle(bref, link_id, remote_addr)) {
+                // not okay - send a request to delete the bundle
+                all_bundles_.bundle_rejected(bref);
+
+                log_msg(oasys::LOG_CRIT, "bundle_received - rejecting Bundle ID: %" PRIu64
+                                         " src: %s dest: %s len: %d received from: %s (%s)",
+                                         bref->bundleid(), bref->source().c_str(), bref->dest().c_str(), bref->length(),
+                                         remote_addr.c_str(), link_id.c_str());
+
+                 // issue delete request since not authorized
+                 client_send_delete_bundle_req_msg(bref->bundleid());
+
+                 return;
+             }
+
+
+
+            if (bref->is_ecos_critical()) {
+                if (critical_bundles_.insert_bundle(bref)) {
+                    log_msg(oasys::LOG_WARN, "process_bundle_received_v0 - accepted ECOS Critical Bundle: %s"
+                                             "  (ID: %" PRIu64 ") received on link: %s", 
+                            bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
+
+                    // TODO: start a timer to check for expired critical bundles
+                } else {
+                    log_msg(oasys::LOG_WARN, "process_bundle_received_v0 - rejecting duplicate ECOS Critical Bundle: %s"
+                                             "  (ID: %" PRIu64 ") received on link: %s", 
+                            bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
+
+                    all_bundles_.bundle_rejected(bref);
+
+                    // issue delete request if not authorized
+                    client_send_delete_bundle_req_msg(bref->bundleid());
+
+                    return;
+                }
+            }
+
+            if (eb->local_custody()) {
+                custody_bundles_.insert(EhsBundlePair(eb->bundleid(), bref));
+            } else if (accept_custody_before_routing(bref)) {
+                log_msg(oasys::LOG_DEBUG, "bundle_received- added bundle - ID: %" PRIu64 " dest: %s len: %d --- waiting to accept custody before routing", 
+                        id, bref->dest().c_str(), bref->length());
+
+                continue;
+            }
+
+            if (!bundleptr->expired_in_transit_) {
+                route_bundle(bref);
+            } else {
+                //dzdebug
+                log_msg(oasys::LOG_WARN, "bundle_received - expired in transit: ID: %" PRIu64 " dest: %s len: %d", 
+                     id, bref->dest().c_str(), bref->length());
+
+            }
+
+        } else {
+            bref->process_bundle_report(bundleptr);  // same format as Bundle Received
+
+
+            log_msg(oasys::LOG_DEBUG, "bundle_received - updated Bundle ID: %" PRIu64 " dest: %s len: %d", 
+                    id, bref->dest().c_str(), bref->length());
         }
 
         ++iter;
@@ -278,225 +491,38 @@ EhsDtnNode::process_bundle_report(rtrmessage::bpa* msg)
 
 
 //----------------------------------------------------------------------
-bool
-EhsDtnNode::accept_custody_before_routing(EhsBundleRef& bref)
+void
+EhsDtnNode::process_bundle_transmitted_v0(CborValue& cvElement)
 {
-    bool result = false;
+    std::string link_id;
+    uint64_t bundleid = 0;
+    uint64_t bytes_sent = 0;
 
-    if (bref->custody_requested()) {
-        if (!bref->local_custody()) {
-            if (accept_custody_.check_pair(bref->ipn_source_node(), bref->ipn_dest_node())) {
-                //log_msg(oasys::LOG_DEBUG, "accept_custody_before_routing -issuing request to take custody of bundle");
- 
-                // Issue request to take custody of the bundle
-                rtrmessage::take_custody_of_bundle_request req;
-                req.local_id() = bref->bundleid();
-                req.gbofid_str(bref->gbofid_str());
-
-                rtrmessage::bpa message; 
-                message.take_custody_of_bundle_request(req);
-                send_msg(message);
-
-                result = true;
-            }
-        }
+    if (CBORUTIL_SUCCESS != decode_bundle_transmitted_msg_v0(cvElement, link_id, bundleid, bytes_sent))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_transmitted_v0: error parsing CBOR");
+        return;
     }
 
-    return result;
-}
-
-//----------------------------------------------------------------------
-void
-EhsDtnNode::process_bundle_received_event(rtrmessage::bpa* msg)
-{
-    rtrmessage::bundle_received_event& event = msg->bundle_received_event().get();
-
-    uint64_t id = event.local_id();
-
-    EhsBundleRef bref("process_bundle_received_event");
-    bref = all_bundles_.find(id);
-    if (bref == NULL) {
-        EhsBundle* eb = new EhsBundle(this, event);
-        eb->set_is_fwd_link_destination(router_->is_fwd_link_destination(eb->ipn_dest_node()));
-
-        bref = eb;
-
-        std::string remote_addr = "";
-        std::string link_id = event.link_id();
-
-        if (! all_bundles_.bundle_received(bref)) {
-            log_msg(oasys::LOG_CRIT, "bundle_received - ignoring duplicate Bundle ID: %" PRIu64
-                                     " src: %s dest: %s len: %d received from: %s", 
-                    bref->bundleid(), bref->source().c_str(), bref->dest().c_str(), bref->length(),
-                    remote_addr.c_str());
-            return;
-        }
-        
-        add_bundle_by_dest(bref);
-
-        DeliveredBundleIDIterator iter = delivered_bundle_id_list_.find(id);
-        if (iter != delivered_bundle_id_list_.end()) {
-            //log_msg(oasys::LOG_WARN, "bundle_received - ignoring delivered Bundle ID: %" PRIu64, id);
-            delivered_bundle_id_list_.erase(iter);
-            finalize_bundle_delivered_event(id);
-            return;
-        }
-
-        if (!router_->accept_bundle(bref, link_id, remote_addr)) {
-            // not okay - send a request to delete the bundle
-            all_bundles_.bundle_rejected(bref);
-
-            log_msg(oasys::LOG_CRIT, "bundle_received - rejecting Bundle ID: %" PRIu64
-                                     " src: %s dest: %s len: %d received from: %s", 
-                    bref->bundleid(), bref->source().c_str(), bref->dest().c_str(), bref->length(),
-                    remote_addr.c_str());
-
-            // issue delete request if not authorized
-            rtrmessage::delete_bundle_request req;
-            req.local_id() = bref->bundleid();
-            req.gbofid_str(bref->gbofid_str());
-
-            rtrmessage::bpa message; 
-            message.delete_bundle_request(req);
-            send_msg(message);
-
-            return;
-        } 
-
-        if (bref->is_ecos_critical()) {
-            if (critical_bundles_.insert_bundle(bref)) {
-                log_msg(oasys::LOG_WARN, "bundle_received - accepted ECOS Critical Bundle: %s"
-                                         "  (ID: %" PRIu64 ") received on link: %s", 
-                        bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
-
-                // TODO: start a timer to check for expired critical bundles
-            } else {
-                log_msg(oasys::LOG_WARN, "bundle_received - rejecting duplicate ECOS Critical Bundle: %s"
-                                         "  (ID: %" PRIu64 ") received on link: %s", 
-                        bref->gbofid_str().c_str(), bref->bundleid(), bref->received_from_link_id().c_str());
-
-                all_bundles_.bundle_rejected(bref);
-
-                // issue delete request if not authorized
-                rtrmessage::delete_bundle_request req;
-                req.local_id() = bref->bundleid();
-                req.gbofid_str(bref->gbofid_str());
-    
-                rtrmessage::bpa message; 
-                message.delete_bundle_request(req);
-                send_msg(message);
-
-                return;
-            }
-        }
-
-        if (bref->custodyid() > 0) {
-            custody_bundles_.insert(EhsBundlePair(bref->custodyid(), bref));
-        } else if (accept_custody_before_routing(bref)) {
-            //log_msg(oasys::LOG_DEBUG, "bundle_received - added bundle - ID: %" PRIu64 " dest: %s len: %d --- waiting to accept custody before routing", 
-            //        id, bref->dest().c_str(), bref->length());
-            return;
-        }
-
-        //log_msg(oasys::LOG_DEBUG, "bundle_received - added bundle - ID: %" PRIu64 " dest: %s len: %d custody: %s --- routing", 
-        //        id, bref->dest().c_str(), bref->length(), bref->custody_str().c_str());
-
-        route_bundle(bref);
-
-    } else {
-        bref->process_bundle_received_event(event);
-        //log_msg(oasys::LOG_WARN, 
-        //        "bundle_received - updated existing?? Bundle ID: %" PRIu64 " dest: %s len: %d", 
-        //        id, bref->dest().c_str(), bref->length());
-    }
-}
-
-//----------------------------------------------------------------------
-void
-EhsDtnNode::process_bundle_custody_accepted_event(rtrmessage::bpa* msg)
-{
-    rtrmessage::bundle_custody_accepted_event& event = msg->bundle_custody_accepted_event().get();
-
-    uint64_t id = event.local_id();
-
-    EhsBundleRef bref("process_bundle_custody_accepted_event");
-    EhsBundleIterator find_iter;
-    bref = all_bundles_.bundle_custody_accepted(id);
-    if (bref == NULL) {
-        //log_msg(oasys::LOG_WARN, "bundle_custody_accepted - Bundle ID: %" PRIu64 " --- Not found - request details?", 
-        //        id);
-    } else {
-        bref->process_bundle_custody_accepted_event(event);
-        //log_msg(oasys::LOG_DEBUG, 
-        //        "bundle_custody_accepted - Bundle ID: %" PRIu64 " dest: %s --- Routing bundle", 
-        //        id, bref->dest().c_str());
-
-        custody_bundles_.insert(EhsBundlePair(bref->custodyid(), bref));
-        route_bundle(bref);
-    }
-}
-
-//----------------------------------------------------------------------
-void
-EhsDtnNode::process_bundle_expired_event(rtrmessage::bpa* msg)
-{
-    rtrmessage::bundle_expired_event& event = msg->bundle_expired_event().get();
-
-    uint64_t id = event.local_id();
-
-    EhsBundleRef bref("process_bundle_expired_event");
-    bref = all_bundles_.bundle_expired(id);
-    if (bref != NULL) {
-        // Flag bundle as deleted
-        bref->set_deleted();
-
-        if (bref->custodyid() > 0) {
-            custody_bundles_.erase(bref->custodyid());
-        }
-
-        dec_bundle_stats_by_src_dst(bref.object());
-
-        // Inform the router in case it also has a copy
-        if (bref->refcount() > 1) {
-            router_->post_event(new EhsDeleteBundleReq(bref));
-        }
-
-        //log_msg(oasys::LOG_INFO, "bundle expired - ID = %lu", id);
-    } else {
-        //log_msg(oasys::LOG_DEBUG, "bundle expired - not found - ID: %lu", id);
-    }
-}
-
-
-//----------------------------------------------------------------------
-void
-EhsDtnNode::process_data_transmitted_event(rtrmessage::bpa* msg)
-{
-    rtrmessage::data_transmitted_event& event = msg->data_transmitted_event().get();
-
-    uint64_t id = event.local_id();
-    int bytes_sent = event.bytes_sent();
     bool success = bytes_sent > 0;
-    int reliably_sent = event.reliably_sent();
-    std::string link_id = event.link_id();
 
-    EhsBundleRef bref("data_transmitted_event");
+    EhsBundleRef bref(__func__);
     EhsBundleIterator find_iter;
-    bref = all_bundles_.bundle_transmitted(id, success);
-    if (bref != NULL) {
+    bref = all_bundles_.bundle_transmitted(bundleid, success);
+    if (bref != nullptr) {
         if (0 == bytes_sent) {
             // LTPUDP CLA timed out trying to transmit the bundle
             // reroute to try again 
             //log_msg(oasys::LOG_DEBUG, 
             //        "Transmit Failure - rerouting Bundle ID: %" PRIu64,
-            //        id);
+            //        bundleid);
             route_bundle(bref);
         } else {
             if (bref->local_custody()) {
                 //log_msg(oasys::LOG_DEBUG, 
-                //        "data_transmitted - Bundle ID: %" PRIu64 " "
+                //        "process_bundle_transmitted_v0 - Bundle ID: %" PRIu64 " "
                 //        "link: %s  bytes: %d reliably: %d - in custody not deleting yet", 
-                //        id, link_id.c_str(), bytes_sent, reliably_sent);
+                //        bundleid, link_id.c_str(), bytes_sent, reliably_sent);
             } else {
                 bref->set_deleted();
                 all_bundles_.erase_bundle(bref);
@@ -504,9 +530,9 @@ EhsDtnNode::process_data_transmitted_event(rtrmessage::bpa* msg)
                 del_bundle_by_dest(bref);
 
                 //log_msg(oasys::LOG_DEBUG, 
-                //        "data_transmitted - Bundle ID: %" PRIu64 " "
+                //        "process_bundle_transmitted_v0 - Bundle ID: %" PRIu64 " "
                 //        "link: %s  bytes: %d reliably: %d - deleting since not in local custody", 
-                //        id, link_id.c_str(), bytes_sent, reliably_sent);
+                //        bundleid, link_id.c_str(), bytes_sent, reliably_sent);
             }
 
             router_->post_event(new EhsBundleTransmittedEvent(link_id));
@@ -517,126 +543,200 @@ EhsDtnNode::process_data_transmitted_event(rtrmessage::bpa* msg)
             }
         }
     } else {
-        // Probably received notice from LTP after the bundle expired (dtnping with 30 secs)
-        log_msg(oasys::LOG_WARN, 
-                "data_transmitted - unknown Bundle ID: %" PRIu64 " "
-                "link: %s  bytes: %d reliably: %d", 
-                id, link_id.c_str(), bytes_sent, reliably_sent);
+        // Probably received notice from LTP after the bundle expired (dtnping testing with short TTL)
+        //log_msg(oasys::LOG_DEBUG,
+        //        "process_bundle_transmitted_v0 - unknown Bundle ID: %" PRIu64 " "
+        //        "link: %s  bytes: %d", 
+        //        bundleid, link_id.c_str(), bytes_sent);
     }
 }
 
+
 //----------------------------------------------------------------------
 void
-EhsDtnNode::process_bundle_send_cancelled_event(rtrmessage::bpa* msg)
+EhsDtnNode::process_bundle_delivered_v0(CborValue& cvElement)
 {
-    rtrmessage::bundle_send_cancelled_event& event = msg->bundle_send_cancelled_event().get();
+    uint64_t bundleid = 0;
 
-    uint64_t id = event.local_id();
-    std::string link_id = event.link_id();
-    bool success = false;
-
-    EhsBundleRef bref("bundle_send_cancelled_event");
-    EhsBundleIterator find_iter;
-    bref = all_bundles_.bundle_transmitted(id, success);
-    if (bref != NULL) {
-        // reroute to try again 
-        //log_msg(oasys::LOG_DEBUG, 
-        //        "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
-        //        id);
-        route_bundle(bref);
-    } else {
-        // Probably received notice from LTP after the bundle expired (dtnping with 30 secs)
-        //log_msg(oasys::LOG_WARN, 
-        //        "bundle_send_cancelled - unknown Bundle ID: %" PRIu64 " "
-        //        "link: %sd", 
-        //        id, link_id.c_str());
+    if (CBORUTIL_SUCCESS != decode_bundle_delivered_msg_v0(cvElement, bundleid))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_delivered_v0: error parsing CBOR");
+        return;
     }
-}
 
-//----------------------------------------------------------------------
-void
-EhsDtnNode::process_bundle_delivered_event(rtrmessage::bpa* msg)
-{
-    rtrmessage::bundle_delivered_event& event = msg->bundle_delivered_event().get();
+    finalize_bundle_delivered_event(bundleid);
 
-    uint64_t id = event.local_id();
-
-    finalize_bundle_delivered_event(id);
 }
 
 
 //----------------------------------------------------------------------
 void
-EhsDtnNode::finalize_bundle_delivered_event(uint64_t id)
+EhsDtnNode::process_bundle_expired_v0(CborValue& cvElement)
 {
-    EhsBundleRef bref("bundle_delivered_event");
-    bref = all_bundles_.bundle_delivered(id);
-    if (bref != NULL) {
+    uint64_t bundleid = 0;
+
+    if (CBORUTIL_SUCCESS != decode_bundle_expired_msg_v0(cvElement, bundleid))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_expired_v0: error parsing CBOR");
+        return;
+    }
+
+    EhsBundleRef bref("process_bundle_expired_v0");
+    bref = all_bundles_.bundle_expired(bundleid);
+    if (bref != nullptr) {
+        // Flag bundle as deleted
         bref->set_deleted();
 
-        // delete the bundle from our lists
-        all_bundles_.erase_bundle(bref);
-        undelivered_bundles_.erase(id);
+        undelivered_bundles_.erase(bref->bundleid());
 
         del_bundle_by_dest(bref);
 
-        if (bref->custodyid() > 0) {
-            custody_bundles_.erase(bref->custodyid());
-        }
-
-        //log_msg(oasys::LOG_DEBUG, 
-        //        "bundle_delivered - Bundle ID: %" PRIu64,
-        //        id);
+        custody_bundles_.erase(bref->bundleid());
 
         // Inform the router in case it also has a copy
         if (bref->refcount() > 1) {
-            //log_msg(oasys::LOG_WARN, 
-            //        "bundle_delivered - Bundle ID: %" PRIu64 " - refcount = %d ??",
-            //        id, bref->refcount());
             router_->post_event(new EhsDeleteBundleReq(bref));
         }
-        
+
+        //log_msg(oasys::LOG_DEBUG, "bundle expired - ID = %lu", id);
     } else {
-        //log_msg(oasys::LOG_WARN, 
-        //        "bundle_delivered - unknown Bundle ID: %" PRIu64,
-        //        id);
-        delivered_bundle_id_list_.insert(DeliveredBundleIDPair(id, id));
+        //log_msg(oasys::LOG_ALWAYS, "bundle ID: %" PRIu64 " -- expired but not found", bundleid);
+        //
+        //
+        //XXX/dz TODO:  remove from undelivered and delievred lists -- not in all_bundles_
+        //   add source / dest to update stats???
     }
 }
 
 
 //----------------------------------------------------------------------
 void
-EhsDtnNode::process_custody_signal_event(rtrmessage::bpa* msg)
+EhsDtnNode::process_bundle_cancelled_v0(CborValue& cvElement)
 {
-    rtrmessage::custody_signal_event& event = msg->custody_signal_event().get();
-    rtrmessage::custody_signal_event::custody_signal_attr::type attr = event.custody_signal_attr();
+    uint64_t bundleid = 0;
 
-    uint64_t id = event.local_id();
+    if (CBORUTIL_SUCCESS != decode_bundle_cancelled_msg_v0(cvElement, bundleid))
+    {
+        log_msg(oasys::LOG_ERR, "process_bundle_cancelled_v0: error parsing CBOR");
+        return;
+    }
 
-    // Success flag and reason code
-    bool succeeded = attr.succeeded();
-    unsigned char reason = attr.reason();
+        //dzdebug
+        //log_msg(oasys::LOG_ALWAYS, "bundle ID: %" PRIu64 " -- cancelled", bundleid);
+
+    EhsBundleRef bref(__func__);
+    EhsBundleIterator find_iter;
+    bref = all_bundles_.bundle_transmitted(bundleid, false);
+    if (bref != nullptr) {
+        // reroute to try again 
+        if (!resync_bundles_in_process_) {
+            //log_msg(oasys::LOG_ALWAYS, 
+            //        "Bundle Send Cancelled (link disconnected) - rerouting Bundle ID: %" PRIu64,
+            //        bundleid);
+            route_bundle(bref);
+        }
+    } else {
+        // Probably received notice from LTP after the bundle expired (dtnping with 30 secs)
+        log_msg(oasys::LOG_ALWAYS, 
+                "bundle_send_cancelled - unknown Bundle ID: %" PRIu64 " ",
+                bundleid);
+                //"link: %sd", 
+                //bundleid, link_id.c_str());
+    }
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_custody_timeout_v0(CborValue& cvElement)
+{
+    uint64_t bundleid = 0;
+
+    if (CBORUTIL_SUCCESS != decode_custody_timeout_msg_v0(cvElement, bundleid))
+    {
+        log_msg(oasys::LOG_ERR, "process_custody_timeout_v0: error parsing CBOR");
+        return;
+    }
+
+    EhsBundleRef bref(__func__);
+    bref = all_bundles_.find(bundleid);
+    if (bref != nullptr) {
+        //log_msg(oasys::LOG_DEBUG, 
+        //        "custody_timeout - Bundle ID: %" PRIu64,
+        //        id);
+
+        route_bundle(bref);
+        
+    } else {
+        //log_msg(oasys::LOG_WARN, 
+        //        "custody_timeout - unknown Bundle ID: %" PRIu64,
+        //        id);
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_custody_accepted_v0(CborValue& cvElement)
+{
+    uint64_t bundleid = 0;
+    uint64_t custody_id = 0;
+
+    if (CBORUTIL_SUCCESS != decode_custody_accepted_msg_v0(cvElement, bundleid, custody_id))
+    {
+        log_msg(oasys::LOG_ERR, "process_custody_accepted_v0: error parsing CBOR");
+        return;
+    }
+
+    EhsBundleRef bref(__func__);
+    EhsBundleIterator find_iter;
+    bref = all_bundles_.bundle_custody_accepted(bundleid);
+    if (bref == nullptr) {
+        //log_msg(oasys::LOG_WARN, "bundle_custody_accepted - Bundle ID: %" PRIu64 " --- Not found - request details?", 
+        //        bundleid);
+    } else {
+        bref->process_bundle_custody_accepted_event(custody_id);
+        //log_msg(oasys::LOG_DEBUG, 
+        //        "bundle_custody_accepted - Bundle ID: %" PRIu64 " dest: %s --- Routing bundle", 
+        //        bundleid, bref->dest().c_str());
+
+        custody_bundles_.insert(EhsBundlePair(bref->bundleid(), bref));
+        route_bundle(bref);
+    }
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::process_custody_signal_v0(CborValue& cvElement)
+{
+    uint64_t bundleid = 0;
+    bool success = false;
+    uint64_t reason = 0;
+
+    if (CBORUTIL_SUCCESS != decode_custody_signal_msg_v0(cvElement, bundleid, success, reason))
+    {
+        log_msg(oasys::LOG_ERR, "process_custody_signal_v0: error parsing CBOR");
+        return;
+    }
 
     // Release custody and delete if succeeded or duplicate  else error
-    if (!succeeded && (BundleProtocol::CUSTODY_REDUNDANT_RECEPTION != reason)) {
+    if (!success && (BundleProtocol::CUSTODY_REDUNDANT_RECEPTION != reason)) {
         log_msg(oasys::LOG_ERR,
-                "process_custody_signal_event - Received failure CS -- reason: %u", 
+                "process_custody_signal_v0 - Received failure CS -- reason: %" PRIu64, 
                 reason);
         return;
     }
 
         //dz debug
         //log_msg(oasys::LOG_ALWAYS,
-        //        "process_custody_signal_event - Bundle: %" PRIu64 " succeeded: %s reason: %u",
-        //        id, succeeded?"true":"false",reason);
+        //        "process_custody_signal_v0 - Bundle: %" PRIu64 " succeeded: %s reason: %" PRIu64,
+        //        bundleid, success?"true":"false",reason);
 
     
-    EhsBundleRef bref("process_custody_signal_event");
+    EhsBundleRef bref(__func__);
     
-    bref = all_bundles_.bundle_custody_released(id);
-    if (bref != NULL) {
-        custody_bundles_.erase(bref->custodyid());
+    bref = all_bundles_.bundle_custody_released(bundleid);
+    if (bref != nullptr) {
+        custody_bundles_.erase(bref->bundleid());
 
         bref->release_custody();
         bref->set_deleted();
@@ -654,21 +754,28 @@ EhsDtnNode::process_custody_signal_event(rtrmessage::bpa* msg)
         //        bref->bundleid(), bref->custodyid());
     } else {
         //log_msg(oasys::LOG_WARN, "Custody Bundle not found for custody signal - Bundle ID: %" PRIu64, 
-        //        id);
+        //        bundleid);
     }
 }
 
 
 //----------------------------------------------------------------------
 void
-EhsDtnNode::process_aggregate_custody_signal_event(rtrmessage::bpa* msg)
+EhsDtnNode::process_agg_custody_signal_v0(CborValue& cvElement)
 {
-    rtrmessage::aggregate_custody_signal_event& event = msg->aggregate_custody_signal_event().get();
+    log_msg(oasys::LOG_CRIT, "process_agg_custody_signal_v0: should no longer be processed!!");
+    
 
-    rtrmessage::aggregate_custody_signal_event::acs_data::type hex_data = event.acs_data();
+    std::string acs_data;
+
+    if (CBORUTIL_SUCCESS != decode_agg_custody_signal_msg_v0(cvElement, acs_data))
+    {
+        log_msg(oasys::LOG_ERR, "process_agg_custody_signal_v0: error parsing CBOR");
+        return;
+    }
 
     // parse the ACS data to release bundles that have been transferred
-    int len = hex_data.size();    
+    size_t len = acs_data.size();    
     if (len < 3) {
         log_msg(oasys::LOG_ERR,
                 "process_aggregate_custody_signal_event - Received ACS with too few bytes: %d",
@@ -676,7 +783,7 @@ EhsDtnNode::process_aggregate_custody_signal_event(rtrmessage::bpa* msg)
         return;
     }
 
-    char* bp = hex_data.begin();
+    const u_char* bp = (const u_char*) acs_data.c_str();
 
     // 1 byte Admin Payload Type + Flags:
     char admin_type = (*bp >> 4);
@@ -685,7 +792,7 @@ EhsDtnNode::process_aggregate_custody_signal_event(rtrmessage::bpa* msg)
     len--;
 
     // validate the admin type
-    if (admin_type != BundleProtocol::ADMIN_AGGREGATE_CUSTODY_SIGNAL) {
+    if (admin_type != BundleProtocolVersion6::ADMIN_AGGREGATE_CUSTODY_SIGNAL) {
         log_msg(oasys::LOG_ERR,
                 "process_aggregate_custody_signal_event - Received ACS with invalid Admin Type: %02x", 
                 admin_type);
@@ -810,208 +917,375 @@ EhsDtnNode::process_aggregate_custody_signal_event(rtrmessage::bpa* msg)
 
 }
 
+
 //----------------------------------------------------------------------
 void
-EhsDtnNode::process_custody_timeout_event(rtrmessage::bpa* msg)
+EhsDtnNode::process_bard_usage_rpt_v0(CborValue& cvElement)
 {
-    rtrmessage::custody_timeout_event& event = msg->custody_timeout_event().get();
+    (void) cvElement;
 
-    uint64_t id = event.local_id();
+#ifdef BARD_ENABLED
+    oasys::ScopeLock l(&lock_, __func__);
 
-    EhsBundleRef bref("bundle_delivered_event");
-    bref = all_bundles_.find(id);
-    if (bref != NULL) {
-        //log_msg(oasys::LOG_DEBUG, 
-        //        "custody_timeout - Bundle ID: %" PRIu64,
-        //        id);
+    if (!have_bard_usage_reprt_) {
+        bard_usage_rpt_usage_stats_.clear();
+        bard_usage_rpt_cl_stats_.clear();
 
-        route_bundle(bref);
-        
-    } else {
-        //log_msg(oasys::LOG_WARN, 
-        //        "custody_timeout - unknown Bundle ID: %" PRIu64,
-        //        id);
+        BARDNodeStorageUsageMap bard_usage_map;
+        RestageCLMap restagecl_map;
+
+        if (CBORUTIL_SUCCESS != decode_bard_usage_report_msg_v0(cvElement, bard_usage_map, restagecl_map))
+        {
+            log_msg(oasys::LOG_ERR, "%s: error parsing CBOR", __func__);
+        }
+
+
+        SPtr_BARDNodeStorageUsage sptr_usage;
+        BARDNodeStorageUsageMap::iterator usage_iter =  bard_usage_map.begin();
+        while (usage_iter != bard_usage_map.end()) {
+            sptr_usage = usage_iter->second;
+
+            EhsBARDUsageStats usage_stats;
+            usage_stats.quota_type_ = bard_quota_type_to_int(sptr_usage->quota_type());
+            usage_stats.naming_scheme_ = bard_naming_scheme_to_int(sptr_usage->naming_scheme());
+            usage_stats.node_number_ = sptr_usage->node_number();
+
+            // usage elements
+            usage_stats.inuse_internal_bundles_ = sptr_usage->inuse_internal_bundles_;
+            usage_stats.inuse_internal_bytes_ = sptr_usage->inuse_internal_bytes_;
+            usage_stats.inuse_external_bundles_ = sptr_usage->inuse_external_bundles_;
+            usage_stats.inuse_external_bytes_ = sptr_usage->inuse_external_bytes_;
+
+            // reserved elements
+            usage_stats.reserved_internal_bundles_ = sptr_usage->reserved_internal_bundles_;
+            usage_stats.reserved_internal_bytes_ = sptr_usage->reserved_internal_bytes_;
+            usage_stats.reserved_external_bundles_ = sptr_usage->reserved_external_bundles_;
+            usage_stats.reserved_external_bytes_ = sptr_usage->reserved_external_bytes_;
+
+            // quota elements
+            usage_stats.quota_internal_bundles_ = sptr_usage->quota_internal_bundles();
+            usage_stats.quota_internal_bytes_ = sptr_usage->quota_internal_bytes();
+            usage_stats.quota_external_bundles_ = sptr_usage->quota_external_bundles();
+            usage_stats.quota_external_bytes_ = sptr_usage->quota_external_bytes();
+            usage_stats.quota_refuse_bundle_ = sptr_usage->quota_refuse_bundle();
+            usage_stats.quota_auto_reload_ = sptr_usage->quota_auto_reload();
+
+            usage_stats.quota_restage_link_name_ = sptr_usage->quota_restage_link_name();
+
+            bard_usage_rpt_usage_stats_.push_back(usage_stats);
+
+
+            ++usage_iter;
+        }
+
+
+        SPtr_RestageCLStatus sptr_clstatus;
+        RestageCLIterator cl_iter = restagecl_map.begin();
+        while (cl_iter != restagecl_map.end()) {
+
+            sptr_clstatus = cl_iter->second;
+
+            EhsRestageCLStats cl_stats;
+
+            cl_stats.restage_link_name_ = sptr_clstatus->restage_link_name();
+
+            cl_stats.storage_path_ = sptr_clstatus->storage_path();
+
+            cl_stats.validated_mount_pt_ = sptr_clstatus->validated_mount_pt();
+
+            cl_stats.mount_point_ = sptr_clstatus->mount_point();
+            cl_stats.mount_pt_validated_ = sptr_clstatus->mount_pt_validated();
+            cl_stats.storage_path_exists_ = sptr_clstatus->storage_path_exists();
+
+            cl_stats.part_of_pool_ = sptr_clstatus->part_of_pool();
+
+            cl_stats.vol_total_space_ = sptr_clstatus->vol_total_space();
+            cl_stats.vol_space_available_ = sptr_clstatus->vol_space_available();
+
+            cl_stats.disk_quota_ = sptr_clstatus->disk_quota();
+            cl_stats.disk_quota_in_use_ = sptr_clstatus->disk_quota_in_use();
+            cl_stats.disk_num_files_ = sptr_clstatus->disk_num_files();
+
+            cl_stats.days_retention_ = sptr_clstatus->days_retention();
+            cl_stats.expire_bundles_ = sptr_clstatus->expire_bundles();
+            cl_stats.ttl_override_ = sptr_clstatus->ttl_override();
+            cl_stats.auto_reload_interval_ = sptr_clstatus->auto_reload_interval();
+
+            cl_stats.cl_state_ = sptr_clstatus->cl_state();
+
+            bard_usage_rpt_cl_stats_.push_back(cl_stats);
+
+            ++cl_iter;
+        }
+
+
+        bard_usage_report_requested_ = false;
+        have_bard_usage_reprt_ = true;
     }
+#endif // BARD_ENABLED
 }
 
 
 
 
+
 //----------------------------------------------------------------------
-void 
-EhsDtnNode::handle_bpa_received(EhsBpaReceivedEvent* event)
+bool
+EhsDtnNode::accept_custody_before_routing(EhsBundleRef& bref)
 {
-    rtrmessage::bpa* in_bpa = event->bpa_ptr_.get();
+    bool result = false;
 
-    uint64_t seq_ctr = in_bpa->sequence_ctr();
+    if (bref->custody_requested()) {
+        if (!bref->local_custody()) {
+            if (accept_custody_.check_pair(bref->ipn_source_node(), bref->ipn_dest_node())) {
+                //log_msg(oasys::LOG_DEBUG, "accept_custody_before_routing -issuing request to take custody of bundle: %zu", 
+                //        bref->bundleid());
 
-    // check for gaps in sequence counter
-    if (last_recv_seq_ctr_ != 0) {
-        if (seq_ctr != last_recv_seq_ctr_+1) {
-            if (seq_ctr > last_recv_seq_ctr_) {
-                log_msg(oasys::LOG_ERR,
-                        "Possible missed messages - Last SeqCtr: %" PRIu64 " Curr SeqCtr: %" PRIu64 " - diff: %" PRIu64,
-                        last_recv_seq_ctr_, seq_ctr, (seq_ctr - last_recv_seq_ctr_));
-            } else if (last_recv_seq_ctr_ != 0 && seq_ctr != 0) {
-                log_msg(oasys::LOG_ERR,
-                        "Sequence Counter jumped backwards - Last SeqCtr: %" PRIu64 " Curr SeqCtr: %" PRIu64,
-                        last_recv_seq_ctr_, seq_ctr);
+                client_send_take_custody_req_msg(bref->bundleid());
+
+                result = true;
             }
         }
     }
-    last_recv_seq_ctr_ = seq_ctr; 
 
-    // Determine the type of message and handle it
-    if (in_bpa->hello_interval().present()) {
-        // The hello message may also contain an alert of "justBooted"
-        if (! in_bpa->alert().present()) {
-            //log_msg(oasys::LOG_DEBUG, "received msg type: hello - interval = %d  eid = %s", 
-            //         in_bpa->hello_interval().get(),
-            //         in_bpa->eid().get().c_str());
-        } else {
-            log_msg(oasys::LOG_ALWAYS, "received msg type: hello - interval = %d  eid = %s alert = %s", 
-                     in_bpa->hello_interval().get(),
-                     in_bpa->eid().get().c_str(),
-                     in_bpa->alert().get().c_str());
+    return result;
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::finalize_bundle_delivered_event(uint64_t id)
+{
+    EhsBundleRef bref("bundle_delivered_event");
+    bref = all_bundles_.bundle_delivered(id);
+    if (bref != nullptr) {
+        if (bref->local_custody()) {
+            EhsBundleRef cust_bref("bundle_delivered_event");
+            cust_bref = all_bundles_.bundle_custody_released(id);
+            if (cust_bref == nullptr) {
+                //log_msg(oasys::LOG_DEBUG, "finalize_bundle_delivered_event - releasing custody of bundle");
+            } else {
+                //log_msg(oasys::LOG_DEBUG, "finalize_bundle_delivered_event - not releasing custody of bundle??");
+            }
         }
-        return;
+
+        bref->set_deleted();
+
+        // delete the bundle from our lists
+        all_bundles_.erase_bundle(bref);
+        undelivered_bundles_.erase(id);
+
+        del_bundle_by_dest(bref);
+
+        custody_bundles_.erase(bref->bundleid());
+
+        //log_msg(oasys::LOG_DEBUG, 
+        //        "bundle_delivered - Bundle ID: %" PRIu64,
+        //        id);
+
+        // Inform the router in case it also has a copy
+        if (bref->refcount() > 1) {
+            //log_msg(oasys::LOG_WARN, 
+            //        "bundle_delivered - Bundle ID: %" PRIu64 " - refcount = %d ??",
+            //        id, bref->refcount());
+            router_->post_event(new EhsDeleteBundleReq(bref));
+        }
+        
+    } else {
+        //log_msg(oasys::LOG_DEBUG, 
+        //        "bundle ID: %" PRIu64 " -- delivered but unknown",
+        //        id);
+        delivered_bundle_id_list_.insert(DeliveredBundleIDPair(id, id));
     }
+}
+
+
+//----------------------------------------------------------------------
+void 
+EhsDtnNode::handle_cbor_received(EhsCborReceivedEvent* event)
+{
+    //dzdebug
+//    log_always("%s - entered with msg of length %zu", __func__, event->msg_->length());
+
+    bool msg_processed = false;
+
+    CborParser parser;
+    CborValue cvMessage;
+    CborValue cvElement;
+    CborError err;
+
+    err = cbor_parser_init((const uint8_t*) event->msg_->c_str(), event->msg_->length(), 0, &parser, &cvMessage);
+    if (err != CborNoError) return;
+
+    err = cbor_value_enter_container(&cvMessage, &cvElement);
+    if (err != CborNoError) return;
+
+    uint64_t msg_type;
+    uint64_t msg_version;
+    std::string server_eid;
+    int status = decode_server_msg_header(cvElement, msg_type, msg_version, server_eid);
+    if (status != CBORUTIL_SUCCESS) return;
+
 
     if (!have_link_report_)
     {
         // discard all messages until we have gotten the link report
-        // - prevent new incoming bundles being rejected due to an unknown link
-        if (in_bpa->link_report().present()) {
-            router_->post_event(new EhsBpaReceivedEvent(event->bpa_ptr_), false); // false = post at head
+        // - prevents new incoming bundles being rejected due to an unknown link
+        if (msg_type != EXTRTR_MSG_LINK_REPORT) {
+            log_msg(oasys::LOG_WARN, "Discarding message because link report has not been received yet");
+        } else {
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
 
             // give router time to process the report
-            sleep(1);
+            usleep(500000);
             have_link_report_ = true;
-            log_msg(oasys::LOG_ALWAYS, "EhsDtn enabling full processing after receiving link report - SeqCtr: %" PRIu64,
-                     last_recv_seq_ctr_);
-        } else {
-            log_msg(oasys::LOG_WARN, "Discarding message becaues link report has net been received yet - SeqCtr: %" PRIu64,
-                     last_recv_seq_ctr_);
+            log_msg(oasys::LOG_ALWAYS, "EhsDtnNode enabling full processing after receiving link report");
         }
         return;
     }
 
 
-    // pass all of the link events to the router 
-    if (in_bpa->link_report().present() ||
-               in_bpa->link_available_event().present() ||
-               in_bpa->link_opened_event().present() ||
-               in_bpa->link_unavailable_event().present() ||
-               in_bpa->link_closed_event().present() ||
-               in_bpa->link_busy_event().present()) {
-        //XXX/dz Tempting, but I think a post at front of queue could cause issues
-        router_->post_event(new EhsBpaReceivedEvent(event->bpa_ptr_));
 
-    } else if (in_bpa->bundle_report().present()) {
-        log_msg(oasys::LOG_DEBUG, "received msg type: bundle_report");
-        process_bundle_report(in_bpa);
 
-    } else if (in_bpa->bundle_received_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: bundle_received_event");
-        process_bundle_received_event(in_bpa);
+    switch (msg_type) {
+        case EXTRTR_MSG_HELLO:
+            msg_processed = true;
+            process_hello_msg(cvElement, msg_version);
+            break;
 
-    } else if (in_bpa->bundle_custody_accepted_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: bundle_custody_accepted_event");
-        process_bundle_custody_accepted_event(in_bpa);
+        case EXTRTR_MSG_ALERT:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_alert_msg_v0(cvElement);
+            }
+            break;
 
-    } else if (in_bpa->bundle_expired_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: bundle_expired_event");
-        process_bundle_expired_event(in_bpa);
 
-    } else if (in_bpa->data_transmitted_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: data_transmitted_event");
-        process_data_transmitted_event(in_bpa);
 
-    } else if (in_bpa->custody_signal_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: custody_signal_event");
-        process_custody_signal_event(in_bpa);
+        case EXTRTR_MSG_LINK_REPORT:
+            msg_processed = true;
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
+            break;
 
-    } else if (in_bpa->aggregate_custody_signal_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: aggregate_custody_signal_event");
-        process_aggregate_custody_signal_event(in_bpa);
+        case EXTRTR_MSG_LINK_AVAILABLE:
+            msg_processed = true;
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
+            break;
 
-    } else if (in_bpa->bundle_delivered_event().present()) {
-        //log_msg(oasys::LOG_DEBUG, "received msg type: bundle_delivered_event");
-        process_bundle_delivered_event(in_bpa);
+        case EXTRTR_MSG_LINK_OPENED:
+            msg_processed = true;
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
+            break;
 
-    } else if (in_bpa->custody_timeout_event().present()) {
-        //log_msg(oasys::LOG_INFO, "received msg type: custody_timeout_event");
-        process_custody_timeout_event(in_bpa);
+        case EXTRTR_MSG_LINK_CLOSED:
+            msg_processed = true;
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
+            break;
 
-    } else if (in_bpa->bundle_send_cancelled_event().present()) {
-        process_bundle_send_cancelled_event(in_bpa);
+        case EXTRTR_MSG_LINK_UNAVAILABLE:
+            msg_processed = true;
+            router_->post_event(new EhsCborReceivedEvent(event->msg_));
+            break;
 
-    } else if (in_bpa->bundle_delivery_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: bundle_delivery_event");
-    } else if (in_bpa->bundle_injected_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: bundle_injected_event");
-    } else if (in_bpa->link_created_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: link_created_event");
-    } else if (in_bpa->link_deleted_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: link_deleted_event");
-    } else if (in_bpa->link_available_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: link_available_event");
-    } else if (in_bpa->link_attribute_changed_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: link_attribute_changed_event");
-    } else if (in_bpa->contact_attribute_changed_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: contact_attribute_changed_event");
-    } else if (in_bpa->eid_reachable_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: eid_reachable_event");
-    } else if (in_bpa->route_add_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: route_add_event");
-    } else if (in_bpa->route_delete_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: route_delete_event");
-    } else if (in_bpa->intentional_name_resolved_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: intentional_name_resolved_event");
-    } else if (in_bpa->registration_added_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: registration_added_event");
-    } else if (in_bpa->registration_removed_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: registration_removed_event");
-    } else if (in_bpa->registration_expired_event().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: registration_expired_event");
-    } else if (in_bpa->open_link_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: open_link_request");
-    } else if (in_bpa->close_link_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: close_link_request");
-    } else if (in_bpa->add_link_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: add_link_request");
-    } else if (in_bpa->delete_link_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: delete_link_request");
-    } else if (in_bpa->reconfigure_link_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: reconfigure_link_request");
-    } else if (in_bpa->send_bundle_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: send_bundle_request");
-    } else if (in_bpa->send_bundle_broadcast_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: send_bundle_broadcast_request");
-    } else if (in_bpa->cancel_bundle_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: cancel_bundle_request");
-    } else if (in_bpa->inject_bundle_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: inject_bundle_request");
-    } else if (in_bpa->delete_bundle_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: delete_bundle_request");
-    } else if (in_bpa->set_cl_params_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: set_cl_params_request");
-    } else if (in_bpa->intentional_name_resolution_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: intentional_name_resolution_request");
-    } else if (in_bpa->deliver_bundle_to_app_request().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: deliver_bundle_to_app_request");
-    } else if (in_bpa->link_attributes_report().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: link_attributes_report");
-    } else if (in_bpa->contact_report().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: contact_report");
-    } else if (in_bpa->route_report().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: route_report");
-    } else if (in_bpa->bundle_attributes_report().present()) {
-        log_msg(oasys::LOG_NOTICE, "received msg type: bundle_attributes_report");
-    } else {
-        //??  log_msg(oasys::LOG_ERR, "Unhandled message: %s", in_bpa->type());
-        log_msg(oasys::LOG_ERR, "Unhandled message: ");
+
+
+
+        case EXTRTR_MSG_BUNDLE_REPORT:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_report_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BUNDLE_RECEIVED:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_received_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BUNDLE_TRANSMITTED:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_transmitted_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BUNDLE_DELIVERED:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_delivered_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BUNDLE_EXPIRED:
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_expired_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BUNDLE_CANCELLED:
+            //log_always("%s - got Bundle Cancelled msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bundle_cancelled_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_CUSTODY_TIMEOUT:
+            //log_always("%s - got Custody Timeout msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_custody_timeout_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_CUSTODY_ACCEPTED:
+            //log_always("%s - got Custody Accepted msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_custody_accepted_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_CUSTODY_SIGNAL:
+            //log_always("%s - got Custody Signal msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_custody_signal_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_AGG_CUSTODY_SIGNAL:
+            //log_always("%s - got Aggregate Custody Signal msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_agg_custody_signal_v0(cvElement);
+            }
+            break;
+
+        case EXTRTR_MSG_BARD_USAGE_REPORT:
+            //log_always("%s - got BARD Usage Report msg", __func__);
+            if (msg_version == 0) {
+                msg_processed = true;
+                process_bard_usage_rpt_v0(cvElement);
+            }
+            break;
+
+        default: break;
     }
+
+
+    if (msg_processed) {
+//        log_always("EhsDtnNode Msg Type; %" PRIu64 " (%s) - processed",
+//                msg_type, msg_type_to_str(msg_type));
+
+    } else {
+        log_err("EhsDtnNode Msg Type; %" PRIu64 " (%s) - unsupported type or version: %" PRIu64,
+                msg_type, msg_type_to_str(msg_type), msg_version);
+
+    }
+
 }
 
 //----------------------------------------------------------------------
@@ -1027,7 +1301,7 @@ EhsDtnNode::handle_free_bundle_req(EhsFreeBundleReq* event)
     }
 
     delete event->bundle_;
-    event->bundle_ = NULL;
+    event->bundle_ = nullptr;
 }
 
 //----------------------------------------------------------------------
@@ -1083,6 +1357,9 @@ EhsDtnNode::event_handlers_completed(EhsEvent* event)
 void
 EhsDtnNode::run()
 {
+    char threadname[16] = "EhsDtnNode";
+    pthread_setname_np(pthread_self(), threadname);
+
     parent_->get_accept_custody_list(accept_custody_);
 
 
@@ -1100,28 +1377,16 @@ EhsDtnNode::run()
     // - prevent new incoming bundles being rejected due to an unknown link
     have_link_report_ = false;
 
-    log_msg(oasys::LOG_NOTICE, 
+    log_msg(oasys::LOG_DEBUG, 
             "DTN node discovered: %s [%s] - request list of links, bundles, etc.", 
             eid_.c_str(), eid_ipn_.c_str());
 
-    rtrmessage::bpa msg1;
-    rtrmessage::bpa::link_query::type lq;
-    msg1.link_query(lq);
-    send_msg(msg1);
 
-    rtrmessage::bpa msg2;
-    rtrmessage::bpa::bundle_query::type bq;
-    msg2.bundle_query(bq);
-    send_msg(msg2);
-
-    rtrmessage::bpa msg3;
-    rtrmessage::bpa::contact_query::type cq;
-    msg3.contact_query(cq);
-    send_msg(msg3);
+    client_send_link_query_msg();
+    client_send_bundle_query_msg();
 
 
-
-    EhsEvent* event;
+    EhsEvent* event = nullptr;
 
     struct pollfd pollfds[1];
     struct pollfd* event_poll = &pollfds[0];
@@ -1178,16 +1443,9 @@ EhsDtnNode::run()
 
 //----------------------------------------------------------------------
 void
-EhsDtnNode::send_msg(rtrmessage::bpa& msg)
+EhsDtnNode::send_msg(std::string* msg)
 {
-    // limit lock to just incrementing the sequence counter
-    do {
-        oasys::ScopeLock l(&seqctr_lock_, __FUNCTION__);
-
-        msg.sequence_ctr(send_seq_ctr_++);
-    } while (false);
-
-    parent_->send_msg(msg, eid());
+    parent_->send_msg(msg);
 }
 
 //----------------------------------------------------------------------
@@ -1237,8 +1495,9 @@ bool
 EhsDtnNode::is_local_admin_eid(std::string check_eid)
 {
     //allow ping destinations also
-    return ((0 == check_eid.compare(eid_ipn_)) || (0 == check_eid.compare(eid_ipn_ping_)) ||
-            (0 == check_eid.compare(eid_)) || (0 == check_eid.compare(eid_ping_)));
+    return ((0 == check_eid.compare(eid_ipn_)) || (0 == check_eid.compare(eid_ipn_ping_))
+            || (0 == check_eid.compare(eid_ipn_dtpc_)) || (0 == check_eid.compare(eid_)) 
+            || (0 == check_eid.compare(eid_ping_)));
 }
 
 //----------------------------------------------------------------------
@@ -1267,7 +1526,7 @@ EhsDtnNode::bundle_stats(oasys::StringBuffer* buf)
 void
 EhsDtnNode::bundle_stats_by_src_dst(int* count, EhsBundleStats** stats)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&lock_, __func__);
 
     all_bundles_.bundle_stats_by_src_dst(count, stats);
 }
@@ -1276,10 +1535,116 @@ EhsDtnNode::bundle_stats_by_src_dst(int* count, EhsBundleStats** stats)
 void
 EhsDtnNode::fwdlink_interval_stats(int* count, EhsFwdLinkIntervalStats** stats)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&lock_, __func__);
 
     all_bundles_.fwdlink_interval_stats(count, stats);
 }
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::request_bard_usage_stats()
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    if (!have_bard_usage_reprt_ && !bard_usage_report_requested_) {
+        bard_usage_report_requested_ = true;
+
+        client_send_bard_usage_req_msg();
+    }
+}
+
+
+//----------------------------------------------------------------------
+bool
+EhsDtnNode::bard_usage_stats(EhsBARDUsageStatsVector& usage_stats, 
+                            EhsRestageCLStatsVector& cl_stats)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    bool result = have_bard_usage_reprt_;
+
+    if (have_bard_usage_reprt_) {
+        // TODO: add a time received...
+
+        usage_stats = bard_usage_rpt_usage_stats_;
+        cl_stats = bard_usage_rpt_cl_stats_;
+
+        // clear the local copies
+        bard_usage_rpt_usage_stats_.clear();
+        bard_usage_rpt_cl_stats_.clear();
+
+        have_bard_usage_reprt_ = false;
+    }
+
+    return result;
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::bard_add_quota(EhsBARDUsageStats& quota)
+{
+    (void) quota;
+    oasys::ScopeLock l(&lock_, __func__);
+
+#ifdef BARD_ENABLED    
+    BARDNodeStorageUsage bard_quota;
+
+    bard_quota.set_quota_type(int_to_bard_quota_type(quota.quota_type_));
+    bard_quota.set_naming_scheme(int_to_bard_naming_scheme(quota.naming_scheme_));
+    bard_quota.set_node_number(quota.node_number_);
+
+    bard_quota.set_quota_internal_bundles(quota.quota_internal_bundles_);
+    bard_quota.set_quota_internal_bytes(quota.quota_internal_bytes_);
+    bard_quota.set_quota_external_bundles(quota.quota_external_bundles_);
+    bard_quota.set_quota_external_bytes(quota.quota_external_bytes_);
+
+    bard_quota.set_quota_restage_link_name(quota.quota_restage_link_name_);
+    bard_quota.set_quota_auto_reload(quota.quota_auto_reload_);
+
+    client_send_bard_add_quota_req_msg(bard_quota);
+#endif // BARD_ENABLED
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::bard_del_quota(EhsBARDUsageStats& quota)
+{
+    (void) quota;
+    oasys::ScopeLock l(&lock_, __func__);
+
+#ifdef BARD_ENABLED    
+    BARDNodeStorageUsage bard_quota;
+
+    bard_quota.set_quota_type(int_to_bard_quota_type(quota.quota_type_));
+    bard_quota.set_naming_scheme(int_to_bard_naming_scheme(quota.naming_scheme_));
+    bard_quota.set_node_number(quota.node_number_);
+
+    client_send_bard_del_quota_req_msg(bard_quota);
+#endif // BARD_ENABLED
+}
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::send_link_add_msg(std::string& link_id, std::string& next_hop, std::string& link_mode,
+                              std::string& cl_name,  LinkParametersVector& params)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    client_send_link_add_req_msg(link_id, next_hop, link_mode, cl_name, params);
+}
+
+
+//----------------------------------------------------------------------
+void
+EhsDtnNode::send_link_del_msg(std::string& link_id)
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    client_send_link_del_req_msg(link_id);
+}
+
+
 
 
 //----------------------------------------------------------------------
@@ -1291,21 +1656,47 @@ EhsDtnNode::unrouted_bundle_stats_by_src_dst(oasys::StringBuffer* buf)
 
 //----------------------------------------------------------------------
 void 
-EhsDtnNode::update_statistics(uint64_t* received, uint64_t* transmitted, uint64_t* transmit_failed,
-                              uint64_t* delivered, uint64_t* rejected,
-                              uint64_t* pending, uint64_t* custody,
-                              bool* fwdlnk_aos, bool* fwdlnk_enabled)
+EhsDtnNode::update_statistics(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                              uint64_t& delivered, uint64_t& rejected,
+                              uint64_t& pending, uint64_t& custody,
+                              bool& fwdlnk_aos, bool& fwdlnk_enabled)
 {
     all_bundles_.get_bundle_stats(received, transmitted, transmit_failed, delivered, rejected, pending, custody);
-    *fwdlnk_aos = fwdlnk_aos_;
-    *fwdlnk_enabled = fwdlnk_enabled_;
+    fwdlnk_aos = fwdlnk_aos_;
+    fwdlnk_enabled = fwdlnk_enabled_;
+}
+
+//----------------------------------------------------------------------
+void 
+EhsDtnNode::update_statistics2(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                               uint64_t& delivered, uint64_t& rejected,
+                               uint64_t& pending, uint64_t& custody, uint64_t& expired,
+                               bool& fwdlnk_aos, bool& fwdlnk_enabled)
+{
+    all_bundles_.get_bundle_stats2(received, transmitted, transmit_failed, delivered, rejected, pending, custody, expired);
+    fwdlnk_aos = fwdlnk_aos_;
+    fwdlnk_enabled = fwdlnk_enabled_;
+}
+
+//----------------------------------------------------------------------
+void 
+EhsDtnNode::update_statistics3(uint64_t& received, uint64_t& transmitted, uint64_t& transmit_failed,
+                               uint64_t& delivered, uint64_t& rejected,
+                               uint64_t& pending, uint64_t& custody, uint64_t& expired,
+                               bool& fwdlnk_aos, bool& fwdlnk_enabled, 
+                               uint64_t& links_open, uint64_t& num_links)
+{
+    all_bundles_.get_bundle_stats2(received, transmitted, transmit_failed, delivered, rejected, pending, custody, expired);
+    fwdlnk_aos = fwdlnk_aos_;
+    fwdlnk_enabled = fwdlnk_enabled_;
+    router_->get_num_links(links_open, num_links);
 }
 
 //----------------------------------------------------------------------
 void
 EhsDtnNode::link_dump(oasys::StringBuffer* buf)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->link_dump(buf);
     } else {
         buf->append("Link dump: Router not instantiated\n\n");
@@ -1316,7 +1707,7 @@ EhsDtnNode::link_dump(oasys::StringBuffer* buf)
 void
 EhsDtnNode::fwdlink_transmit_dump(oasys::StringBuffer* buf)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->fwdlink_transmit_dump(buf);
     } else {
         buf->append("FwdLink Transmit dump: Router not instantiated\n\n");
@@ -1334,7 +1725,7 @@ EhsDtnNode::get_link_configuration(EhsLink* el)
 void 
 EhsDtnNode::reconfigure_link(std::string link_id)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->reconfigure_link(link_id);
     }
 }
@@ -1357,7 +1748,7 @@ EhsDtnNode::reconfigure_max_expiration_rtn(uint64_t exp)
 void 
 EhsDtnNode::fwdlink_transmit_enable(EhsNodeBoolMap& src_list, EhsNodeBoolMap& dst_list)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->fwdlink_transmit_enable(src_list, dst_list);
     }
 }
@@ -1366,7 +1757,7 @@ EhsDtnNode::fwdlink_transmit_enable(EhsNodeBoolMap& src_list, EhsNodeBoolMap& ds
 void 
 EhsDtnNode::fwdlink_transmit_disable(EhsNodeBoolMap& src_list, EhsNodeBoolMap& dst_list)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->fwdlink_transmit_disable(src_list, dst_list);
     }
 }
@@ -1375,7 +1766,7 @@ EhsDtnNode::fwdlink_transmit_disable(EhsNodeBoolMap& src_list, EhsNodeBoolMap& d
 void 
 EhsDtnNode::set_fwdlnk_force_LOS_while_disabled(bool force_los)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->set_fwdlnk_force_LOS_while_disabled(force_los);
     }
 }
@@ -1384,7 +1775,7 @@ EhsDtnNode::set_fwdlnk_force_LOS_while_disabled(bool force_los)
 void 
 EhsDtnNode::link_enable(EhsLinkCfg* cl)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->link_enable(cl);
     }
 }
@@ -1393,7 +1784,7 @@ EhsDtnNode::link_enable(EhsLinkCfg* cl)
 void 
 EhsDtnNode::link_disable(std::string& linkid)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->link_disable(linkid);
     }
 }
@@ -1402,7 +1793,7 @@ EhsDtnNode::link_disable(std::string& linkid)
 void
 EhsDtnNode::set_link_statistics(bool enabled)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->set_link_statistics(enabled);
     }
 }
@@ -1425,7 +1816,7 @@ EhsDtnNode::reconfigure_accept_custody()
 void 
 EhsDtnNode::reconfigure_source_priority()
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->reconfigure_source_priority();
     }
 }
@@ -1434,7 +1825,7 @@ EhsDtnNode::reconfigure_source_priority()
 void 
 EhsDtnNode::reconfigure_dest_priority()
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->reconfigure_dest_priority();
     }
 }
@@ -1459,7 +1850,7 @@ EhsDtnNode::set_fwdlnk_enabled_state(bool state)
 {
     fwdlnk_enabled_ = state;
 
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->set_fwdlnk_enabled_state(fwdlnk_enabled_);
     }
 }
@@ -1470,7 +1861,7 @@ EhsDtnNode::set_fwdlnk_aos_state(bool state)
 {
     fwdlnk_aos_ = state;
 
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->set_fwdlnk_aos_state(fwdlnk_aos_);
     }
 }
@@ -1479,7 +1870,7 @@ EhsDtnNode::set_fwdlnk_aos_state(bool state)
 void
 EhsDtnNode::set_fwdlnk_throttle(uint32_t bps)
 {
-    if (NULL != router_) {
+    if (nullptr != router_) {
         router_->set_fwdlnk_throttle(bps);
     }
 }
@@ -1488,26 +1879,25 @@ EhsDtnNode::set_fwdlnk_throttle(uint32_t bps)
 int
 EhsDtnNode::bundle_delete(uint64_t source_node_id, uint64_t dest_node_id)
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&lock_, __func__);
 
     EhsBundleMap bidlist;
     all_bundles_.bundle_id_list(bidlist, source_node_id, dest_node_id);
 
+    extrtr_bundle_id_ptr_t bidptr;
+    extrtr_bundle_id_vector_t bid_vec;
+
     int cnt = 0;
+
     EhsBundleRef bref("bundle_delete");
     EhsBundleIterator iter = bidlist.begin();
     while (iter != bidlist.end()) {
         bref = iter->second;
         ++cnt;
 
-        // issue delete request for the bundle
-        rtrmessage::delete_bundle_request req;
-        req.local_id() = bref->bundleid();
-        req.gbofid_str(bref->gbofid_str());
+        bidptr = std::make_shared<extrtr_bundle_id_t>();
+        bidptr->bundleid_ = bref->bundleid();
 
-        rtrmessage::bpa message; 
-        message.delete_bundle_request(req);
-        send_msg(message);
 
         // flag bundle as deleted
         bref->set_deleted();
@@ -1518,9 +1908,7 @@ EhsDtnNode::bundle_delete(uint64_t source_node_id, uint64_t dest_node_id)
 
         del_bundle_by_dest(bref);
 
-        if (bref->custodyid() > 0) {
-            custody_bundles_.erase(bref->custodyid());
-        }
+        custody_bundles_.erase(bref->bundleid());
 
         log_msg(oasys::LOG_DEBUG, 
                 "bundle_delete (by src-dst) - deleting Bundle ID: %" PRIu64,
@@ -1532,7 +1920,20 @@ EhsDtnNode::bundle_delete(uint64_t source_node_id, uint64_t dest_node_id)
         }
 
         bidlist.erase(iter);
+
+        bid_vec.push_back(bidptr);
+        if (bid_vec.size() >= 100000 )  {
+            client_send_delete_bundle_req_msg(bid_vec);
+
+            bid_vec.clear();
+        }
+
         iter = bidlist.begin();
+    }
+
+    if (!bid_vec.empty()) {
+        client_send_delete_bundle_req_msg(bid_vec);
+        bid_vec.clear();
     }
 
     return cnt;
@@ -1542,7 +1943,21 @@ EhsDtnNode::bundle_delete(uint64_t source_node_id, uint64_t dest_node_id)
 int
 EhsDtnNode::bundle_delete_all()
 {
-    oasys::ScopeLock l(&lock_, __FUNCTION__);
+    oasys::ScopeLock l(&lock_, __func__);
+
+    client_send_delete_all_bundles_req_msg();
+
+    return all_bundles_.size();
+}
+
+//----------------------------------------------------------------------
+int
+EhsDtnNode::bundle_delete_all_orig()
+{
+    oasys::ScopeLock l(&lock_, __func__);
+
+    extrtr_bundle_id_ptr_t bidptr;
+    extrtr_bundle_id_vector_t bid_vec;
 
     EhsBundleMap bidlist;
     all_bundles_.bundle_id_list(bidlist);
@@ -1554,14 +1969,8 @@ EhsDtnNode::bundle_delete_all()
         bref = iter->second;
         ++cnt;
 
-        // issue delete request for the bundle
-        rtrmessage::delete_bundle_request req;
-        req.local_id() = bref->bundleid();
-        req.gbofid_str(bref->gbofid_str());
-
-        rtrmessage::bpa message; 
-        message.delete_bundle_request(req);
-        send_msg(message);
+        bidptr = std::make_shared<extrtr_bundle_id_t>();
+        bidptr->bundleid_ = bref->bundleid();
 
         // flag bundle as deleted
         bref->set_deleted();
@@ -1572,9 +1981,7 @@ EhsDtnNode::bundle_delete_all()
 
         del_bundle_by_dest(bref);
 
-        if (bref->custodyid() > 0) {
-            custody_bundles_.erase(bref->custodyid());
-        }
+        custody_bundles_.erase(bref->bundleid());
 
         log_msg(oasys::LOG_DEBUG, 
                 "bundle_delete (all) - deleting Bundle ID: %" PRIu64,
@@ -1586,7 +1993,20 @@ EhsDtnNode::bundle_delete_all()
         }
 
         bidlist.erase(iter);
+
+        bid_vec.push_back(bidptr);
+        if (bid_vec.size() >= 100000 )  {
+            client_send_delete_bundle_req_msg(bid_vec);
+
+            bid_vec.clear();
+        }
+
         iter = bidlist.begin();
+    }
+
+    if (!bid_vec.empty()) {
+        client_send_delete_bundle_req_msg(bid_vec);
+        bid_vec.clear();
     }
 
     return cnt;
@@ -1722,6 +2142,3 @@ EhsDtnNode::log_msg(oasys::log_level_t level, const char*format, ...)
 
 } // namespace dtn
 
-#endif /* defined(XERCES_C_ENABLED) && defined(EXTERNAL_DP_ENABLED) */
-
-#endif // EHSROUTER_ENABLED
