@@ -35,8 +35,8 @@ fi
     
 cd third_party/oasys
 
-#chmod +x tools/extract-version
-#chmod +x tools/subst-version
+chmod +x tools/extract-version
+chmod +x tools/subst-version
 
 if [ $? -ne 0 ]
 then
