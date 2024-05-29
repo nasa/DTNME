@@ -29,7 +29,7 @@ Compilation / Installation Instructions
 ---------------------------------------
 
 Dependencies
-libdb-dev g++ automake autotools-dev tk tk-dev tcl tcl-dev
+libdb-dev g++ automake autotools-dev tk tk-dev tcl tcl-dev libboost-all-dev
 
 Building
 
