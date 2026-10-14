@@ -61,7 +61,9 @@ $(DTN_LIBS_STATIC):
 
 CFLAGS += -I$(SRCDIR)/applib
 CXXFLAGS += -I$(SRCDIR)/applib
-LDFLAGS += -L../applib -lrt -lstdc++ -lboost_system -lboost_filesystem -lboost_program_options -lcrypto -lssl
+###for Boost library versions less than 1.69:   LDFLAGS += -L../applib -lrt -lstdc++ -lboost_system -lboost_filesystem -lboost_program_options -lcrypto -lssl
+###for Boost library versions greater than or equal to 1.69:   LDFLAGS += -L../applib -lrt -lstdc++ lboost_filesystem -lboost_program_options -lcrypto -lssl
+LDFLAGS += -L../applib -lrt -lstdc++ -lboost_filesystem -lboost_program_options -lcrypto -lssl
 
 BINFILES += $(APPS)
 

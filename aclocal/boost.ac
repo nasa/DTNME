@@ -9,5 +9,11 @@ AC_DEFUN(AC_CONFIG_BOOST, [
     dnl add the appropriate flags with no real configuring required
     dnl
     
-    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lboost_system -lssl"
+dnl -- for Boost library versions less than 1.69:   
+dnl      EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lboost_system -lssl"
+dnl -- for Boost library versions greater than or equal to 1.69:   
+dnl      EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lssl"
+dnl
+
+    EXTLIB_LDFLAGS="$EXTLIB_LDFLAGS -lssl"
 ])

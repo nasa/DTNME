@@ -274,12 +274,12 @@ public:
 protected:
     // define a compare function for use in containers
     struct LTPSessionKeyCompare {
-        bool operator()(LTPSessionKey* key1, LTPSessionKey* key2) {
+        bool operator()(LTPSessionKey* key1, LTPSessionKey* key2) const {
             return ((key1->Engine_ID() < key2->Engine_ID()) || (key1->Session_ID() < key2->Session_ID()));
         }
     };
 
-    typedef std::map<LTPSessionKey*, SPtr_LTPSession, LTPSessionKeyCompare>    SESS_SPTR_MAP;
+    typedef std::map<LTPSessionKey*, SPtr_LTPSession, const LTPSessionKeyCompare>    SESS_SPTR_MAP;
 
 
     bool start_shutting_down_ = false;

@@ -88,238 +88,139 @@ namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.h
  */
 namespace dtn {
 
-// Echoes back all received WebSocket messages
-class session : public std::enable_shared_from_this<session>
+//forward declarations
+class CliSession;
+
+typedef std::shared_ptr<CliSession> SPtr_CliSession;
+#define MAKE_CliSession std::make_shared<CliSession>
+
+
+
+// Structrure to maintain a Websocket state for future use
+struct WebsocketState
 {
     tcp::socket socket_;
     websocket::stream<ssl::stream<tcp::socket&>> ws_;
-    boost::asio::strand<
-        boost::asio::io_context::executor_type> strand_;
-    boost::beast::multi_buffer buffer_; 
-    bool cmd_console_active_;
 
+    WebsocketState(tcp::socket socket, ssl::context& ctx)
+        : socket_(std::move(socket))
+    , ws_(socket_, ctx)
+    {}
+};
+
+
+typedef std::shared_ptr<struct WebsocketState> SPtr_WebsocketState;
+#define MAKE_WebsocketState std::make_shared<struct WebsocketState>
+
+//------------------------------------------------------------------------------
+// Passes Websocket message through to the TCL Interpretor and sends back the responses
+//
+//
+class CliSession : public oasys::Thread,
+                   public oasys::Logger,
+                   public std::enable_shared_from_this<CliSession>
+{
 public:
     // Take ownership of the socket
-    session(tcp::socket socket, ssl::context& ctx, bool cmd_console_active)
-        : socket_(std::move(socket))
-        , ws_(socket_, ctx)
-        , strand_(ws_.get_executor())
-        , cmd_console_active_(cmd_console_active)
+    explicit CliSession(tcp::socket socket, ssl::context& ctx,
+                        size_t session_num)
+        : Thread("CliSession")
+        , Logger("CliSession", "/dtn/clissession/%zu", session_num)
+        , sptr_websocket_state_(MAKE_WebsocketState(std::move(socket), ctx))
+        , session_num_(session_num)
     {
+        tcl_cmd_ = oasys::TclCommandInterp::instance();
+    }
+
+    ~CliSession()
+    {}
+
+    void init_and_start()
+    {
+        // keep a shared pointer to self to prevent deletion
+        // after WebsocketServer's shared pointer goes out of scope
+        sptr_self_ = shared_from_this();
+
+        start();
     }
 
     // Start the asynchronous operation
     void
     run()
     {
-        // Perform the SSL handshake
-        ws_.next_layer().async_handshake(
-            ssl::stream_base::server,
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &session::on_handshake,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
+        char threadname[16];
+        snprintf(threadname, sizeof(threadname), "CLI-%zu", session_num_);
+        threadname[15] = '\0';
 
-    void
-    on_handshake(boost::system::error_code ec)
-    {
-        if(ec)
-            return;
+        pthread_setname_np(pthread_self(), threadname);
 
-        // Accept the websocket handshake
-        ws_.async_accept(
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &session::on_accept,
-                    shared_from_this(),
-                    std::placeholders::_1)));
-    }
-
-    void
-    on_accept(boost::system::error_code ec)
-    {
-        if(ec)
-            return;
-
-        // Read a message
-        do_read();
-    }
-
-    void
-    do_read()
-    {
-        // Read a message into our buffer
-        ws_.async_read(
-            buffer_,
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &session::on_read,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
-    }
-
-    void
-    on_read(
-        boost::system::error_code ec,
-        std::size_t bytes_transferred)
-    {
-        boost::ignore_unused(bytes_transferred);
-
-        // This indicates that the session was closed
-        if(ec == websocket::error::closed)
-            return;
-
-        //Get text and submit to tclinterpreter
-
-        oasys::TclCommandInterp::instance()->exec_command(boost::beast::buffers_to_string(buffer_.data()).c_str());
-
-        buffer_.consume(buffer_.size());
-
-        //get result and write to websocket
-
-        std::string result = oasys::TclCommandInterp::instance()->get_result();
-
-        boost::beast::ostream(buffer_) << result;
-
-        // Echo the message
-        ws_.async_write(
-            buffer_.data(),
-            boost::asio::bind_executor(
-                strand_,
-                std::bind(
-                    &session::on_write,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
-
-        if (cmd_console_active_)
+        try
         {
-            //clear out the last command so the result does not get used as input by the command console
-            oasys::TclCommandInterp::instance()->exec_command(" ");
+            auto& ws = sptr_websocket_state_->ws_;
+
+            // perform the ssl handshake
+            ws.next_layer().handshake(ssl::stream_base::server);
+
+            // accept the ssl session
+            ws.accept();
+
+            while (!shutting_down_)
+            {
+                buffer_.consume(buffer_.size());
+                ws.read(buffer_);
+
+                std::string cmd = boost::beast::buffers_to_string(buffer_.data()).c_str();
+
+                // submit the command to the TCL Interpreter
+                tcl_cmd_->exec_command(cmd.c_str());
+
+                // clear the buffer for reuse with the result
+                buffer_.consume(buffer_.size());
+
+                // get the result and write it to the websocket
+                std::string result = tcl_cmd_->get_result();
+
+                boost::beast::ostream(buffer_) << result;
+
+                ws.write(buffer_.data());
+
+                // clear out the last command so the result does not get uses as input by the command console
+                tcl_cmd_->exec_command(" ");
+            }
         }
-        // else it is a nice feature to be able to repeat the command by just hitting <enter> in dtnme_cli
+        catch (boost::beast::system_error const& se)
+        {
+            if (se.code() != websocket::error::closed)
+            {
+                log_err("got websocket error: %s", se.code().message().c_str());
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            log_err("got exception: %s", ex.what());
+        }
+
+        // release the self shared pointer so this CliSession can be destroyed
+        sptr_self_.reset();
     }
 
-    void
-    on_write(
-        boost::system::error_code ec,
-        std::size_t bytes_transferred)
-    {
-        boost::ignore_unused(bytes_transferred);
+protected:
+    bool shutting_down_ = false;
 
-        if(ec)
-            return;
+    SPtr_CliSession sptr_self_;
 
-        // Clear the buffer
-        buffer_.consume(buffer_.size());
+    SPtr_WebsocketState sptr_websocket_state_;
 
-        // Do another read
-        do_read();
-    }
+    size_t session_num_;
+
+    boost::beast::multi_buffer buffer_;
+
+    oasys::TclCommandInterp* tcl_cmd_;
 };
 
 //------------------------------------------------------------------------------
-
-// Accepts incoming connections and launches the sessions
-class listener : public std::enable_shared_from_this<listener>
-{
-    ssl::context& ctx_;
-    tcp::acceptor acceptor_;
-    tcp::socket socket_;
-    bool cmd_console_active_;
-
-public:
-    listener(
-        boost::asio::io_context& ioc,
-        ssl::context& ctx,
-        tcp::endpoint endpoint,
-        bool cmd_console_active)
-        : ctx_(ctx)
-        , acceptor_(ioc)
-        , socket_(ioc)
-        , cmd_console_active_(cmd_console_active)
-    {
-        boost::system::error_code ec;
-
-
-        // Open the acceptor
-        acceptor_.open(endpoint.protocol(), ec);
-        if(ec)
-        {
-            return;
-        }
-
-        // Allow the port to be reused immediately for quick recycles of the DTNME server
-        typedef boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT> reuse_port;
-        acceptor_.set_option(reuse_port(true));
-
-
-        // Bind to the server address
-        acceptor_.bind(endpoint, ec);
-        if(ec)
-        {
-            return;
-        }
-
-        // Start listening for connections
-        acceptor_.listen(
-            boost::asio::socket_base::max_listen_connections, ec);
-        if(ec)
-        {
-            return;
-        }
-    }
-
-    // Start accepting incoming connections
-    void
-    run()
-    {
-        if(! acceptor_.is_open())
-            return;
-        do_accept();
-    }
-
-    void
-    do_accept()
-    {
-        acceptor_.async_accept(
-            socket_,
-            std::bind(
-                &listener::on_accept,
-                shared_from_this(),
-                std::placeholders::_1));
-    }
-
-    void
-    on_accept(boost::system::error_code ec)
-    {
-        if(ec)
-        {
-        }
-        else
-        {
-            // Create the session and run it
-            std::make_shared<session>(std::move(socket_), ctx_, cmd_console_active_)->run();
-        }
-
-        // Accept another connection
-        do_accept();
-    }
-
-    void
-    do_shutdown()
-    {
-        acceptor_.close();
-    }
-};
-
-
+// listens of incoming connections to the Command Line Interface port
+//
 class WebsocketServer : public oasys::Thread,
                         public oasys::Logger
 {
@@ -327,12 +228,12 @@ public:
     /**
      * Constructor.
      */
-    WebsocketServer(in_addr_t console_addr, u_int16_t console_port, bool cmd_console_active)
-        : Thread("WebsockSrvr"),
-          Logger("WebsockSrvr", "/dtn/websocksrvr"),
-          console_addr_(console_addr),
-          console_port_(console_port),
-          cmd_console_active_(cmd_console_active)
+    WebsocketServer(in_addr_t console_addr, u_int16_t console_port)
+        : Thread("WebsockSrvr")
+        ,  Logger("WebsockSrvr", "/dtn/websocksrvr")
+        ,  console_addr_(console_addr)
+        ,  console_port_(console_port)
+        ,  io_context_()
     {
     }
 
@@ -347,10 +248,7 @@ public:
 
         auto const address = boost::asio::ip::make_address(intoa(console_addr_));
         auto const port = static_cast<unsigned short>(console_port_);
-        auto const threads = std::max<int>(1, 3);
 
-        // The io_context is required for all I/O
-        boost::asio::io_context ioc{threads};
         
         // The SSL context is required, and holds certificates
         ssl::context ctx{ssl::context::tlsv12};
@@ -372,38 +270,41 @@ public:
             boost::asio::ssl::context::no_sslv2 |
             boost::asio::ssl::context::single_dh_use);
 
-        ctx.use_certificate_chain_file(BundleDaemon::params_.console_chain_.c_str(),ec1);
+        ctx.use_certificate_chain_file(BundleDaemon::params_.console_chain_.c_str(), ec1);
 
         ctx.use_private_key_file(
             BundleDaemon::params_.console_key_.c_str(),
-            boost::asio::ssl::context::file_format::pem,ec2);
+            boost::asio::ssl::context::file_format::pem, ec2);
 
-        ctx.use_tmp_dh_file(BundleDaemon::params_.console_dh_.c_str(),ec3);
+        ctx.use_tmp_dh_file(BundleDaemon::params_.console_dh_.c_str(), ec3);
 
-        if(!ec1 && !ec2 && !ec3){
-            // Create and launch a listening port
-            sptr_listener_ = std::make_shared<listener>(ioc, ctx, tcp::endpoint{address, port}, cmd_console_active_);
-            sptr_listener_->run();
-
-            // Run the I/O service on the requested number of threads
-            /*std::vector<std::thread> v;
-            v.reserve(threads);
-            for(auto i = threads; i > 0; --i)
-                v.emplace_back(
-                [&ioc]
-                {
-                    ioc.run();
-                });*/
-
-            log_always("Websocket Console Started");
-
+        if (!ec1 && !ec2 && !ec3)
+        {
             try
             {
-                ioc.run();
+                tcp::acceptor acceptor(io_context_, {address, port});
+
+                // Allow port to be reused instantly for quick recycles of the DTNME server
+                typedef boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_REUSEPORT> reuse_port;
+                acceptor.set_option(reuse_port(true));
+
+
+                while (!shutting_down_)
+                {
+                    tcp::socket in_socket(io_context_);
+
+                    acceptor.accept(in_socket);
+
+                    ++cli_session_count_;
+                    SPtr_CliSession sptr_cli_session = MAKE_CliSession (std::move(in_socket), ctx,
+                                                                        cli_session_count_);
+
+                    sptr_cli_session->init_and_start();
+                }
             }
-            catch (...)
+            catch (const std::exception& ex)
             {
-                log_err("Caught error closing down the Websocket Console");
+                log_err("got exception: %s", ex.what());
             }
 
         } else {
@@ -422,7 +323,6 @@ public:
                 strcat(message,ec3.message().c_str());
                 log_err(message);
             }
-            sleep(3);
         }
 
         log_always("Web Socket Console Shutdown");
@@ -431,16 +331,19 @@ public:
 
     void do_shutdown()
     {
-        if (sptr_listener_) {
-            sptr_listener_->do_shutdown();
-        }
+        shutting_down_ = true;
+        io_context_.stop();
     }
 
 private:    
     in_addr_t console_addr_;
     u_int16_t console_port_;
-    std::shared_ptr<listener> sptr_listener_;
-    bool cmd_console_active_;
+
+    boost::asio::io_context io_context_;
+
+    bool shutting_down_ = false;
+
+    size_t cli_session_count_ = 0;
 };
 
 
@@ -546,10 +449,10 @@ DTNME::DTNME()
     : App("dtnme", "dtnme", dtn_version),
       testcmd_(NULL),
       consolecmd_(NULL),
-      storage_config_("storage",			// command name
-                      "berkeleydb",			// storage type
-                      "DTN",				// DB name
-                      INSTALL_LOCALSTATEDIR "/dtn/db")	// DB directory
+      storage_config_("storage",            // command name
+                      "berkeleydb",         // storage type
+                      "DTN",                // DB name
+                      INSTALL_LOCALSTATEDIR "/dtn/db")  // DB directory
 {
     //umask(0002); // set deafult mask to prevent world write/delete
 
@@ -616,8 +519,7 @@ DTNME::run_console()
                    BundleDaemon::params_.console_type_.c_str(), intoa(consolecmd_->addr_), consolecmd_->port_);
 
         if (BundleDaemon::params_.console_type_ == "websocket") {
-            bool cmd_console_active = (consolecmd_->stdio_ && !daemonize_);
-            sptr_websock_server = std::make_shared<WebsocketServer>(consolecmd_->addr_, consolecmd_->port_, cmd_console_active);
+            sptr_websock_server = std::make_shared<WebsocketServer>(consolecmd_->addr_, consolecmd_->port_);
             sptr_websock_server->start();
 
             websocket_server_active = true;
